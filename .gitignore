@@ -1,0 +1,13 @@
+# Ignore all node_modules directories
+**/node_modules/
+
+# Ignore all build folders
+**/dist/
+
+# Ignore all environment variable files
+**/.env
+
+# Optional: common extras for safety
+*.log
+.DS_Store
+.vscode/
