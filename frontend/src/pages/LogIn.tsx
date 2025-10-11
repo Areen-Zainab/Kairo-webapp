@@ -192,7 +192,7 @@ export default function KairoLoginPage() {
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-white/10" />
                   </div>
-                  <div className="relative px-3 bg-slate-900 text-xs text-slate-500">OR</div>
+                  <div className="relative bg-transparent px-3 bg-slate-900 text-xs text-slate-500">OR</div>
                 </div>
 
                 {/* Login Form */}

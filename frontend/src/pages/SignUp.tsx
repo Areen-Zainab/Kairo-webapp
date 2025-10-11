@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Mail, Lock, Eye, EyeOff, User, ArrowRight, Chrome, Github, AlertCircle, CheckCircle2, Shield, Zap, Globe } from 'lucide-react';
+import { Sparkles, Mail, Lock, Eye, EyeOff, User, ArrowRight, Chrome, Github, CheckCircle2, Shield, Zap, Globe } from 'lucide-react';
 
 export default function KairoSignUpPage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -106,6 +106,10 @@ export default function KairoSignUpPage() {
       alert('Account created successfully!');
       setIsLoading(false);
     }, 1500);
+
+    // navigate to onboarding or dashboard
+    window.location.href = '/onboarding';
+
   };
 
   const handleSocialSignUp = (provider: string) => {
@@ -278,7 +282,7 @@ export default function KairoSignUpPage() {
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-white/10" />
                   </div>
-                  <div className="relative px-3 bg-slate-900 text-xs text-slate-500">OR</div>
+                  <div className="relative bg-transparent px-3 bg-slate-900 text-xs text-slate-500">OR</div>
                 </div>
 
                 {/* Form - Two Column Layout for Efficiency */}
@@ -375,7 +379,7 @@ export default function KairoSignUpPage() {
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
+                          className="absolute right-0 bg-transparent top-0.5 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
                           aria-label={showPassword ? 'Hide password' : 'Show password'}
                         >
                           {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -418,7 +422,7 @@ export default function KairoSignUpPage() {
                         <button
                           type="button"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
+                          className="absolute right-0 bg-transparent top-0.5 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
                           aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                         >
                           {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

@@ -1,0 +1,148 @@
+# ✅ **Kairo Frontend Implementation Plan (Phased To-Do List)**
+
+---
+DO:
+- Add protected route logic using `AuthContext` ---> Ensure that only authenticated users can access internal Kairo pages
+
+
+## **📦 Phase 1 — Core Setup & Auth Flow**
+
+**Goal:** Set up the foundational UI and authentication flow.
+
+**To-Do:**
+
+* [x] Initialize React + Vite + Tailwind project    ---> DONE
+* [x] Setup folder structure (`components`, `pages`, `context`, etc.)    ---> DONE
+* [x] Configure routing (React Router DOM)    ---> DONE
+* [x] Create `/login` page (email, password)    ---> DONE
+* [x] Create `/signup` page (basic info: name, email, password)    ---> DONE
+* [x] Create `/onboarding` flow (multi-step profile setup + voice sample)    ---> DONE
+* [ ] Create `/forgot-password` page (email input + reset message)    ---> DONE
+
+* [x] Build reusable UI components:
+  * [x] `Button`
+  * [x] `InputField`
+  * [x] `FormContainer`
+  * [x] `Stepper` (for onboarding)
+* [x] Create `AuthLayout` (shared design for all auth-related pages)
+* [ ] Implement basic input validation and UI states
+
+---
+
+## **🧭 Phase 2 — Dashboard Shell (Main Layout)**
+
+**Goal:** Establish the main layout after login (core navigation and layout consistency).
+
+**To-Do:**
+
+* [ ] Create `/dashboard` page (default landing after login) ---> 50%
+* [ ] Create `/settings` page (profile, preferences, theme toggle) ---> DONE
+* [x] Build layout components:
+  * [x] `Navbar` (with user menu, notifications, search) ---> 50%
+  * [x] `Sidebar` (navigation links: Dashboard, Meetings, Memory, Tasks, Analytics) ---> 50%
+  * [ ] `PageWrapper` (shared container with padding and grid layout)
+  * [ ] `DashboardCard` (meeting summary, action item preview)
+* [ ] Make layout responsive and adaptive
+* [ ] Add route-based highlighting in sidebar
+* [ ] Integrate logout functionality
+
+---
+
+## **💬 Phase 3 — Meeting Interface (Live & History)**
+
+**Goal:** Implement Kairo’s live meeting assistant and past meeting views.
+
+**To-Do:**
+
+* [ ] Create `/meetings/live` page
+* [ ] Create `/meetings/history` page (list of past meetings with filters)
+* [ ] Build components:
+
+  * [ ] `MeetingSidebar` (Recall Memory, Action Items, Notes tabs)
+  * [ ] `TranscriptionPanel` (real-time transcript UI)
+  * [ ] `ActionItemList` (editable list with completion state)
+  * [ ] `MeetingSummaryCard` (post-meeting summary view)
+* [ ] Add mock data and placeholder states for testing
+
+---
+
+## **🧠 Phase 4 — Memory Engine UI (Knowledge Graph & Recall)**
+
+**Goal:** Build the interactive meeting memory and graph explorer.
+
+**To-Do:**
+
+* [ ] Create `/memory` page (main visualization)
+* [ ] Create `/memory/:topic` dynamic route for topic details
+* [ ] Build components:
+
+  * [ ] `GraphCanvas` (D3.js / Vis.js for graph visualization)
+  * [ ] `GraphNodeTooltip` (hover summary)
+  * [ ] `SearchPanel` (topic/speaker filters)
+  * [ ] `TimelineBar` (chronological graph evolution)
+* [ ] Add loading and empty states for graph view
+
+---
+
+## **🗂 Phase 5 — Tasks & Action Items**
+
+**Goal:** Translate meeting outcomes into actionable tasks via Kanban-style board.
+
+**To-Do:**
+
+* [ ] Create `/tasks` page
+* [ ] Build components:
+
+  * [ ] `KanbanBoard` (drag-and-drop layout)
+  * [ ] `TaskCard` (individual task info)
+  * [ ] `TaskDetailModal` (expanded view + edit)
+* [ ] Enable drag-and-drop using a library like `@dnd-kit/core` or `react-beautiful-dnd`
+* [ ] Add filtering (by meeting, due date, or status)
+
+---
+
+## **📊 Phase 6 — Analytics & Reports**
+
+**Goal:** Deliver performance insights and engagement metrics.
+
+**To-Do:**
+
+* [ ] Create `/analytics` page
+* [ ] Build visualization components using Recharts:
+
+  * [ ] `StatsCard` (headline metrics)
+  * [ ] `BarChart`
+  * [ ] `PieChart`
+  * [ ] `LineChart`
+  * [ ] `SummaryPanel`
+* [ ] Add data mockups for testing
+* [ ] Integrate time-based filters (“This Week”, “This Month”, etc.)
+
+---
+
+## **🧱 Phase 7 — Final Polish & Optimization**
+
+**Goal:** Make Kairo production-ready and scalable across web + desktop (Electron).
+
+**To-Do:**
+
+* [ ] Optimize component structure and code splitting
+* [ ] Add skeleton loaders and empty states
+* [ ] Ensure full responsiveness (desktop-first, then tablet/mobile)
+* [ ] Add persistent session handling via localStorage
+* [ ] Apply lazy loading for heavy routes (Memory, Analytics)
+* [ ] Integrate ESLint + Prettier + Husky for code linting and formatting
+* [ ] QA testing across major browsers
+* [ ] Prepare for Electron adaptation (if applicable)
+
+---
+
+## **📘 Best Practices Recap**
+
+* [x] Use functional components + React hooks
+* [x] Modularize UI with Atomic Design principles
+* [x] Centralize API logic under `/services`
+* [x] Keep reusable styles under `/components/ui`
+* [x] Use Tailwind for consistent design tokens
+* [ ] Add Framer Motion for smooth transitions
+* [ ] Document all major components with JSDoc
