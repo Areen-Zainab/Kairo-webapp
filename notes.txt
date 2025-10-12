@@ -1,8 +1,18 @@
 # ✅ **Kairo Frontend Implementation Plan (Phased To-Do List)**
 
 ---
+DONE: 
+- Connected dashboard to sidebar
+- reorganized files to be easier to handle
+
+
 DO:
 - Add protected route logic using `AuthContext` ---> Ensure that only authenticated users can access internal Kairo pages
+- backend setup
+- onboarding ---> calendar sync
+- ass marks
+- micro-recaps on webapp? in chat?
+
 
 
 ## **📦 Phase 1 — Core Setup & Auth Flow**
@@ -11,21 +21,21 @@ DO:
 
 **To-Do:**
 
-* [x] Initialize React + Vite + Tailwind project    ---> DONE
-* [x] Setup folder structure (`components`, `pages`, `context`, etc.)    ---> DONE
-* [x] Configure routing (React Router DOM)    ---> DONE
-* [x] Create `/login` page (email, password)    ---> DONE
-* [x] Create `/signup` page (basic info: name, email, password)    ---> DONE
-* [x] Create `/onboarding` flow (multi-step profile setup + voice sample)    ---> DONE
-* [ ] Create `/forgot-password` page (email input + reset message)    ---> DONE
+* [DONE] Initialize React + Vite + Tailwind project    ---> DONE
+* [DONE] Setup folder structure (`components`, `pages`, `context`, etc.)    ---> DONE
+* [DONE] Configure routing (React Router DOM)    ---> DONE
+* [DONE] Create `/login` page (email, password)    ---> DONE
+* [DONE] Create `/signup` page (basic info: name, email, password)    ---> DONE
+* [DONE] Create `/onboarding` flow (multi-step profile setup + voice sample)    ---> DONE
+* [DONE ] Create `/forgot-password` page (email input + reset message)    ---> DONE
 
 * [x] Build reusable UI components:
   * [x] `Button`
   * [x] `InputField`
   * [x] `FormContainer`
   * [x] `Stepper` (for onboarding)
-* [x] Create `AuthLayout` (shared design for all auth-related pages)
-* [ ] Implement basic input validation and UI states
+* [DONE] Create `AuthLayout` (shared design for all auth-related pages)
+* [DONE] Implement basic input validation and UI states
 
 ---
 
@@ -35,16 +45,16 @@ DO:
 
 **To-Do:**
 
-* [ ] Create `/dashboard` page (default landing after login) ---> 50%
-* [ ] Create `/settings` page (profile, preferences, theme toggle) ---> DONE
+* [DONE] Create `/dashboard` page (default landing after login) ---> DONE
+* [DONE] Create `/settings` page (profile, preferences, theme toggle) ---> DONE
 * [x] Build layout components:
-  * [x] `Navbar` (with user menu, notifications, search) ---> 50%
-  * [x] `Sidebar` (navigation links: Dashboard, Meetings, Memory, Tasks, Analytics) ---> 50%
-  * [ ] `PageWrapper` (shared container with padding and grid layout)
+  * [DONE] `Navbar` (with user menu, notifications, search) ---> DONE
+  * [DONE] `Sidebar` (navigation links: Dashboard, Meetings, Memory, Tasks, Analytics) ---> DONE
+  * [DONE] `PageWrapper` (shared container with padding and grid layout) ---> DONE
   * [ ] `DashboardCard` (meeting summary, action item preview)
-* [ ] Make layout responsive and adaptive
-* [ ] Add route-based highlighting in sidebar
-* [ ] Integrate logout functionality
+* [DONE] Make layout responsive and adaptive ---> DONE
+* [DONE] Add route-based highlighting in sidebar ---> DONE
+* [ ] Integrate logout functionality ---> 
 
 ---
 

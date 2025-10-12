@@ -3,11 +3,11 @@ import { Routes, Route } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LogIn";
 import SignUpPage from "./pages/SignUp";
-import Dashboard from "./pages/Dashboard";
-import WorkspaceMainPage from "./pages/workspace/WorkspaceLayout";
+import Dashboard from "./pages/userProfile/Dashboard";
+import WorkspaceMainPage from "./pages/workspace/MainPage";
 import KairoOnboarding from "./pages/Onboarding";
 import ForgotPassword from "./pages/ForgotPassword";
-import ProfileSettings from "./pages/ProfileSettings";
+import ProfileSettings from "./pages/userProfile/ProfileSettings";
 
 function App() {
   return (
