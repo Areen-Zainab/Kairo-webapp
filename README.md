@@ -1,4 +1,4 @@
-# 💼 Kairo Frontend — Intelligent Meeting Companion  
+# Kairo Frontend — Intelligent Meeting Companion  
 
 Kairo is an **AI-powered meeting intelligence platform** that captures, transcribes, and analyzes meetings to provide **summaries, speaker insights, contextual recall, and actionable knowledge** — all while ensuring **enterprise-grade security**.  
 
@@ -25,7 +25,7 @@ root/
 
 ---
 
-## ⚙️ Prerequisites  
+## Prerequisites  
 
 Before setting up, ensure you have the following installed:  
 
@@ -43,7 +43,7 @@ If you don’t have Node.js installed, get it from [nodejs.org](https://nodejs.o
 
 ---
 
-## 🧩 Setup Instructions  
+## Setup Instructions  
 
 ### 1. Clone the repository  
 
@@ -102,7 +102,7 @@ npm run preview
 
 ---
 
-## 🎨 Styling with TailwindCSS  
+## Styling with TailwindCSS  
 
 TailwindCSS is already set up. You can use its utility classes directly:  
 
@@ -120,14 +120,14 @@ If you update `tailwind.config.js`, restart your dev server to apply changes.
 
 ---
 
-## 🧱 TypeScript  
+## TypeScript  
 
 Kairo’s frontend uses **TypeScript** for reliability and maintainability.  
 Type safety is enforced during builds and development.  
 
 ---
 
-## 🧰 Common Commands  
+## Common Commands  
 
 | Command           | Description                             |
 | ----------------- | --------------------------------------- |
@@ -138,7 +138,7 @@ Type safety is enforced during builds and development.
 
 ---
 
-## 👥 Collaborator Setup  
+## Collaborator Setup  
 
 For any new contributor to **Kairo**:  
 
@@ -152,7 +152,7 @@ No manual configuration needed — everything is pre-setup.
 
 ---
 
-## 🧹 .gitignore  
+## .gitignore  
 
 Ignored by default:  
 
@@ -166,7 +166,7 @@ Ensure you **never commit environment variables or build outputs.**.
 
 ---
 
-## 💡 About Kairo  
+## About Kairo  
 
 Kairo provides a unified interface for:  
 - Real-time meeting transcription and speaker diarization.  
@@ -179,7 +179,7 @@ This frontend integrates these features into an intuitive, workspace-centric UI.
 
 ---
 
-## 🧑‍💻 Contributing  
+## Contributing  
 
 To contribute a new feature or fix:  
 
@@ -198,14 +198,14 @@ Then open a Pull Request.
 
 ---
 
-## 🧾 License  
+## License  
 
 Kairo is currently under **internal development**.  
 A license (e.g., MIT, Apache 2.0) will be added before public release.  
 
 ---
 
-## 💬 Support  
+## Support  
 
 If you encounter issues during setup:  
 - Verify Node.js version compatibility.  
