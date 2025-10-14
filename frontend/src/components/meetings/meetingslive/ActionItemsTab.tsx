@@ -64,7 +64,7 @@ const ActionItemsTab: React.FC<ActionItemsTabProps> = ({ actionItems, actionStat
   return (
     <div className="space-y-3">
       {/* Sticky Filter/Search Panel */}
-      <div className="sticky top-0 z-10 -mx-3 px-3 pt-2 pb-2 bg-slate-900/70 backdrop-blur border-b border-slate-700/60">
+      <div className="sticky top-0 z-10 -mx-3 px-3 pt-2 pb-2 backdrop-blur border-b bg-white/90 border-gray-200 dark:bg-slate-900/70 dark:border-slate-700/60">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
           <div className="relative">
             <button
@@ -74,7 +74,7 @@ const ActionItemsTab: React.FC<ActionItemsTabProps> = ({ actionItems, actionStat
               aria-expanded={showFilterMenu}
               aria-controls="action-filter-menu"
               onClick={() => setShowFilterMenu(v => !v)}
-              className="px-2 py-1 rounded text-xs border bg-slate-800/40 border-slate-700/60 text-slate-200 hover:text-white"
+              className="px-2 py-1 rounded text-xs border bg-white border-gray-300 text-gray-700 hover:bg-gray-100 dark:bg-slate-800/40 dark:border-slate-700/60 dark:text-slate-200 dark:hover:text-white"
             >
               Filter: {filter.charAt(0).toUpperCase() + filter.slice(1)}
             </button>
@@ -83,7 +83,7 @@ const ActionItemsTab: React.FC<ActionItemsTabProps> = ({ actionItems, actionStat
                 id="action-filter-menu"
                 ref={filterMenuRef}
                 role="menu"
-                className="absolute mt-1 w-44 bg-slate-900/95 border border-slate-700/60 rounded-md shadow-lg p-1"
+                className="absolute mt-1 w-44 rounded-md shadow-lg p-1 bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60"
               >
                 {([
                   { key: 'all', label: 'All', count: counts.all },
@@ -97,11 +97,11 @@ const ActionItemsTab: React.FC<ActionItemsTabProps> = ({ actionItems, actionStat
                     aria-checked={filter === key}
                     onClick={() => { setFilter(key); setShowFilterMenu(false); }}
                     className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs ${
-                      filter === key ? 'bg-purple-600/30 text-white' : 'text-slate-200 hover:bg-slate-800/70'
+                      filter === key ? 'bg-purple-100 text-purple-700 dark:bg-purple-600/30 dark:text-white' : 'text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-800/70'
                     }`}
                   >
                     <span>{label}</span>
-                    <span className="ml-2 text-[10px] px-1 py-0.5 rounded bg-slate-800/80 text-slate-200 border border-slate-700/60">{count}</span>
+                    <span className="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-300 dark:bg-slate-800/80 dark:text-slate-200 dark:border-slate-700/60">{count}</span>
                   </button>
                 ))}
               </div>
@@ -109,12 +109,12 @@ const ActionItemsTab: React.FC<ActionItemsTabProps> = ({ actionItems, actionStat
           </div>
 
           <div className="flex items-center gap-2 sm:ml-auto">
-            <label htmlFor="sort-actions" className="text-xs text-slate-400">Sort</label>
+            <label htmlFor="sort-actions" className="text-xs text-gray-600 dark:text-slate-400">Sort</label>
             <select
               id="sort-actions"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="px-2 py-1 rounded bg-slate-800/60 border border-slate-700/60 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              className="px-2 py-1 rounded text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-white border border-gray-300 text-gray-900 dark:bg-slate-800/60 dark:border-slate-700/60 dark:text-slate-200"
               aria-label="Sort action items"
             >
               <option value="newest">Newest</option>
@@ -133,7 +133,7 @@ const ActionItemsTab: React.FC<ActionItemsTabProps> = ({ actionItems, actionStat
             onKeyPress={(e) => e.key === 'Enter' && onAddAction()}
             placeholder="Add action..."
             aria-label="Add action"
-            className="flex-1 px-2.5 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            className="flex-1 px-2.5 py-1.5 rounded text-sm placeholder-gray-400 bg-white border border-gray-300 text-gray-900 focus:outline-none focus:ring-1 focus:ring-purple-500/40 dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-white dark:placeholder-slate-500"
           />
           <button onClick={onAddAction} className="p-1.5 bg-purple-600 hover:bg-purple-700 rounded transition-colors">
             <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -153,22 +153,22 @@ const ActionItemsTab: React.FC<ActionItemsTabProps> = ({ actionItems, actionStat
         const cardBase = 'relative rounded-lg p-3 transition-all';
         const cardByStatus =
           status === 'confirmed'
-            ? 'bg-green-900/20 border border-green-500/50 hover:border-green-400/60 shadow-[0_0_0_1px_rgba(34,197,94,0.15)_inset]'
+            ? 'bg-green-50 border border-green-300 hover:border-green-400 dark:bg-green-900/20 dark:border-green-500/50 dark:hover:border-green-400/60'
             : status === 'removed'
-            ? 'bg-red-900/10 border border-red-500/50 hover:border-red-400/60'
-            : 'bg-slate-800/40 border border-yellow-500/40 hover:border-yellow-400/50';
+            ? 'bg-red-50 border border-red-300 hover:border-red-400 dark:bg-red-900/10 dark:border-red-500/50 dark:hover:border-red-400/60'
+            : 'bg-yellow-50 border border-yellow-300 hover:border-yellow-400 dark:bg-slate-800/40 dark:border-yellow-500/40 dark:hover:border-yellow-400/50';
         const textByStatus =
           status === 'removed'
-            ? 'line-through text-red-300'
+            ? 'line-through text-red-700 dark:text-red-300'
             : status === 'confirmed'
-            ? 'text-white'
-            : 'text-white';
+            ? 'text-gray-900 dark:text-white'
+            : 'text-gray-900 dark:text-white';
         const indicatorByStatus =
           status === 'confirmed'
             ? 'bg-green-500'
             : status === 'removed'
             ? 'bg-red-500'
-            : 'bg-yellow-400';
+            : 'bg-yellow-500';
         const animateByStatus = status === 'undecided' ? 'animate-pulse' : '';
 
         return (

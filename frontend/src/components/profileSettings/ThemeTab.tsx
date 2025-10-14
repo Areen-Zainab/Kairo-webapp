@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sun, Moon, Palette, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface ThemeSettings {
   mode: 'light' | 'dark';
@@ -39,45 +39,17 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
     setHasChanges(false);
   };
 
+  // Theme mode is controlled globally; this tab focuses on accent color only
+
   return (
-    <div className="space-y-6 animate-fadeIn">
-      {/* Theme Mode */}
-      <div className="space-y-3">
-        <label className="flex items-center space-x-2 text-sm font-medium text-slate-300">
-          <Palette className="w-4 h-4" />
-          <span>Theme Mode</span>
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => handleChange('mode', 'light')}
-            className={`p-4 rounded-lg border-2 transition-all ${
-              formData.mode === 'light'
-                ? 'border-purple-500 bg-purple-500/10'
-                : 'border-white/10 bg-white/5 hover:border-white/20'
-            }`}
-          >
-            <Sun className="w-6 h-6 text-yellow-400 mx-auto mb-2" />
-            <p className="text-sm font-medium text-white">Light</p>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleChange('mode', 'dark')}
-            className={`p-4 rounded-lg border-2 transition-all ${
-              formData.mode === 'dark'
-                ? 'border-purple-500 bg-purple-500/10'
-                : 'border-white/10 bg-white/5 hover:border-white/20'
-            }`}
-          >
-            <Moon className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-            <p className="text-sm font-medium text-white">Dark</p>
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6 animate-fadeIn transition-colors duration-300 text-gray-900 dark:text-white">
+      {/* Theme Mode removed */}
 
       {/* Accent Color */}
       <div className="space-y-3">
-        <label className="block text-sm font-medium text-slate-300">Accent Color</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+          Accent Color
+        </label>
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
           {accentColors.map((color) => (
             <button
@@ -91,12 +63,14 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
               />
               {formData.accentColor === color.value && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center">
+                  <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center shadow">
                     <Check className="w-4 h-4 text-slate-900" />
                   </div>
                 </div>
               )}
-              <p className="text-xs text-slate-400 mt-1 text-center">{color.name}</p>
+              <p className="text-xs mt-1 text-center text-gray-600 dark:text-slate-400">
+                {color.name}
+              </p>
             </button>
           ))}
         </div>
@@ -104,12 +78,10 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
 
       {/* Live Preview */}
       <div className="space-y-3">
-        <label className="block text-sm font-medium text-slate-300">Live Preview</label>
-        <div
-          className={`p-6 rounded-lg border border-white/10 ${
-            formData.mode === 'light' ? 'bg-white' : 'bg-slate-900'
-          }`}
-        >
+        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+          Live Preview
+        </label>
+        <div className="p-6 rounded-lg border transition-all bg-white border-gray-200 shadow-md dark:bg-slate-900 dark:border-slate-700">
           <div className="space-y-4">
             <div className="flex items-center space-x-3">
               <div
@@ -117,23 +89,15 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
                 style={{ backgroundColor: formData.accentColor }}
               />
               <div>
-                <p
-                  className={`text-sm font-semibold ${
-                    formData.mode === 'light' ? 'text-slate-900' : 'text-white'
-                  }`}
-                >
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
                   Your Workspace
                 </p>
-                <p
-                  className={`text-xs ${
-                    formData.mode === 'light' ? 'text-slate-600' : 'text-slate-400'
-                  }`}
-                >
+                <p className="text-xs text-gray-600 dark:text-slate-400">
                   Preview your theme
                 </p>
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <button
                 type="button"
@@ -144,26 +108,14 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
               </button>
               <button
                 type="button"
-                className={`w-full px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
-                  formData.mode === 'light'
-                    ? 'border-slate-300 text-slate-900 hover:bg-slate-100'
-                    : 'border-slate-600 text-white hover:bg-slate-800'
-                }`}
+                className="w-full px-4 py-2 rounded-lg border text-sm font-medium transition-all border-gray-300 text-gray-900 hover:bg-gray-100 dark:border-slate-600 dark:text-white dark:hover:bg-slate-800"
               >
                 Secondary Button
               </button>
             </div>
 
-            <div
-              className={`p-3 rounded-lg ${
-                formData.mode === 'light' ? 'bg-slate-100' : 'bg-slate-800'
-              }`}
-            >
-              <p
-                className={`text-xs ${
-                  formData.mode === 'light' ? 'text-slate-700' : 'text-slate-300'
-                }`}
-              >
+            <div className="p-3 rounded-lg bg-gray-100 dark:bg-slate-800">
+              <p className="text-xs text-gray-700 dark:text-slate-300">
                 This is how your interface will look with the selected theme and accent color.
               </p>
             </div>
@@ -173,18 +125,18 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
 
       {/* Action Buttons */}
       {hasChanges && (
-        <div className="flex justify-end space-x-3 pt-4 border-t border-white/10">
+        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-white/10">
           <button
             type="button"
             onClick={handleCancel}
-            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-slate-300 transition-all"
+            className="px-4 py-2 rounded-lg text-sm transition-all bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 dark:bg-white/5 dark:hover:bg-white/10 dark:border-white/10 dark:text-slate-300"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:shadow-lg hover:shadow-purple-500/50 rounded-lg text-sm text-white font-medium transition-all"
+            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:shadow-lg hover:shadow-purple-500/40 rounded-lg text-sm text-white font-medium transition-all"
           >
             Save Changes
           </button>

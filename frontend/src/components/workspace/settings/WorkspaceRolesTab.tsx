@@ -14,19 +14,19 @@ export default function WorkspaceRolesTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-gray-900/50 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Access Control</h3>
+      <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Access Control</h3>
         <div className="space-y-4">
           {Object.entries(permissions).map(([key, value]) => (
-            <div key={key} className="flex items-center justify-between p-4 bg-gray-800/50 rounded-md border border-gray-700/50">
+            <div key={key} className="flex items-center justify-between p-4 rounded-md border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/50">
               <div>
-                <p className="text-white font-medium capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
-                <p className="text-sm text-gray-400 mt-1">Minimum role required for this action</p>
+                <p className="text-gray-900 dark:text-white font-medium capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Minimum role required for this action</p>
               </div>
               <select
                 value={value}
                 onChange={(e) => setPermissions({ ...permissions, [key]: e.target.value })}
-                className="px-4 py-2 bg-gray-700/50 border border-gray-600/50 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                className="px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500/40 bg-white border border-gray-300 text-gray-900 dark:bg-gray-700/50 dark:border-gray-600/50 dark:text-white"
               >
                 {roleOptions.map((role) => (
                   <option key={role} value={role}>{role}</option>

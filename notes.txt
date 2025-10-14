@@ -15,6 +15,7 @@ DONE:
 - calendar
 - notifications
 - tasks
+- light/dark mode
 
 
 DO with backend:
@@ -29,7 +30,6 @@ DO with backend:
 - graph page with dummy data
 - post meeting page with dummy data
 - transcript veiw page with dummy data
-- setup express.js backend folder
 
 
 ## **📦 Phase 1 — Core Setup & Auth Flow**

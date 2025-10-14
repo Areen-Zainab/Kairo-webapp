@@ -51,29 +51,46 @@ const NotificationsTab: React.FC<NotificationsTabProps> = ({ settings, onSave })
     setHasChanges(false);
   };
 
-  const NotificationToggle = ({ 
-    label, 
-    description, 
-    checked, 
-    onChange 
-  }: { 
-    label: string; 
-    description: string; 
-    checked: boolean; 
+  const NotificationToggle = ({
+    label,
+    description,
+    checked,
+    onChange,
+  }: {
+    label: string;
+    description: string;
+    checked: boolean;
     onChange: () => void;
   }) => {
-    const backgroundClass = checked ? 'bg-purple-600' : 'bg-slate-600';
+    const backgroundClass = checked
+      ? 'bg-purple-600 dark:bg-purple-600'
+      : 'bg-slate-300 dark:bg-slate-600';
     const translateClass = checked ? 'translate-x-5' : 'translate-x-0';
-    
+
     return (
-      <div className="flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-lg">
+      <div className="
+        flex items-center justify-between p-4 rounded-lg transition-all
+        bg-white/70 border border-gray-300 hover:bg-white/90
+        dark:bg-white/5 dark:border-white/10 dark:hover:bg-white/10
+      ">
         <div className="flex-1 pr-4">
-          <span className="text-sm font-medium text-slate-300">
+          <span className="text-sm font-medium text-gray-800 dark:text-slate-300">
             {label}
           </span>
-          <p className="text-xs text-slate-400 mt-1">{description}</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+            {description}
+          </p>
         </div>
-        <label className={`relative flex h-6 w-11 cursor-pointer items-center rounded-full border border-transparent transition-colors duration-200 ease-in-out peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 peer-focus:ring-offset-2 peer-focus:ring-offset-slate-900 ${backgroundClass}`}>
+
+        <label
+          className={`
+            relative flex h-6 w-11 cursor-pointer items-center rounded-full border border-transparent 
+            transition-colors duration-200 ease-in-out
+            peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500 
+            peer-focus:ring-offset-2 peer-focus:ring-offset-gray-100
+            dark:peer-focus:ring-offset-slate-900 ${backgroundClass}
+          `}
+        >
           <input
             type="checkbox"
             checked={checked}
@@ -81,7 +98,6 @@ const NotificationsTab: React.FC<NotificationsTabProps> = ({ settings, onSave })
             className="sr-only peer"
           />
           <span className="sr-only">Toggle {label}</span>
-          {/* The moving thumb of the toggle */}
           <span
             aria-hidden="true"
             className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform duration-200 ease-in-out ${translateClass}`}
@@ -96,8 +112,10 @@ const NotificationsTab: React.FC<NotificationsTabProps> = ({ settings, onSave })
       {/* Email Notifications */}
       <div className="space-y-4">
         <div className="flex items-center space-x-2 mb-4">
-          <Mail className="w-5 h-5 text-purple-400" />
-          <h3 className="text-lg font-semibold text-white">Email Notifications</h3>
+          <Mail className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Email Notifications
+          </h3>
         </div>
 
         <NotificationToggle
@@ -130,10 +148,12 @@ const NotificationsTab: React.FC<NotificationsTabProps> = ({ settings, onSave })
       </div>
 
       {/* Push Notifications */}
-      <div className="pt-6 border-t border-white/10 space-y-4">
+      <div className="pt-6 border-t border-gray-200 dark:border-white/10 space-y-4">
         <div className="flex items-center space-x-2 mb-4">
-          <Bell className="w-5 h-5 text-purple-400" />
-          <h3 className="text-lg font-semibold text-white">Push Notifications</h3>
+          <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Push Notifications
+          </h3>
         </div>
 
         <NotificationToggle
@@ -166,10 +186,12 @@ const NotificationsTab: React.FC<NotificationsTabProps> = ({ settings, onSave })
       </div>
 
       {/* In-App Notifications */}
-      <div className="pt-6 border-t border-white/10 space-y-4">
+      <div className="pt-6 border-t border-gray-200 dark:border-white/10 space-y-4">
         <div className="flex items-center space-x-2 mb-4">
-          <MessageSquare className="w-5 h-5 text-purple-400" />
-          <h3 className="text-lg font-semibold text-white">In-App Notifications</h3>
+          <MessageSquare className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            In-App Notifications
+          </h3>
         </div>
 
         <NotificationToggle
@@ -196,18 +218,18 @@ const NotificationsTab: React.FC<NotificationsTabProps> = ({ settings, onSave })
 
       {/* Action Buttons */}
       {hasChanges && (
-        <div className="flex justify-end space-x-3 pt-4 border-t border-white/10">
+        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-white/10">
           <button
             type="button"
             onClick={handleCancel}
-            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-slate-300 transition-all"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-sm text-gray-700 transition-all dark:bg-white/5 dark:hover:bg-white/10 dark:border-white/10 dark:text-slate-300"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:shadow-lg hover:shadow-purple-500/50 rounded-lg text-sm text-white font-medium transition-all"
+            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 hover:shadow-lg hover:shadow-purple-500/40 rounded-lg text-sm text-white font-medium transition-all"
           >
             Save Changes
           </button>

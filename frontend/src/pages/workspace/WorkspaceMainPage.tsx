@@ -60,10 +60,10 @@ const WorkspaceOverview = () => {
                 <span className="text-white font-bold text-sm">PT</span>
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
                   Product Team Alpha
                 </h1>
-                <p className="text-slate-400 text-sm">12 members • Manager</p>
+                <p className="text-gray-600 dark:text-slate-400 text-sm">12 members • Manager</p>
               </div>
             </div>
           </div>
@@ -74,7 +74,7 @@ const WorkspaceOverview = () => {
             <select
               value={timeFilter}
               onChange={(e) => setTimeFilter(e.target.value)}
-              className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+              className="rounded-lg px-3 py-2 text-sm focus:outline-none transition-all bg-white border border-gray-300 text-gray-900 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-white"
             >
               <option value="today">Today</option>
               <option value="week">This Week</option>
@@ -91,19 +91,19 @@ const WorkspaceOverview = () => {
             return (
               <div
                 key={stat.id}
-                className="bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-5 hover:border-slate-600 transition-all duration-200 group cursor-pointer"
+                className="rounded-lg p-5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className={`p-2.5 bg-gradient-to-br ${stat.color} rounded-lg group-hover:scale-105 transition-transform duration-200`}>
                     <Icon className="w-5 h-5 text-white" />
                   </div>
-                  <span className="text-green-400 text-xs font-medium flex items-center gap-0.5">
+                  <span className="text-green-600 dark:text-green-400 text-xs font-medium flex items-center gap-0.5">
                     <ArrowUpRight className="w-3.5 h-3.5" />
                     {stat.change}
                   </span>
                 </div>
-                <h3 className="text-2xl font-bold text-white mb-0.5">{stat.value}</h3>
-                <p className="text-slate-400 text-sm">{stat.label}</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-0.5">{stat.value}</h3>
+                <p className="text-gray-600 dark:text-slate-400 text-sm">{stat.label}</p>
               </div>
             );
           })}
@@ -112,9 +112,9 @@ const WorkspaceOverview = () => {
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
           {/* Upcoming Meetings */}
-          <div className="lg:col-span-2 bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-5">
+          <div className="lg:col-span-2 rounded-lg p-5 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-purple-400" />
                 Upcoming Meetings
               </h2>
@@ -122,18 +122,18 @@ const WorkspaceOverview = () => {
                 View All
               </button>
             </div>
-            <div className="space-y-3">
+              <div className="space-y-3">
               {upcomingMeetings.map((meeting) => (
                 <div
                   key={meeting.id}
-                  className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-4 hover:border-purple-500/50 transition-all duration-200 group cursor-pointer"
+                    className="rounded-lg p-4 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h3 className="font-medium text-white mb-2 group-hover:text-purple-300 transition-colors">
+                        <h3 className="font-medium text-gray-900 dark:text-white mb-2 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors">
                         {meeting.title}
                       </h3>
-                      <div className="flex items-center gap-4 text-sm text-slate-400 mb-3">
+                        <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-slate-400 mb-3">
                         <span className="flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5" />
                           {meeting.time}
@@ -144,10 +144,10 @@ const WorkspaceOverview = () => {
                         {meeting.participants.map((initial, idx) => (
                           <div
                             key={idx}
-                            className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white ${
+                            className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
                               initial.startsWith('+') 
-                                ? 'bg-slate-700/80 text-slate-400' 
-                                : 'bg-gradient-to-br from-purple-500 to-pink-600'
+                                ? 'bg-gray-200 text-gray-600 dark:bg-slate-700/80 dark:text-slate-400' 
+                                : 'bg-gradient-to-br from-purple-600 to-pink-600 text-white'
                             }`}
                           >
                             {initial}
@@ -158,8 +158,8 @@ const WorkspaceOverview = () => {
                     <div className="flex items-center gap-2">
                       <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${
                         meeting.status === 'Soon' 
-                          ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30' 
-                          : 'bg-slate-700/50 text-slate-300'
+                          ? 'bg-orange-100 text-orange-700 border border-orange-300 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/30' 
+                          : 'bg-gray-100 text-gray-700 border border-gray-300 dark:bg-slate-700/50 dark:text-slate-300 dark:border-transparent'
                       }`}>
                         {meeting.status}
                       </span>
@@ -174,9 +174,9 @@ const WorkspaceOverview = () => {
           </div>
 
           {/* Memory Insights */}
-          <div className="bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-5">
+          <div className="rounded-lg p-5 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Brain className="w-4 h-4 text-purple-400" />
                 Memory Insights
               </h2>
@@ -185,18 +185,18 @@ const WorkspaceOverview = () => {
               </button>
             </div>
             <div className="space-y-2.5">
-              {memoryInsights.map((insight) => (
+                {memoryInsights.map((insight) => (
                 <div
                   key={insight.id}
-                  className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-3.5 hover:border-purple-500/50 transition-all duration-200 group cursor-pointer"
+                    className="rounded-lg p-3.5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
                 >
                   <div className="flex items-start gap-3">
-                    <Network className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                      <Network className="w-4 h-4 text-purple-600 dark:text-purple-400 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white mb-1.5 group-hover:text-purple-300 transition-colors truncate">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-1.5 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors truncate">
                         {insight.topic}
                       </p>
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
+                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-400">
                         <span>{insight.linkedMeetings} meetings</span>
                         <span>•</span>
                         <span>{insight.lastDiscussed}</span>
@@ -212,9 +212,9 @@ const WorkspaceOverview = () => {
         {/* Bottom Section */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Recent Meetings with Transcripts */}
-          <div className="lg:col-span-2 bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-5">
+          <div className="lg:col-span-2 rounded-lg p-5 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <FileText className="w-4 h-4 text-purple-400" />
                 Recent Meetings & Transcripts
               </h2>
@@ -223,17 +223,17 @@ const WorkspaceOverview = () => {
               </button>
             </div>
             <div className="space-y-2.5">
-              {recentMeetings.map((meeting) => (
+                {recentMeetings.map((meeting) => (
                 <div
                   key={meeting.id}
-                  className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-4 hover:border-purple-500/50 transition-all duration-200 group cursor-pointer"
+                    className="rounded-lg p-4 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-white mb-2 group-hover:text-purple-300 transition-colors">
+                      <h3 className="font-medium text-gray-900 dark:text-white mb-2 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors">
                         {meeting.title}
                       </h3>
-                      <div className="flex items-center gap-3 text-sm text-slate-400 flex-wrap">
+                      <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-slate-400 flex-wrap">
                         <span>{meeting.date}</span>
                         <span>{meeting.duration}</span>
                         <span className="flex items-center gap-1">
@@ -255,14 +255,14 @@ const WorkspaceOverview = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 ml-3">
-                      <button className="p-2 hover:bg-slate-700/50 rounded-md transition-colors" title="View Transcript">
-                        <FileText className="w-3.5 h-3.5 text-slate-400 hover:text-white transition-colors" />
+                      <button className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50" title="View Transcript">
+                        <FileText className="w-3.5 h-3.5 text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors" />
                       </button>
-                      <button className="p-2 hover:bg-slate-700/50 rounded-md transition-colors" title="Download">
-                        <Download className="w-3.5 h-3.5 text-slate-400 hover:text-white transition-colors" />
+                      <button className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50" title="Download">
+                        <Download className="w-3.5 h-3.5 text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors" />
                       </button>
-                      <button className="p-2 hover:bg-slate-700/50 rounded-md transition-colors">
-                        <MoreVertical className="w-3.5 h-3.5 text-slate-400 hover:text-white transition-colors" />
+                      <button className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50">
+                        <MoreVertical className="w-3.5 h-3.5 text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors" />
                       </button>
                     </div>
                   </div>
@@ -272,9 +272,9 @@ const WorkspaceOverview = () => {
           </div>
 
           {/* Activity Feed */}
-          <div className="bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-5">
+          <div className="rounded-lg p-5 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-purple-400" />
                 Activity Feed
               </h2>
@@ -284,15 +284,15 @@ const WorkspaceOverview = () => {
                 const Icon = getActivityIcon(activity.type);
                 return (
                   <div key={activity.id} className="flex gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center flex-shrink-0">
                       <Icon className="w-3.5 h-3.5 text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white mb-1 leading-relaxed">{activity.text}</p>
+                      <p className="text-sm text-gray-900 dark:text-white mb-1 leading-relaxed">{activity.text}</p>
                       <div className="flex items-center gap-1.5">
-                        <p className="text-xs text-slate-500">{activity.time}</p>
-                        <span className="text-slate-600">•</span>
-                        <p className="text-xs text-slate-500">{activity.user}</p>
+                        <p className="text-xs text-gray-600 dark:text-slate-500">{activity.time}</p>
+                        <span className="text-gray-400 dark:text-slate-600">•</span>
+                        <p className="text-xs text-gray-600 dark:text-slate-500">{activity.user}</p>
                       </div>
                     </div>
                   </div>

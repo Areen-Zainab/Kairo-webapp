@@ -70,7 +70,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900 relative overflow-hidden">
+    <div className="min-h-screen relative overflow-hidden bg-slate-100 text-slate-900 dark:bg-gradient-to-br dark:from-slate-950 dark:via-purple-950 dark:to-slate-900 dark:text-white">
       {/* Fixed Sidebar */}
       <Sidebar
         collapsed={sidebarCollapsed}
@@ -107,14 +107,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         >
           {/* Mouse-following blur orbs */}
           <div 
-            className="absolute w-96 h-96 bg-purple-500/15 rounded-full blur-3xl transition-all duration-300 ease-out"
+            className="absolute w-96 h-96 rounded-full blur-3xl transition-all duration-300 ease-out bg-purple-300/35 dark:bg-purple-500/15"
             style={{
               left: `${mousePosition.x / 15}px`,
               top: `${mousePosition.y / 15}px`,
             }}
           />
           <div 
-            className="absolute w-[500px] h-[500px] bg-blue-500/15 rounded-full blur-3xl"
+            className="absolute w-[500px] h-[500px] rounded-full blur-3xl bg-blue-300/35 dark:bg-blue-500/15"
             style={{
               right: `${-mousePosition.x / 25}px`,
               top: `${mousePosition.y / 30 + 100}px`,
@@ -123,14 +123,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           />
           
           {/* Static animated orbs */}
-          <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute bottom-1/4 left-1/3 w-96 h-96 bg-green-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+          <div className="absolute top-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl animate-pulse bg-indigo-300/30 dark:bg-blue-500/10" />
+          <div className="absolute bottom-1/4 left-1/3 w-96 h-96 rounded-full blur-3xl animate-pulse bg-emerald-300/30 dark:bg-green-500/10" style={{ animationDelay: '1s' }} />
           
           {/* Floating particles */}
           {[...Array(15)].map((_, i) => (
             <div
               key={i}
-              className="absolute w-1 h-1 bg-purple-400/50 rounded-full"
+              className="absolute w-1 h-1 rounded-full bg-purple-400/70 dark:bg-purple-400/50"
               style={{
                 left: `${Math.random() * 100}%`,
                 top: `${Math.random() * 100}%`,

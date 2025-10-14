@@ -45,20 +45,20 @@ export default function AddMemberModal({ isOpen, onClose }: AddMemberModalProps)
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 rounded-lg shadow-2xl w-full max-w-2xl border border-gray-700/50">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-700/50">
+      <div className="rounded-lg shadow-2xl w-full max-w-2xl border bg-white border-gray-200 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 dark:border-gray-700/50">
+        <div className="flex items-center justify-between px-6 py-5 border-b bg-white border-gray-200 dark:border-gray-700/50 dark:bg-transparent">
           <div>
-            <h2 className="text-2xl font-bold text-white">Invite Members</h2>
-            <p className="text-sm text-gray-400 mt-1">Add new team members to your workspace</p>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Invite Members</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Add new team members to your workspace</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white transition-colors">
             <X size={24} />
           </button>
         </div>
 
         <div className="p-6 space-y-5">
           <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+            <label className="block text-sm font-semibold text-gray-900 dark:text-gray-300 mb-3 uppercase tracking-wider">
               Email Addresses
             </label>
             <div className="space-y-2">
@@ -69,12 +69,12 @@ export default function AddMemberModal({ isOpen, onClose }: AddMemberModalProps)
                     value={email}
                     onChange={(e) => updateEmailInput(index, e.target.value)}
                     placeholder="member@company.com"
-                    className="flex-1 px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all"
+                    className="flex-1 px-4 py-3 rounded-md transition-all bg-white border border-gray-300 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-white dark:placeholder-gray-500"
                   />
                   {emailInputs.length > 1 && (
                     <button
                       onClick={() => removeEmailInput(index)}
-                      className="px-3 py-3 bg-gray-800/50 border border-gray-700/50 text-red-400 hover:bg-red-500/10 rounded-md transition-all"
+                      className="px-3 py-3 rounded-md transition-all text-red-600 hover:bg-red-100 border border-gray-300 bg-white dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-red-400 dark:hover:bg-red-500/10"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -84,7 +84,7 @@ export default function AddMemberModal({ isOpen, onClose }: AddMemberModalProps)
             </div>
             <button
               onClick={addEmailInput}
-              className="mt-3 px-4 py-2 bg-gray-800/50 border border-gray-700/50 text-gray-300 hover:bg-gray-700/50 rounded-md transition-all flex items-center gap-2 text-sm"
+              className="mt-3 px-4 py-2 rounded-md transition-all flex items-center gap-2 text-sm bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-gray-300 dark:hover:bg-gray-700/50"
             >
               <Plus size={16} />
               Add Another Email
@@ -92,7 +92,7 @@ export default function AddMemberModal({ isOpen, onClose }: AddMemberModalProps)
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+            <label className="block text-sm font-semibold text-gray-900 dark:text-gray-300 mb-3 uppercase tracking-wider">
               Select Role
             </label>
             <div className="grid grid-cols-3 gap-3">
@@ -102,8 +102,8 @@ export default function AddMemberModal({ isOpen, onClose }: AddMemberModalProps)
                   onClick={() => setSelectedRole(role)}
                   className={`px-4 py-3 rounded-md border transition-all flex items-center justify-center gap-2 ${
                     selectedRole === role
-                      ? 'bg-purple-600/20 border-purple-500 text-purple-400'
-                      : 'bg-gray-800/50 border-gray-700/50 text-gray-400 hover:border-gray-600'
+                      ? 'bg-purple-100 border-purple-300 text-purple-700 dark:bg-purple-600/20 dark:border-purple-500 dark:text-purple-400'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-gray-400 dark:hover:border-gray-600'
                   }`}
                 >
                   {getRoleIcon(role)}
@@ -114,10 +114,10 @@ export default function AddMemberModal({ isOpen, onClose }: AddMemberModalProps)
           </div>
         </div>
 
-        <div className="px-6 py-5 border-t border-gray-700/50 flex gap-3">
+        <div className="px-6 py-5 border-t flex gap-3 bg-gray-50 border-gray-200 dark:border-gray-700/50 dark:bg-transparent">
           <button
             onClick={onClose}
-            className="flex-1 px-6 py-3 bg-gray-800/50 text-gray-300 rounded-md hover:bg-gray-700/50 transition-all border border-gray-700/50 font-medium"
+            className="flex-1 px-6 py-3 rounded-md transition-all font-medium bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:border-gray-700/50 dark:hover:bg-gray-700/50"
           >
             Cancel
           </button>

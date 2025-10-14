@@ -71,20 +71,20 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
   };
 
   return (
-    <div className="bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-6">
+    <div className="rounded-lg p-6 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
       <div className="mb-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <button className={`px-2 py-1 rounded text-xs border ${mode==='month' ? 'bg-white/10 text-white border-white/20' : 'text-slate-300 border-slate-600/50 hover:bg-white/5'}`} onClick={() => setMode('month')}>Month</button>
-          <button className={`px-2 py-1 rounded text-xs border ${mode==='year' ? 'bg-white/10 text-white border-white/20' : 'text-slate-300 border-slate-600/50 hover:bg-white/5'}`} onClick={() => setMode('year')}>Year</button>
-          <button className={`px-2 py-1 rounded text-xs border ${mode==='week' ? 'bg-white/10 text-white border-white/20' : 'text-slate-300 border-slate-600/50 hover:bg-white/5'}`} onClick={() => setMode('week')}>Week</button>
+          <button className={`px-2 py-1 rounded text-xs border ${mode==='month' ? 'bg-purple-100 text-purple-700 border-purple-300' : 'text-gray-700 border-gray-300 hover:bg-gray-100 dark:text-slate-300 dark:border-slate-600/50 dark:hover:bg-white/5'}`} onClick={() => setMode('month')}>Month</button>
+          <button className={`px-2 py-1 rounded text-xs border ${mode==='year' ? 'bg-purple-100 text-purple-700 border-purple-300' : 'text-gray-700 border-gray-300 hover:bg-gray-100 dark:text-slate-300 dark:border-slate-600/50 dark:hover:bg-white/5'}`} onClick={() => setMode('year')}>Year</button>
+          <button className={`px-2 py-1 rounded text-xs border ${mode==='week' ? 'bg-purple-100 text-purple-700 border-purple-300' : 'text-gray-700 border-gray-300 hover:bg-gray-100 dark:text-slate-300 dark:border-slate-600/50 dark:hover:bg-white/5'}`} onClick={() => setMode('week')}>Week</button>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={goPrev} className="p-1.5 bg-slate-700/40 hover:bg-slate-700/60 border border-slate-600/50 rounded transition-all">
-            <ChevronRight className="w-4 h-4 text-white rotate-180" />
+          <button onClick={goPrev} className="p-1.5 rounded transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 dark:bg-slate-700/40 dark:hover:bg-slate-700/60 dark:border-slate-600/50">
+            <ChevronRight className="w-4 h-4 text-gray-700 dark:text-white rotate-180" />
           </button>
-          <h3 className="text-lg font-semibold text-white">{mode==='year' ? viewDate.getFullYear() : currentMonthLabel}</h3>
-          <button onClick={goNext} className="p-1.5 bg-slate-700/40 hover:bg-slate-700/60 border border-slate-600/50 rounded transition-all">
-            <ChevronRight className="w-4 h-4 text-white" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{mode==='year' ? viewDate.getFullYear() : currentMonthLabel}</h3>
+          <button onClick={goNext} className="p-1.5 rounded transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 dark:bg-slate-700/40 dark:hover:bg-slate-700/60 dark:border-slate-600/50">
+            <ChevronRight className="w-4 h-4 text-gray-700 dark:text-white" />
           </button>
         </div>
       </div>
@@ -93,7 +93,7 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
         <>
           <div className="grid grid-cols-7 gap-2 mb-2">
             {daysOfWeekShort.map(day => (
-              <div key={day} className="text-center text-xs font-medium text-slate-400 py-2">{day}</div>
+              <div key={day} className="text-center text-xs font-medium text-gray-600 dark:text-slate-400 py-2">{day}</div>
             ))}
           </div>
           <div className="grid grid-cols-7 gap-2">
@@ -102,10 +102,10 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
               const cellDate = day ? new Date(viewDate.getFullYear(), viewDate.getMonth(), day) : null;
               const hasMeeting = cellDate ? meetingDateKeys.has(toDateKey(cellDate)) : false;
               return (
-                <div key={idx} className={`aspect-square rounded-lg p-2 text-center transition-all cursor-pointer ${day ? 'bg-slate-900/50 hover:bg-slate-800/50 border border-slate-700/50 hover:border-purple-500/50' : ''} ${isToday ? 'border-purple-500/70 bg-purple-500/5' : ''} ${hasMeeting ? 'border-blue-500/50' : ''}`}>
+                <div key={idx} className={`aspect-square rounded-lg p-2 text-center transition-all cursor-pointer ${day ? 'bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50' : ''} ${isToday ? 'border-purple-300 bg-purple-50 dark:border-purple-500/70 dark:bg-purple-500/5' : ''} ${hasMeeting ? 'border-blue-300 dark:border-blue-500/50' : ''}`}>
                   {day && (
                     <>
-                      <div className={`text-sm font-medium ${isToday ? 'text-purple-400' : 'text-white'}`}>{day}</div>
+                      <div className={`text-sm font-medium ${isToday ? 'text-purple-700 dark:text-purple-400' : 'text-gray-800 dark:text-white'}`}>{day}</div>
                       {hasMeeting && (<div className="mt-1 flex justify-center"><div className="w-1 h-1 rounded-full bg-blue-500" /></div>)}
                     </>
                   )}
@@ -119,15 +119,15 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
       {mode === 'year' && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {Array.from({ length: 12 }, (_, m) => new Date(viewDate.getFullYear(), m, 1)).map((mDate) => (
-            <div key={mDate.toISOString()} className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-3">
-              <div className="text-sm font-semibold text-white mb-2">{mDate.toLocaleString('default', { month: 'long' })}</div>
+            <div key={mDate.toISOString()} className="rounded-lg p-3 bg-white border border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/50">
+              <div className="text-sm font-semibold text-gray-900 dark:text-white mb-2">{mDate.toLocaleString('default', { month: 'long' })}</div>
               <div className="grid grid-cols-7 gap-1">
                 {getDaysInMonth(mDate).map((d, i) => {
                   const cellDate = d ? new Date(mDate.getFullYear(), mDate.getMonth(), d) : null;
                   const isToday = cellDate ? cellDate.toDateString() === today.toDateString() : false;
                   const hasMeeting = cellDate ? meetingDateKeys.has(toDateKey(cellDate)) : false;
                   return (
-                    <div key={i} className={`h-6 text-[10px] rounded flex items-center justify-center relative ${d ? 'bg-slate-800/60 border border-slate-700/50' : ''} ${isToday ? 'border-purple-500/70' : ''} ${hasMeeting ? 'border-blue-500/50' : ''}`}>
+                    <div key={i} className={`h-6 text-[10px] rounded flex items-center justify-center relative ${d ? 'bg-white border border-gray-200 dark:bg-slate-800/60 dark:border-slate-700/50' : ''} ${isToday ? 'border-purple-300 dark:border-purple-500/70' : ''} ${hasMeeting ? 'border-blue-300 dark:border-blue-500/50' : ''}`}>
                       {d ?? ''}
                       {hasMeeting && d && (
                         <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
@@ -145,7 +145,7 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
         <>
           <div className="grid grid-cols-7 gap-2 mb-2">
             {daysOfWeekShort.map(day => (
-              <div key={day} className="text-center text-xs font-medium text-slate-400 py-2">{day}</div>
+              <div key={day} className="text-center text-xs font-medium text-gray-600 dark:text-slate-400 py-2">{day}</div>
             ))}
           </div>
           <div className="grid grid-cols-7 gap-2">
@@ -153,8 +153,8 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
               const isToday = d.toDateString() === today.toDateString();
               const hasMeeting = meetingDateKeys.has(toDateKey(d));
               return (
-                <div key={idx} className={`aspect-square rounded-lg p-2 text-center transition-all cursor-pointer bg-slate-900/50 hover:bg-slate-800/50 border border-slate-700/50 hover:border-purple-500/50 ${isToday ? 'border-purple-500/70 bg-purple-500/5' : ''} ${hasMeeting ? 'border-blue-500/50' : ''}`}>
-                  <div className={`text-sm font-medium ${isToday ? 'text-purple-400' : 'text-white'}`}>{d.getDate()}</div>
+                <div key={idx} className={`aspect-square rounded-lg p-2 text-center transition-all cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50 ${isToday ? 'border-purple-300 bg-purple-50 dark:border-purple-500/70 dark:bg-purple-500/5' : ''} ${hasMeeting ? 'border-blue-300 dark:border-blue-500/50' : ''}`}>
+                  <div className={`text-sm font-medium ${isToday ? 'text-purple-700 dark:text-purple-400' : 'text-gray-800 dark:text-white'}`}>{d.getDate()}</div>
                   {hasMeeting && (<div className="mt-1 flex justify-center"><div className="w-1 h-1 rounded-full bg-blue-500" /></div>)}
                 </div>
               );
@@ -163,20 +163,20 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
         </>
       )}
 
-      <div className="mt-6 pt-6 border-t border-slate-700/50">
-        <h4 className="font-medium text-white text-sm mb-4">Today's Meetings</h4>
+      <div className="mt-6 pt-6 border-t border-gray-200 dark:border-slate-700/50">
+        <h4 className="font-medium text-gray-900 dark:text-white text-sm mb-4">Today's Meetings</h4>
         <div className="space-y-2">
           {meetings.filter(m => m.date.includes('Today')).map(meeting => (
-            <div key={meeting.id} className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-4 hover:border-purple-500/50 transition-all cursor-pointer">
+            <div key={meeting.id} className="rounded-lg p-4 transition-all cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50">
               <div className="flex items-center justify-between">
                 <div>
-                  <h5 className="font-medium text-white text-sm mb-1">{meeting.title}</h5>
-                  <p className="text-xs text-slate-400">{meeting.time}</p>
+                  <h5 className="font-medium text-gray-900 dark:text-white text-sm mb-1">{meeting.title}</h5>
+                  <p className="text-xs text-gray-600 dark:text-slate-400">{meeting.time}</p>
                 </div>
                 {meeting.status === 'live' && (
-                  <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-red-500/10 border border-red-500/30 rounded-md">
+                  <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-red-100 text-red-700 border border-red-300 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/30">
                     <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500 animate-pulse" />
-                    <span className="text-xs font-medium text-red-400">LIVE</span>
+                    <span className="text-xs font-medium">LIVE</span>
                   </div>
                 )}
               </div>

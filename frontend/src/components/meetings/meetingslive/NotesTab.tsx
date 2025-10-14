@@ -19,16 +19,16 @@ const NotesTab: React.FC<NotesTabProps> = ({ notes, newNote, newNotePrivacy, onC
           value={newNote}
           onChange={(e) => onChangeNewNote(e.target.value)}
           placeholder="Take a note..."
-          className="w-full px-2.5 py-2 bg-slate-800/50 border border-slate-700/50 rounded text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
+          className="w-full px-2.5 py-2 rounded text-sm resize-none bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500/40 dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-white dark:placeholder-slate-500"
           rows={2}
         />
         <div className="mt-1.5 flex items-center gap-2">
-          <label htmlFor="note-privacy" className="text-xs text-slate-400">Visibility</label>
+          <label htmlFor="note-privacy" className="text-xs text-gray-600 dark:text-slate-400">Visibility</label>
           <select
             id="note-privacy"
             value={newNotePrivacy}
             onChange={(e) => onChangePrivacy(e.target.value as 'public' | 'private')}
-            className="px-2 py-1 rounded bg-slate-800/60 border border-slate-700/60 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            className="px-2 py-1 rounded text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-white border border-gray-300 text-gray-900 dark:bg-slate-800/60 dark:border-slate-700/60 dark:text-slate-200"
           >
             <option value="public">Public</option>
             <option value="private">Private</option>
@@ -39,15 +39,15 @@ const NotesTab: React.FC<NotesTabProps> = ({ notes, newNote, newNotePrivacy, onC
         </div>
       </div>
       {notes.map((note) => (
-        <div key={note.id} className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
+        <div key={note.id} className="rounded-lg p-3 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400">{note.author}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${note.isPrivate ? 'border-red-500/40 text-red-300 bg-red-500/10' : 'border-green-500/40 text-green-300 bg-green-500/10'}`}>{note.isPrivate ? 'Private' : 'Public'}</span>
+              <span className="text-xs text-gray-600 dark:text-slate-400">{note.author}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${note.isPrivate ? 'border-red-300 text-red-700 bg-red-100 dark:border-red-500/40 dark:text-red-300 dark:bg-red-500/10' : 'border-green-300 text-green-700 bg-green-100 dark:border-green-500/40 dark:text-green-300 dark:bg-green-500/10'}`}>{note.isPrivate ? 'Private' : 'Public'}</span>
             </div>
-            <span className="text-xs text-slate-500">{note.timestamp}</span>
+            <span className="text-xs text-gray-500 dark:text-slate-500">{note.timestamp}</span>
           </div>
-          <p className="text-sm text-white">{note.text}</p>
+          <p className="text-sm text-gray-900 dark:text-white">{note.text}</p>
         </div>
       ))}
     </div>

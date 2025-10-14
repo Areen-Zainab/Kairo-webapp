@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, X, Clock, Mail, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail, ChevronLeft, ChevronRight } from 'lucide-react';
 import Layout from '../../components/Layout';
 import CreateWorkspaceModal from '../../modals/CreateWorkspace';
+import JoinWorkspaceModal from '../../modals/JoinWorkspace';
 
 const Dashboard = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -9,9 +10,9 @@ const Dashboard = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const user = {
-    name: 'Alex Johnson',
-    email: 'alex@company.com',
-    avatar: 'AJ'
+    name: 'Areeba Riaz',
+    email: 'areebariaz@company.com',
+    avatar: 'AR'
   };
 
   const workspaces = [
@@ -115,17 +116,21 @@ const Dashboard = () => {
         <div className="p-6 lg:p-8">
           {/* Hero Section */}
           <div className="mb-6">
-            <h1 className="text-3xl font-bold mb-1 bg-gradient-to-r from-white via-cyan-100 to-blue-200 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold mb-1 text-gray-900 dark:text-white">
               Welcome back, {user.name.split(' ')[0]} 👋
             </h1>
-            <p className="text-slate-400">Manage your workspaces and stay on top of your meetings</p>
+            <p className="text-gray-600 dark:text-slate-400">Manage your workspaces and stay on top of your meetings</p>
           </div>
 
           {/* Quick Actions */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+            {/* Create Workspace */}
             <button
               onClick={() => setShowCreateModal(true)}
-              className="group relative overflow-hidden p-4 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/30 rounded-lg hover:border-cyan-400/50 transition-all duration-300"
+              className="group relative overflow-hidden p-4 rounded-lg transition-all duration-300
+                        bg-white border border-gray-200 hover:border-cyan-400/50 shadow-sm
+                        dark:bg-gradient-to-br dark:from-cyan-900 dark:via-cyan-800 dark:to-blue-900
+                        dark:border-cyan-600/50 dark:hover:border-cyan-400/60 dark:shadow-[0_0_12px_-4px_rgba(34,211,238,0.3)]"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-blue-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
               <div className="relative flex items-center gap-3">
@@ -133,15 +138,19 @@ const Dashboard = () => {
                   <Plus size={20} />
                 </div>
                 <div className="text-left">
-                  <h3 className="text-lg font-semibold mb-0.5">Create Workspace</h3>
-                  <p className="text-slate-400 text-sm">Start a new collaborative space</p>
+                  <h3 className="text-lg font-semibold mb-0.5 text-gray-900 dark:text-white">Create Workspace</h3>
+                  <p className="text-gray-600 dark:text-gray-300 text-sm">Start a new collaborative space</p>
                 </div>
               </div>
             </button>
 
+            {/* Join Workspace */}
             <button
               onClick={() => setShowJoinModal(true)}
-              className="group relative overflow-hidden p-4 bg-gradient-to-br from-purple-500/20 to-pink-600/20 border border-purple-500/30 rounded-lg hover:border-purple-400/50 transition-all duration-300"
+              className="group relative overflow-hidden p-4 rounded-lg transition-all duration-300
+                        bg-white border border-gray-200 hover:border-purple-400/50 shadow-sm
+                        dark:bg-gradient-to-br dark:from-purple-900 dark:via-purple-800 dark:to-pink-900
+                        dark:border-purple-600/50 dark:hover:border-purple-400/60 dark:shadow-[0_0_12px_-4px_rgba(192,132,252,0.3)]"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-pink-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
               <div className="relative flex items-center gap-3">
@@ -149,8 +158,8 @@ const Dashboard = () => {
                   <Mail size={20} />
                 </div>
                 <div className="text-left">
-                  <h3 className="text-lg font-semibold mb-0.5">Join Workspace</h3>
-                  <p className="text-slate-400 text-sm">Use an invitation code</p>
+                  <h3 className="text-lg font-semibold mb-0.5 text-gray-900 dark:text-white">Join Workspace</h3>
+                  <p className="text-gray-600 dark:text-gray-300 text-sm">Use an invitation code</p>
                 </div>
               </div>
             </button>
@@ -158,9 +167,9 @@ const Dashboard = () => {
 
           {/* Workspaces Section */}
           <div className="mb-6">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
               <span>Your Workspaces</span>
-              <span className="px-2 py-0.5 bg-slate-800 rounded text-sm text-slate-400">
+              <span className="px-2 py-0.5 bg-gray-100 rounded text-sm text-gray-600 dark:bg-slate-800 dark:text-slate-400">
                 {workspaces.length}
               </span>
             </h2>
@@ -169,7 +178,7 @@ const Dashboard = () => {
               {workspaces.map((workspace) => (
                 <div
                   key={workspace.id}
-                  className="group bg-slate-800/50 backdrop-blur-sm rounded-lg p-4 border border-slate-700/50 hover:border-slate-600 transition-all duration-300"
+                  className="group rounded-lg p-4 border transition-all duration-300 bg-white border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/50 dark:backdrop-blur-sm dark:border-slate-700/50 dark:hover:border-slate-600"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
@@ -177,59 +186,59 @@ const Dashboard = () => {
                         {workspace.name.charAt(0)}
                       </div>
                       <div>
-                        <h3 className="text-lg font-semibold mb-0.5">{workspace.name}</h3>
-                        <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <h3 className="text-lg font-semibold mb-0.5 text-gray-900 dark:text-white">{workspace.name}</h3>
+                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
                           <span className="flex items-center gap-1">
                             <Clock size={12} />
                             {workspace.lastActive}
                           </span>
                           <span>•</span>
-                          <span className="px-1.5 py-0.5 bg-slate-700 rounded text-xs">{workspace.role}</span>
+                          <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-700 dark:bg-slate-700 dark:text-slate-300">{workspace.role}</span>
                         </div>
                       </div>
                     </div>
 
                     <div className="flex gap-1.5">
-                      <button className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded text-sm font-medium hover:shadow-lg hover:shadow-cyan-500/30 transition-all">
+                      <button className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded text-sm font-medium hover:shadow-lg hover:shadow-cyan-500/30 transition-all text-white">
                         Open
                       </button>
-                      <button className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-sm font-medium transition-colors">
+                      <button className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-sm font-medium transition-colors text-gray-900 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white">
                         Manage
                       </button>
-                      <button className="px-3 py-1.5 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 rounded text-sm font-medium transition-all">
+                      <button className="px-3 py-1.5 bg-gray-100 hover:bg-red-100 hover:text-red-600 rounded text-sm font-medium transition-all text-gray-900 dark:bg-slate-700 dark:hover:bg-red-500/20 dark:hover:text-red-400 dark:text-white">
                         Leave
                       </button>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-4 gap-2">
-                    <div className="bg-slate-900/50 rounded p-2.5 border border-slate-700/30">
+                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <Users size={14} className="text-cyan-400" />
-                        <span className="text-xs text-slate-400">Members</span>
+                        <span className="text-xs text-gray-600 dark:text-slate-400">Members</span>
                       </div>
-                      <p className="text-lg font-bold">{workspace.members}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.members}</p>
                     </div>
-                    <div className="bg-slate-900/50 rounded p-2.5 border border-slate-700/30">
+                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <Calendar size={14} className="text-blue-400" />
-                        <span className="text-xs text-slate-400">Meetings</span>
+                        <span className="text-xs text-gray-600 dark:text-slate-400">Meetings</span>
                       </div>
-                      <p className="text-lg font-bold">{workspace.meetings}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.meetings}</p>
                     </div>
-                    <div className="bg-slate-900/50 rounded p-2.5 border border-slate-700/30">
+                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <CheckSquare size={14} className="text-green-400" />
-                        <span className="text-xs text-slate-400">Tasks</span>
+                        <span className="text-xs text-gray-600 dark:text-slate-400">Tasks</span>
                       </div>
-                      <p className="text-lg font-bold">{workspace.pendingTasks}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.pendingTasks}</p>
                     </div>
-                    <div className="bg-slate-900/50 rounded p-2.5 border border-slate-700/30">
+                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <TrendingUp size={14} className="text-purple-400" />
-                        <span className="text-xs text-slate-400">Analytics</span>
+                        <span className="text-xs text-gray-600 dark:text-slate-400">Analytics</span>
                       </div>
-                      <p className="text-lg font-bold">→</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">→</p>
                     </div>
                   </div>
                 </div>
@@ -240,23 +249,23 @@ const Dashboard = () => {
       </div>
 
       {/* Right Sidebar */}
-      <div className="bg-transparent hidden lg:block fixed right-0 top-20 bottom-0 w-80 bg-slate-900/50 backdrop-blur-xl border-l border-slate-800/50 p-4 overflow-y-auto no-scrollbar">
+      <div className="hidden lg:block fixed right-0 top-20 bottom-0 w-80 bg-white border-l border-gray-200 p-4 overflow-y-auto no-scrollbar dark:bg-slate-900/50 dark:backdrop-blur-xl dark:border-slate-800/50">
         {/* Mini Calendar */}
         <div className="mb-4">
-          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Calendar</h3>
-          <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+          <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 dark:text-slate-400">Calendar</h3>
+          <div className="rounded-lg p-3 border bg-white border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="font-semibold text-sm">{formatMonthYear(currentDate)}</h4>
+              <h4 className="font-semibold text-sm text-gray-900 dark:text-white">{formatMonthYear(currentDate)}</h4>
               <div className="flex gap-1">
                 <button 
                   onClick={() => navigateMonth('prev')}
-                  className="p-1 hover:bg-slate-700 rounded transition-colors"
+                  className="p-1 rounded transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
                   <ChevronLeft size={14} />
                 </button>
                 <button 
                   onClick={() => navigateMonth('next')}
-                  className="p-1 hover:bg-slate-700 rounded transition-colors"
+                  className="p-1 rounded transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
                   <ChevronRight size={14} />
                 </button>
@@ -264,7 +273,7 @@ const Dashboard = () => {
             </div>
             <div className="grid grid-cols-7 gap-0.5 text-center">
               {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-                <div key={i} className="text-xs text-slate-500 p-1">{day}</div>
+                <div key={i} className="text-xs text-gray-500 dark:text-slate-500 p-1">{day}</div>
               ))}
               {getDaysInMonth(currentDate).map((day, i) => (
                 <button
@@ -275,8 +284,8 @@ const Dashboard = () => {
                       : isToday(day)
                       ? 'bg-cyan-500 text-white font-bold'
                       : hasMeetings(day)
-                      ? 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30'
-                      : 'hover:bg-slate-700 text-slate-300'
+                      ? 'bg-cyan-500/10 text-cyan-700 hover:bg-cyan-500/20 dark:text-cyan-400'
+                      : 'hover:bg-gray-100 text-gray-700 dark:hover:bg-slate-700 dark:text-slate-300'
                   }`}
                   disabled={day === null}
                 >
@@ -289,17 +298,17 @@ const Dashboard = () => {
 
         {/* Notifications */}
         <div className="mb-4">
-          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Notifications</h3>
+          <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 dark:text-slate-400">Notifications</h3>
           <div className="space-y-1.5">
             {notifications.map((notif) => (
               <div
                 key={notif.id}
                 className={`p-2.5 rounded-lg border transition-colors ${
-                  notif.unread ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-slate-800/50 border-slate-700/50'
+                  notif.unread ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50'
                 }`}
               >
-                <p className="text-sm mb-0.5">{notif.text}</p>
-                <p className="text-xs text-slate-500">{notif.time}</p>
+                <p className="text-sm mb-0.5 text-gray-900 dark:text-white">{notif.text}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-500">{notif.time}</p>
               </div>
             ))}
           </div>
@@ -307,19 +316,19 @@ const Dashboard = () => {
 
         {/* Quick Actions */}
         <div>
-          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Quick Actions</h3>
+          <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 dark:text-slate-400">Quick Actions</h3>
           <div className="space-y-1.5">
-            <button className="w-full flex items-center gap-2.5 p-2.5 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 transition-colors text-left">
-              <Calendar size={16} className="text-cyan-400" />
-              <span className="text-sm">Schedule Meeting</span>
+            <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
+              <Calendar size={16} className="text-cyan-600 dark:text-cyan-400" />
+              <span className="text-sm text-gray-900 dark:text-white">Schedule Meeting</span>
             </button>
-            <button className="w-full flex items-center gap-2.5 p-2.5 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 transition-colors text-left">
-              <CheckSquare size={16} className="text-green-400" />
-              <span className="text-sm">Create Task</span>
+            <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
+              <CheckSquare size={16} className="text-green-600 dark:text-green-400" />
+              <span className="text-sm text-gray-900 dark:text-white">Create Task</span>
             </button>
-            <button className="w-full flex items-center gap-2.5 p-2.5 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 transition-colors text-left">
-              <BarChart3 size={16} className="text-purple-400" />
-              <span className="text-sm">View Analytics</span>
+            <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
+              <BarChart3 size={16} className="text-purple-600 dark:text-purple-400" />
+              <span className="text-sm text-gray-900 dark:text-white">View Analytics</span>
             </button>
           </div>
         </div>
@@ -332,55 +341,7 @@ const Dashboard = () => {
       />
 
       {/* Join Workspace Modal */}
-      {showJoinModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full shadow-2xl border border-slate-700">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Join Workspace</h2>
-              <button
-                onClick={() => setShowJoinModal(false)}
-                className="p-1.5 hover:bg-slate-700 rounded transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                  Invitation Code
-                </label>
-                <input
-                  type="text"
-                  placeholder="ALPHA-2025-XYZ"
-                  className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
-                />
-              </div>
-
-              <div className="bg-purple-500/10 border border-purple-500/30 rounded p-3">
-                <p className="text-sm text-purple-200">
-                  <strong>Tip:</strong> Ask your team admin for an invitation code
-                </p>
-              </div>
-
-              <div className="flex gap-2 pt-3">
-                <button
-                  onClick={() => setShowJoinModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => setShowJoinModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-600 rounded font-medium hover:shadow-lg hover:shadow-purple-500/30 transition-all"
-                >
-                  Join
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <JoinWorkspaceModal isOpen={showJoinModal} onClose={() => setShowJoinModal(false)} />
 
       <style>{`
         .no-scrollbar::-webkit-scrollbar {

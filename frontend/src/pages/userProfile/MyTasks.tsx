@@ -203,32 +203,32 @@ const MyTasks = () => {
   const isOverdue = (dueDate: Date) => {
     return dueDate < new Date() && new Date().toDateString() !== dueDate.toDateString();
   };
-
+  
   const TaskCard = ({ task }: { task: Task }) => (
-    <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50 hover:border-gray-600/50 transition-all group">
+    <div className="bg-white dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700/50 hover:border-gray-300 dark:hover:border-gray-600/50 transition-all group shadow-sm hover:shadow-md">
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
-          <h3 className="font-semibold text-white mb-1 group-hover:text-cyan-400 transition-colors">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-1 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
             {task.title}
           </h3>
-          <p className="text-sm text-gray-400 line-clamp-2 mb-2">
+          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
             {task.description}
           </p>
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => updateTaskStatus(task.id, 'completed')}
-            className="p-1 hover:bg-green-500/20 rounded transition-colors"
+            className="p-1 hover:bg-green-100 dark:hover:bg-green-500/20 rounded transition-colors"
             title="Mark as completed"
           >
-            <Check size={14} className="text-green-400" />
+            <Check size={14} className="text-green-600 dark:text-green-400" />
           </button>
           <button
             onClick={() => deleteTask(task.id)}
-            className="p-1 hover:bg-red-500/20 rounded transition-colors"
+            className="p-1 hover:bg-red-100 dark:hover:bg-red-500/20 rounded transition-colors"
             title="Delete task"
           >
-            <Trash2 size={14} className="text-red-400" />
+            <Trash2 size={14} className="text-red-600 dark:text-red-400" />
           </button>
         </div>
       </div>
@@ -243,14 +243,14 @@ const MyTasks = () => {
       </div>
       
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-sm text-gray-400">
+        <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-400">
           <User size={14} />
           <span>{task.assignee}</span>
         </div>
         
         {task.dueDate && (
           <div className={`flex items-center gap-2 text-sm ${
-            isOverdue(task.dueDate) ? 'text-red-400' : 'text-gray-400'
+            isOverdue(task.dueDate) ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-400'
           }`}>
             <Calendar size={14} />
             <span>{formatDate(task.dueDate)}</span>
@@ -258,7 +258,7 @@ const MyTasks = () => {
           </div>
         )}
         
-        <div className="text-sm text-gray-500">
+        <div className="text-sm text-gray-600 dark:text-gray-500">
           {task.workspace}
         </div>
         
@@ -267,7 +267,7 @@ const MyTasks = () => {
             {task.tags.map((tag, index) => (
               <span
                 key={index}
-                className="px-2 py-0.5 bg-gray-700/50 text-gray-300 text-xs rounded"
+                className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 text-xs rounded"
               >
                 {tag}
               </span>
@@ -284,18 +284,18 @@ const MyTasks = () => {
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">My Tasks</h1>
-            <p className="text-gray-400 mt-1">Manage your tasks and track progress</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">My Tasks</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">Manage your tasks and track progress</p>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="px-4 py-2 bg-gray-800/50 text-gray-300 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-white dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors flex items-center gap-2 border border-gray-200 dark:border-transparent shadow-sm"
             >
               <Filter size={16} />
               Filters
             </button>
-            <button className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center gap-2">
+            <button className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center gap-2 shadow-md">
               <Plus size={16} />
               Add Task
             </button>
@@ -305,7 +305,7 @@ const MyTasks = () => {
         {/* View Mode Toggle */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="bg-gray-900/50 backdrop-blur-sm rounded-lg p-1 flex">
+            <div className="bg-white dark:bg-gray-900/50 backdrop-blur-sm rounded-lg p-1 flex border border-gray-200 dark:border-transparent shadow-sm">
               {(['kanban', 'list'] as const).map((mode) => (
                 <button
                   key={mode}
@@ -313,7 +313,7 @@ const MyTasks = () => {
                   className={`px-4 py-2 rounded-md font-medium transition-all flex items-center gap-2 ${
                     viewMode === mode
                       ? 'bg-gradient-to-r from-cyan-600 to-blue-700 text-white shadow-lg'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/50'
                   }`}
                 >
                   {mode === 'kanban' ? <CheckSquare size={16} /> : <Clock size={16} />}
@@ -323,7 +323,7 @@ const MyTasks = () => {
             </div>
           </div>
           
-          <div className="text-sm text-gray-400">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
             {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
           </div>
         </div>
@@ -332,26 +332,26 @@ const MyTasks = () => {
         <div className="space-y-4">
           {/* Search Bar */}
           <div className="relative">
-            <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 dark:text-gray-400" />
             <input
               type="text"
               placeholder="Search tasks..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50"
+              className="w-full pl-10 pr-4 py-3 bg-white dark:bg-gray-800/50 border border-gray-300 dark:border-gray-700/50 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 shadow-sm"
             />
           </div>
 
           {/* Filters Panel */}
           {showFilters && (
-            <div className="bg-gray-900/50 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6">
+            <div className="bg-white dark:bg-gray-900/50 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-700/50 p-6 shadow-lg">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {/* Workspace Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Workspace</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Workspace</label>
                   <div className="space-y-2">
                     {workspaces.map(workspace => (
-                      <label key={workspace} className="flex items-center gap-2">
+                      <label key={workspace} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={filters.workspaces.includes(workspace)}
@@ -368,9 +368,9 @@ const MyTasks = () => {
                               }));
                             }
                           }}
-                          className="rounded border-gray-600 bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
+                          className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
                         />
-                        <span className="text-sm text-gray-300">{workspace}</span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{workspace}</span>
                       </label>
                     ))}
                   </div>
@@ -378,10 +378,10 @@ const MyTasks = () => {
 
                 {/* Status Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Status</label>
                   <div className="space-y-2">
                     {statuses.map(status => (
-                      <label key={status} className="flex items-center gap-2">
+                      <label key={status} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={filters.statuses.includes(status)}
@@ -398,9 +398,9 @@ const MyTasks = () => {
                               }));
                             }
                           }}
-                          className="rounded border-gray-600 bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
+                          className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
                         />
-                        <span className="text-sm text-gray-300 capitalize">{status.replace('-', ' ')}</span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300 capitalize">{status.replace('-', ' ')}</span>
                       </label>
                     ))}
                   </div>
@@ -408,10 +408,10 @@ const MyTasks = () => {
 
                 {/* Priority Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Priority</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Priority</label>
                   <div className="space-y-2">
                     {priorities.map(priority => (
-                      <label key={priority} className="flex items-center gap-2">
+                      <label key={priority} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={filters.priorities.includes(priority)}
@@ -428,9 +428,9 @@ const MyTasks = () => {
                               }));
                             }
                           }}
-                          className="rounded border-gray-600 bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
+                          className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
                         />
-                        <span className="text-sm text-gray-300 capitalize">{priority}</span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300 capitalize">{priority}</span>
                       </label>
                     ))}
                   </div>
@@ -438,10 +438,10 @@ const MyTasks = () => {
 
                 {/* Assignee Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Assignee</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Assignee</label>
                   <div className="space-y-2">
                     {assignees.map(assignee => (
-                      <label key={assignee} className="flex items-center gap-2">
+                      <label key={assignee} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={filters.assignees.includes(assignee)}
@@ -458,9 +458,9 @@ const MyTasks = () => {
                               }));
                             }
                           }}
-                          className="rounded border-gray-600 bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
+                          className="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-cyan-500 focus:ring-cyan-500/50"
                         />
-                        <span className="text-sm text-gray-300">{assignee}</span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{assignee}</span>
                       </label>
                     ))}
                   </div>
@@ -468,9 +468,9 @@ const MyTasks = () => {
               </div>
 
               {/* Sort Options */}
-              <div className="mt-6 pt-6 border-t border-gray-700/50">
-                <label className="block text-sm font-medium text-gray-300 mb-2">Sort by</label>
-                <div className="flex gap-4">
+              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700/50">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sort by</label>
+                <div className="flex gap-4 flex-wrap">
                   {(['due-date', 'priority', 'created', 'title'] as const).map((option) => (
                     <button
                       key={option}
@@ -478,7 +478,7 @@ const MyTasks = () => {
                       className={`px-4 py-2 rounded-lg font-medium transition-all ${
                         sortBy === option
                           ? 'bg-gradient-to-r from-cyan-600 to-blue-700 text-white shadow-lg'
-                          : 'bg-gray-800/50 text-gray-300 hover:bg-gray-700/50'
+                          : 'bg-gray-100 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 border border-gray-200 dark:border-transparent'
                       }`}
                     >
                       {option.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
@@ -504,13 +504,13 @@ const MyTasks = () => {
               {Object.entries(tasksByStatus).map(([status, statusTasks]) => (
                 <div key={status} className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-white capitalize">
+                    <h3 className="font-semibold text-gray-900 dark:text-white capitalize">
                       {status.replace('-', ' ')} ({statusTasks.length})
                     </h3>
                   </div>
                   <div className="space-y-3">
                     {statusTasks.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
+                      <div className="text-center py-8 text-gray-400 dark:text-gray-500">
                         <CheckSquare size={32} className="mx-auto mb-2 opacity-50" />
                         <p>No tasks</p>
                       </div>
@@ -527,17 +527,17 @@ const MyTasks = () => {
             <div className="space-y-3">
               {filteredTasks.length === 0 ? (
                 <div className="text-center py-12">
-                  <CheckSquare size={48} className="mx-auto text-gray-600 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-400 mb-2">No tasks found</h3>
-                  <p className="text-gray-500">Try adjusting your filters or search query</p>
+                  <CheckSquare size={48} className="mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-500 dark:text-gray-400 mb-2">No tasks found</h3>
+                  <p className="text-gray-400 dark:text-gray-500">Try adjusting your filters or search query</p>
                 </div>
               ) : (
                 filteredTasks.map((task) => (
-                  <div key={task.id} className="bg-gray-900/50 backdrop-blur-sm rounded-lg border border-gray-700/50 p-4">
+                  <div key={task.id} className="bg-white dark:bg-gray-900/50 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-700/50 p-4 shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
-                          <h3 className="font-semibold text-white">{task.title}</h3>
+                          <h3 className="font-semibold text-gray-900 dark:text-white">{task.title}</h3>
                           <span className={`px-2 py-1 rounded text-xs font-medium border ${getPriorityColor(task.priority)}`}>
                             {task.priority}
                           </span>
@@ -545,15 +545,15 @@ const MyTasks = () => {
                             {task.status.replace('-', ' ')}
                           </span>
                         </div>
-                        <p className="text-gray-400 text-sm mb-2">{task.description}</p>
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <p className="text-gray-600 dark:text-gray-400 text-sm mb-2">{task.description}</p>
+                        <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-500">
                           <span className="flex items-center gap-1">
                             <User size={14} />
                             {task.assignee}
                           </span>
                           {task.dueDate && (
                             <span className={`flex items-center gap-1 ${
-                              isOverdue(task.dueDate) ? 'text-red-400' : 'text-gray-500'
+                              isOverdue(task.dueDate) ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-500'
                             }`}>
                               <Calendar size={14} />
                               {formatDate(task.dueDate)}
@@ -566,17 +566,17 @@ const MyTasks = () => {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => updateTaskStatus(task.id, 'completed')}
-                          className="p-2 hover:bg-green-500/20 rounded-lg transition-colors"
+                          className="p-2 hover:bg-green-100 dark:hover:bg-green-500/20 rounded-lg transition-colors"
                           title="Mark as completed"
                         >
-                          <Check size={16} className="text-green-400" />
+                          <Check size={16} className="text-green-600 dark:text-green-400" />
                         </button>
                         <button
                           onClick={() => deleteTask(task.id)}
-                          className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
+                          className="p-2 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors"
                           title="Delete task"
                         >
-                          <Trash2 size={16} className="text-red-400" />
+                          <Trash2 size={16} className="text-red-600 dark:text-red-400" />
                         </button>
                       </div>
                     </div>

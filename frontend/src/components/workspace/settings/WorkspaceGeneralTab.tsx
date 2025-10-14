@@ -21,30 +21,30 @@ export default function WorkspaceGeneralTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-gray-900/50 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Workspace Information</h3>
+      <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Workspace Information</h3>
         
         <div className="space-y-5">
           {/* Logo Upload */}
           <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wider">
               Workspace Logo
             </label>
             <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-md bg-gradient-to-br from-gray-800 to-gray-900 border-2 border-dashed border-purple-500/30 flex items-center justify-center overflow-hidden hover:border-purple-500/60 transition-all duration-300">
+              <div className="w-20 h-20 rounded-md bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 border-2 border-dashed border-purple-300 dark:border-purple-500/30 flex items-center justify-center overflow-hidden hover:border-purple-400 dark:hover:border-purple-500/60 transition-all duration-300">
                 {logoPreview ? (
                   typeof logoPreview === 'string' ? (
                     <img src={logoPreview} alt="Logo" className="w-full h-full object-cover" />
                   ) : (
-                    <Upload className="text-gray-600" size={28} />
+                    <Upload className="text-gray-500 dark:text-gray-600" size={28} />
                   )
                 ) : (
-                  <Upload className="text-gray-600" size={28} />
+                  <Upload className="text-gray-500 dark:text-gray-600" size={28} />
                 )}
               </div>
               <label className="cursor-pointer">
                 <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                <div className="px-5 py-2.5 bg-gray-800/50 text-gray-200 rounded-md hover:bg-gray-700/50 transition-all border border-gray-600/50 text-sm font-medium">
+                <div className="px-5 py-2.5 rounded-md transition-all border text-sm font-medium bg-white border-gray-300 text-gray-900 hover:bg-gray-100 dark:bg-gray-800/50 dark:border-gray-600/50 dark:text-gray-200 dark:hover:bg-gray-700/50">
                   {logoPreview ? 'Change Logo' : 'Upload Logo'}
                 </div>
               </label>
@@ -53,27 +53,27 @@ export default function WorkspaceGeneralTab() {
 
           {/* Workspace Name */}
           <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wider">
               Workspace Name
             </label>
             <input
               type="text"
               value={workspaceName}
               onChange={(e) => setWorkspaceName(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all"
+              className="w-full px-4 py-3 rounded-md transition-all bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-white"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wider">
               Description
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
-              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all resize-none"
+              className="w-full px-4 py-3 rounded-md transition-all resize-none bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-white dark:placeholder-gray-500"
             />
           </div>
         </div>

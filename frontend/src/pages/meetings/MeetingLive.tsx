@@ -267,30 +267,30 @@ const LiveMeetingView = () => {
 
   return (
     <Layout>
-      <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-700/50 rounded-lg overflow-hidden h-[calc(100vh-8rem)] flex flex-col">
+      <div className="rounded-lg overflow-hidden h-[calc(100vh-8rem)] flex flex-col bg-white border border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/50">
         
         {/* Compact Top Bar */}
-        <div className="bg-slate-800/40 border-b border-slate-700/50 px-4 py-2.5 flex-shrink-0">
+        <div className="px-4 py-2.5 flex-shrink-0 bg-gray-50 border-b border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <div className="flex items-center gap-1.5 px-1.5 py-0.5 sm:px-2 sm:py-1 bg-red-500/10 border border-red-500/30 rounded">
                 <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500 animate-pulse" />
                 <span className="hidden sm:inline text-xs font-medium text-red-400">REC</span>
               </div>
-              <h1 className="text-sm font-semibold text-white truncate max-w-[40vw] sm:max-w-none">Sprint Planning – Team Kairo</h1>
+              <h1 className="text-sm font-semibold text-black truncate max-w-[40vw] sm:max-w-none">Sprint Planning – Team Kairo</h1>
               <button
                 type="button"
                 aria-pressed={isSidebarCollapsed}
                 aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 onClick={() => setIsSidebarCollapsed(v => !v)}
-                className="ml-1 px-1.5 py-0.5 sm:px-2 sm:py-1 text-[11px] sm:text-xs text-slate-200 bg-slate-700/40 border border-slate-600/50 rounded hover:bg-slate-700/60 transition-colors"
+                className="ml-1 px-1.5 py-0.5 sm:px-2 sm:py-1 text-[11px] sm:text-xs rounded transition-colors text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 dark:text-slate-200 dark:bg-slate-700/40 dark:border-slate-600/50 dark:hover:bg-slate-700/60"
               >
                 <span className="hidden sm:inline">{isSidebarCollapsed ? 'Show Tabs' : 'Hide Tabs'}</span>
                 <span className="sm:hidden">Tabs</span>
               </button>
-              <div className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border ${isConnected ? 'border-green-500/30 bg-green-500/10' : 'border-yellow-500/30 bg-yellow-500/10'}` }>
+              <div className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border ${isConnected ? 'border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/10' : 'border-yellow-300 bg-yellow-100 text-yellow-700 dark:border-yellow-500/30 dark:bg-yellow-500/10'}` }>
                 <Circle className={`w-1.5 h-1.5 ${isConnected ? 'fill-green-500 text-green-500' : 'fill-yellow-500 text-yellow-500'}`} />
-                <span className={`text-[11px] ${isConnected ? 'text-green-300' : 'text-yellow-300'}`}>{isConnected ? 'Connected · Stable' : 'Reconnecting…'}</span>
+                <span className={`text-[11px] ${isConnected ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>{isConnected ? 'Connected · Stable' : 'Reconnecting…'}</span>
               </div>
             </div>
             
@@ -311,21 +311,21 @@ const LiveMeetingView = () => {
                   <span className="ml-2 text-xs text-slate-400">+{participants.length - 4}</span>
                 )}
                 <div className="relative">
-                  <button onClick={() => setShowParticipants(!showParticipants)} className="ml-2 px-2 py-1 text-xs text-slate-200 bg-slate-700/40 border border-slate-600/50 rounded hover:bg-slate-700/60 transition-colors">Participants</button>
+                  <button onClick={() => setShowParticipants(!showParticipants)} className="ml-2 px-2 py-1 text-xs rounded transition-colors text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 dark:text-slate-200 dark:bg-slate-700/40 dark:border-slate-600/50 dark:hover:bg-slate-700/60">Participants</button>
                   {showParticipants && (
-                    <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900/95 border border-slate-700/60 rounded-xl shadow-2xl z-40 overflow-hidden">
-                      <div className="px-3 py-2 border-b border-slate-700/60 flex items-center justify-between bg-slate-800/50">
-                        <span className="text-xs font-semibold text-slate-200">Participants</span>
-                        <span className="text-[11px] text-slate-400">{participants.length} total</span>
+                    <div className="absolute right-0 top-full mt-2 w-72 rounded-xl shadow-2xl z-40 overflow-hidden bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60">
+                      <div className="px-3 py-2 border-b flex items-center justify-between bg-gray-50 border-gray-200 dark:border-slate-700/60 dark:bg-slate-800/50">
+                        <span className="text-xs font-semibold text-gray-700 dark:text-slate-200">Participants</span>
+                        <span className="text-[11px] text-gray-500 dark:text-slate-400">{participants.length} total</span>
                       </div>
                       <div className="max-h-64 overflow-y-auto">
                         {participants.map((participant) => (
-                          <div key={participant.id} className="flex items-center justify-between px-3 py-2 hover:bg-slate-800/50 transition-colors">
+                          <div key={participant.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
             <div className="flex items-center gap-2">
                               <div className={`w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-[10px] font-semibold text-white ${participant.isSpeaking ? 'ring-2 ring-green-500' : ''}`}>{participant.avatar}</div>
                               <div>
-                                <p className="text-xs text-white leading-tight">{participant.name}</p>
-                                <p className="text-[10px] text-slate-500 leading-tight">{participant.isMuted ? 'Muted' : 'Speaking'}</p>
+                                <p className="text-xs text-gray-900 dark:text-white leading-tight">{participant.name}</p>
+                                <p className="text-[10px] text-gray-500 dark:text-slate-500 leading-tight">{participant.isMuted ? 'Muted' : 'Speaking'}</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5">
@@ -350,7 +350,7 @@ const LiveMeetingView = () => {
               <div className="relative bot-controls-dropdown">
                 <button
                   onClick={() => setShowBotControls(!showBotControls)}
-                  className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 bg-purple-600/10 hover:bg-purple-600/20 border border-purple-500/30 rounded-lg text-white text-[11px] sm:text-xs font-medium transition-all"
+                  className="flex items-center gap-1.5 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-medium transition-all bg-purple-50 text-purple-700 border border-purple-300 hover:bg-purple-100 dark:bg-purple-600/10 dark:text-white dark:border-purple-500/30 dark:hover:bg-purple-600/20"
                 >
                   <Circle className={`w-2 h-2 ${isPrivacyMode ? 'fill-orange-500' : isPaused ? 'fill-yellow-500' : 'fill-green-500'}`} />
                   <span className="hidden xs:inline">Kairo Bot</span>
@@ -358,32 +358,32 @@ const LiveMeetingView = () => {
                 </button>
                 
                 {showBotControls && (
-                  <div className="absolute right-0 top-full mt-2 w-64 bg-slate-800/95 backdrop-blur-xl border border-slate-700/50 rounded-lg shadow-2xl z-50 overflow-hidden">
+                  <div className="absolute right-0 top-full mt-2 w-64 rounded-lg shadow-2xl z-50 overflow-hidden bg-white border border-gray-200 dark:bg-slate-800/95 dark:border-slate-700/50">
                     <div className="p-1">
-                      <button onClick={() => { setIsRecording(!isRecording); setShowBotControls(false); }} className="w-full flex items-center justify-between px-3 py-2 text-sm text-white hover:bg-slate-700/50 rounded transition-all">
+                      <button onClick={() => { setIsRecording(!isRecording); setShowBotControls(false); }} className="w-full flex items-center justify-between px-3 py-2 text-sm rounded transition-all text-gray-700 hover:bg-gray-50 dark:text-white dark:hover:bg-slate-700/50">
                         <span className="flex items-center gap-2"><Circle className={`w-3.5 h-3.5 ${isRecording ? 'fill-red-500' : 'fill-slate-500'}`} /> Recording</span>
-                        <span className={`text-xs ${isRecording ? 'text-red-300' : 'text-slate-400'}`}>{isRecording ? 'On' : 'Off'}</span>
+                        <span className={`text-xs ${isRecording ? 'text-red-600 dark:text-red-300' : 'text-gray-500 dark:text-slate-400'}`}>{isRecording ? 'On' : 'Off'}</span>
                       </button>
-                      <button onClick={togglePrivacyMode} className="w-full flex items-center justify-between px-3 py-2 text-sm text-white hover:bg-slate-700/50 rounded transition-all">
+                      <button onClick={togglePrivacyMode} className="w-full flex items-center justify-between px-3 py-2 text-sm rounded transition-all text-gray-700 hover:bg-gray-50 dark:text-white dark:hover:bg-slate-700/50">
                         <span className="flex items-center gap-2"><EyeOff className="w-3.5 h-3.5" /> Privacy Mode</span>
-                        <span className={`text-xs ${isPrivacyMode ? 'text-orange-300' : 'text-slate-400'}`}>{isPrivacyMode ? 'On' : 'Off'}</span>
+                        <span className={`text-xs ${isPrivacyMode ? 'text-orange-600 dark:text-orange-300' : 'text-gray-500 dark:text-slate-400'}`}>{isPrivacyMode ? 'On' : 'Off'}</span>
                       </button>
-                      <button onClick={() => { setIsVisualCaptureEnabled(!isVisualCaptureEnabled); setShowBotControls(false); }} className="w-full flex items-center justify-between px-3 py-2 text-sm text-white hover:bg-slate-700/50 rounded transition-all">
+                      <button onClick={() => { setIsVisualCaptureEnabled(!isVisualCaptureEnabled); setShowBotControls(false); }} className="w-full flex items-center justify-between px-3 py-2 text-sm rounded transition-all text-gray-700 hover:bg-gray-50 dark:text-white dark:hover:bg-slate-700/50">
                         <span className="flex items-center gap-2"><VideoOff className={`w-3.5 h-3.5 ${isVisualCaptureEnabled ? 'rotate-180' : ''}`} /> Visual Capture</span>
-                        <span className={`text-xs ${isVisualCaptureEnabled ? 'text-green-300' : 'text-slate-400'}`}>{isVisualCaptureEnabled ? 'Enabled' : 'Disabled'}</span>
+                        <span className={`text-xs ${isVisualCaptureEnabled ? 'text-green-700 dark:text-green-300' : 'text-gray-500 dark:text-slate-400'}`}>{isVisualCaptureEnabled ? 'Enabled' : 'Disabled'}</span>
                       </button>
-                      <button onClick={() => { setIsRealtimeInsightsEnabled(!isRealtimeInsightsEnabled); setShowBotControls(false); }} className="w-full flex items-center justify-between px-3 py-2 text-sm text-white hover:bg-slate-700/50 rounded transition-all">
+                      <button onClick={() => { setIsRealtimeInsightsEnabled(!isRealtimeInsightsEnabled); setShowBotControls(false); }} className="w-full flex items-center justify-between px-3 py-2 text-sm rounded transition-all text-gray-700 hover:bg-gray-50 dark:text-white dark:hover:bg-slate-700/50">
                         <span className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5" /> Real-time Insights</span>
-                        <span className={`text-xs ${isRealtimeInsightsEnabled ? 'text-green-300' : 'text-slate-400'}`}>{isRealtimeInsightsEnabled ? 'Enabled' : 'Disabled'}</span>
+                        <span className={`text-xs ${isRealtimeInsightsEnabled ? 'text-green-700 dark:text-green-300' : 'text-gray-500 dark:text-slate-400'}`}>{isRealtimeInsightsEnabled ? 'Enabled' : 'Disabled'}</span>
                       </button>
-                      <button onClick={() => { /* trigger extract */ setShowBotControls(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white hover:bg-slate-700/50 rounded transition-all">
+                      <button onClick={() => { /* trigger extract */ setShowBotControls(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded transition-all text-gray-700 hover:bg-gray-50 dark:text-white dark:hover:bg-slate-700/50">
                         <Activity className="w-3.5 h-3.5" /> Extract Action Items So Far
                       </button>
-                      <button onClick={() => { /* open settings */ setShowBotControls(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white hover:bg-slate-700/50 rounded transition-all">
+                      <button onClick={() => { /* open settings */ setShowBotControls(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded transition-all text-gray-700 hover:bg-gray-50 dark:text-white dark:hover:bg-slate-700/50">
                         <SettingsIcon className="w-3.5 h-3.5" /> Settings
                       </button>
-                      <div className="border-t border-slate-700/50 my-1"></div>
-                      <button onClick={() => setShowBotControls(false)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded transition-all">
+                      <div className="border-t my-1 border-gray-200 dark:border-slate-700/50"></div>
+                      <button onClick={() => setShowBotControls(false)} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded transition-all text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
                         <LogOut className="w-3.5 h-3.5" /> Leave Meeting
                       </button>
           </div>
@@ -397,11 +397,11 @@ const LiveMeetingView = () => {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0 flex-col md:flex-row pb-14 md:pb-0">
         {/* Left Sidebar - Compact Tabs */}
-        <div className={`hidden md:flex ${isSidebarCollapsed ? 'md:w-14' : 'md:w-72'} bg-slate-900/30 border-r border-slate-700/50 flex-col transition-[width] duration-300 ease-in-out`} aria-label="Sidebar tabs" aria-expanded={!isSidebarCollapsed}>
+        <div className={`hidden md:flex ${isSidebarCollapsed ? 'md:w-14' : 'md:w-72'} flex-col transition-[width] duration-300 ease-in-out bg-gray-50 border-r border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50`} aria-label="Sidebar tabs" aria-expanded={!isSidebarCollapsed}>
           <div
-            className={`bg-slate-800/40 border-b border-slate-700/50 ${
+            className={`border-b ${
               isSidebarCollapsed ? 'flex flex-col items-center gap-2 py-2 px-1' : 'flex gap-1 p-1'
-            }`}
+            } bg-white border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50`}
             role="tablist"
             aria-orientation={isSidebarCollapsed ? 'vertical' : 'horizontal'}
           >
@@ -424,8 +424,8 @@ const LiveMeetingView = () => {
                       : 'flex-1 flex flex-col items-center gap-1 px-2 py-2'
                   } rounded transition-all ${
                     activeTab === tab.id
-                      ? 'bg-purple-600/20 text-white border border-purple-500/30'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-700/30'
+                      ? 'bg-purple-50 text-purple-700 border border-purple-300 dark:bg-purple-600/20 dark:text-white dark:border-purple-500/30'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/30'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -433,7 +433,7 @@ const LiveMeetingView = () => {
                     <>
                       <span className="text-xs font-medium">{tab.label}</span>
                       <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        activeTab === tab.id ? 'bg-purple-500/30 text-purple-300' : 'bg-slate-700/50 text-slate-500'
+                        activeTab === tab.id ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300' : 'bg-gray-100 text-gray-600 dark:bg-slate-700/50 dark:text-slate-500'
                       }`}>
                         {tab.count}
                       </span>
@@ -485,7 +485,7 @@ const LiveMeetingView = () => {
                 </div>
 
         {/* Mobile Tab Content (full width, above transcript) */}
-        <div className="md:hidden px-3 py-2 border-b border-slate-700/50 bg-slate-900/30">
+        <div className="md:hidden px-3 py-2 border-b bg-gray-50 border-gray-200 dark:border-slate-700/50 dark:bg-slate-900/30">
           {activeTab === 'memory' && (
             <MemoryTab memoryItems={memoryItems as any} />
           )}
@@ -560,9 +560,9 @@ const LiveMeetingView = () => {
         </div>
 
         {/* Right Panel - AI Insights (hidden on small screens) */}
-        <div className="hidden md:flex w-72 bg-slate-900/30 border-l border-slate-700/50 flex-col">
-          <div className="border-b border-slate-700/50 px-4 py-2.5 bg-slate-800/20 flex-shrink-0">
-            <h2 className="text-sm font-semibold text-white flex items-center gap-1.5">
+        <div className="hidden md:flex w-72 flex-col bg-gray-50 border-l border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50">
+          <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-purple-400" />
               AI Insights
             </h2>
@@ -572,7 +572,7 @@ const LiveMeetingView = () => {
             </div>
 
       {/* Mobile Bottom Tab Bar */}
-      <nav className="md:hidden fixed bottom-2 left-1/2 -translate-x-1/2 z-40 rounded-2xl bg-slate-800/80 backdrop-blur border border-slate-700/60 px-2 py-1 shadow-lg" role="tablist" aria-label="Mobile navigation">
+      <nav className="md:hidden fixed bottom-2 left-1/2 -translate-x-1/2 z-40 rounded-2xl px-2 py-1 shadow-lg backdrop-blur border bg-white/80 border-gray-200 dark:bg-slate-800/80 dark:border-slate-700/60" role="tablist" aria-label="Mobile navigation">
         <ul className="flex items-center gap-2">
           {mobileTabs.map((tab) => {
             const Icon = tab.icon;
@@ -584,7 +584,7 @@ const LiveMeetingView = () => {
                   aria-label={tab.label}
                   aria-current={isActive}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`${isActive ? 'bg-purple-600/30 text-white border border-purple-500/40' : 'text-slate-300 hover:text-white'} relative w-10 h-10 rounded-xl flex items-center justify-center transition-colors`}
+                  className={`${isActive ? 'bg-purple-100 text-purple-700 border border-purple-300 dark:bg-purple-600/30 dark:text-white dark:border-purple-500/40' : 'text-gray-600 hover:text-gray-900 dark:text-slate-300 dark:hover:text-white'} relative w-10 h-10 rounded-xl flex items-center justify-center transition-colors`}
                 >
                   <Icon className="w-5 h-5" />
                   {tab.count > 0 && (
@@ -600,16 +600,16 @@ const LiveMeetingView = () => {
       </nav>
 
       {/* Bottom Status Bar */}
-      <div className="bg-slate-800/40 border-t border-slate-700/50 px-3 sm:px-4 py-2 flex-shrink-0">
+      <div className="border-t px-3 sm:px-4 py-2 flex-shrink-0 bg-gray-50 border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
         <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3">
               <Circle className={`w-2 h-2 ${isPrivacyMode ? 'fill-orange-500' : isPaused ? 'fill-yellow-500' : isRecording ? 'fill-green-500' : 'fill-slate-500'}`} />
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-gray-600 dark:text-slate-400">
                 {isPrivacyMode ? 'Privacy Mode' : isPaused ? 'Paused' : isRecording ? 'Recording' : 'Stopped'}
               </span>
                     </div>
             <div className="flex items-center gap-2 sm:gap-3">
-              <span className="hidden xs:inline text-xs text-slate-500">Last updated: {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="hidden xs:inline text-xs text-gray-500 dark:text-slate-500">Last updated: {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         </div>
       </div>

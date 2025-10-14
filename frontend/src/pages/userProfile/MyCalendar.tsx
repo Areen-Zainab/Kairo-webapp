@@ -154,14 +154,6 @@ const MyCalendar = () => {
     );
   };
 
-  // const isSameDay = (date1: Date, date2: Date) => {
-  //   return (
-  //     date1.getDate() === date2.getDate() &&
-  //     date1.getMonth() === date2.getMonth() &&
-  //     date1.getFullYear() === date2.getFullYear()
-  //   );
-  // };
-
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', { 
       weekday: 'long', 
@@ -191,10 +183,10 @@ const MyCalendar = () => {
 
   const getEventColor = (type: string) => {
     switch (type) {
-      case 'meeting': return 'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30';
-      case 'task': return 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30';
-      case 'deadline': return 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30';
-      default: return 'bg-gray-500/20 text-gray-300 border-gray-500/40 hover:bg-gray-500/30';
+      case 'meeting': return 'bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/40 dark:hover:bg-purple-500/30';
+      case 'task': return 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40 dark:hover:bg-blue-500/30';
+      case 'deadline': return 'bg-rose-100 text-rose-700 border-rose-300 hover:bg-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40 dark:hover:bg-rose-500/30';
+      default: return 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/40 dark:hover:bg-gray-500/30';
     }
   };
 
@@ -202,7 +194,7 @@ const MyCalendar = () => {
   const renderMonthView = () => (
     <div className="grid grid-cols-7 gap-1 sm:gap-2">
       {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-        <div key={day} className="p-2 sm:p-3 text-center text-xs sm:text-sm font-semibold text-gray-400 uppercase tracking-wider">
+        <div key={day} className="p-2 sm:p-3 text-center text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
           <span className="hidden sm:inline">{day}</span>
           <span className="sm:hidden">{day.charAt(0)}</span>
         </div>
@@ -210,31 +202,31 @@ const MyCalendar = () => {
       
       {getDaysInMonth(currentDate).map((day, index) => {
         if (day === null) {
-          return <div key={index} className="p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] rounded-lg bg-gray-800/20" />;
+          return <div key={index} className="p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] rounded-lg bg-gray-50 dark:bg-gray-800/20" />;
         }
 
         const dayDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
         const dayMeetings = getMeetingsForDate(dayDate);
-        const today = isToday(dayDate);
+        const todayFlag = isToday(dayDate);
 
         return (
           <div
             key={day}
             className={`p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] border rounded-lg cursor-pointer transition-all ${
-              today 
-                ? 'bg-gradient-to-br from-purple-600/20 to-indigo-600/20 border-purple-500/50 shadow-lg ring-2 ring-purple-500/20' 
-                : 'border-gray-700/40 bg-gray-800/20 hover:bg-gray-800/40 hover:border-gray-600/50'
+              todayFlag 
+                ? 'bg-gradient-to-br from-purple-100 to-indigo-100 border-purple-400 shadow-lg ring-2 ring-purple-300 dark:from-purple-600/20 dark:to-indigo-600/20 dark:border-purple-500/50 dark:ring-purple-500/20' 
+                : 'border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 dark:border-gray-700/40 dark:bg-gray-800/20 dark:hover:bg-gray-800/40'
             }`}
             onClick={() => setSelectedDate(dayDate)}
           >
             <div className="flex items-center justify-between mb-1 sm:mb-2">
               <span className={`text-xs sm:text-sm font-bold ${
-                today ? 'text-purple-300' : 'text-white'
+                todayFlag ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'
               }`}>
                 {day}
               </span>
               {dayMeetings.length > 0 && (
-                <span className="text-xs bg-purple-500/30 text-purple-200 px-1.5 py-0.5 rounded-full font-semibold border border-purple-400/40 shadow-sm">
+                <span className="text-xs bg-purple-600 text-white px-1.5 py-0.5 rounded-full font-semibold shadow-sm dark:bg-purple-500/30 dark:text-purple-200 dark:border dark:border-purple-400/40">
                   {dayMeetings.length}
                 </span>
               )}
@@ -256,7 +248,7 @@ const MyCalendar = () => {
                 </div>
               ))}
               {dayMeetings.length > 3 && (
-                <div className="text-xs text-gray-400 font-medium pl-1">
+                <div className="text-xs text-gray-600 dark:text-gray-400 font-medium pl-1">
                   +{dayMeetings.length - 3} more
                 </div>
               )}
@@ -277,20 +269,20 @@ const MyCalendar = () => {
         <div className="grid grid-cols-8 gap-2 mb-2">
           <div className="p-2"></div>
           {weekDays.map((day, index) => {
-            const today = isToday(day);
+            const todayFlag = isToday(day);
             return (
               <div
                 key={index}
                 className={`p-2 text-center rounded-lg border transition-all ${
-                  today 
-                    ? 'bg-purple-600/20 border-purple-500/50 shadow-lg'
-                    : 'border-gray-700/40 bg-gray-800/20'
+                  todayFlag 
+                    ? 'bg-purple-100 border-purple-400 shadow-lg dark:bg-purple-600/20 dark:border-purple-500/50'
+                    : 'border-gray-200 bg-white dark:border-gray-700/40 dark:bg-gray-800/20'
                 }`}
               >
-                <div className={`text-xs font-semibold uppercase ${today ? 'text-purple-300' : 'text-gray-400'}`}>
+                <div className={`text-xs font-semibold uppercase ${todayFlag ? 'text-purple-700 dark:text-purple-300' : 'text-gray-600 dark:text-gray-400'}`}>
                   {day.toLocaleDateString('en-US', { weekday: 'short' })}
                 </div>
-                <div className={`text-xl font-bold ${today ? 'text-purple-300' : 'text-white'}`}>
+                <div className={`text-xl font-bold ${todayFlag ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'}`}>
                   {day.getDate()}
                 </div>
               </div>
@@ -309,9 +301,9 @@ const MyCalendar = () => {
             </div>
 
             {weekDays.map((day, dayIndex) => (
-              <div key={dayIndex} className="relative border-l border-gray-700/40">
+              <div key={dayIndex} className="relative border-l border-gray-200 dark:border-gray-700/40">
                 {hours.map((hour) => (
-                  <div key={hour} className="h-14 border-b border-gray-700/20"></div>
+                  <div key={hour} className="h-14 border-b border-gray-100 dark:border-gray-700/20"></div>
                 ))}
                 
                 {getMeetingsForDate(day).map((meeting) => {
@@ -350,15 +342,15 @@ const MyCalendar = () => {
 
     return (
       <div className="space-y-4">
-        <div className="bg-gradient-to-r from-purple-600/20 to-indigo-600/20 border border-purple-500/40 rounded-lg p-4">
-          <div className="text-2xl font-bold text-white mb-1">{formatDate(currentDate)}</div>
-          <div className="text-gray-300">{dayMeetings.length} events scheduled</div>
+        <div className="bg-gradient-to-r from-purple-100 to-indigo-100 border border-purple-300 rounded-lg p-4 dark:from-purple-600/20 dark:to-indigo-600/20 dark:border-purple-500/40">
+          <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{formatDate(currentDate)}</div>
+          <div className="text-gray-700 dark:text-gray-300">{dayMeetings.length} events scheduled</div>
         </div>
 
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-3 space-y-2">
             {hours.map((hour) => (
-              <div key={hour} className="h-14 text-xs text-gray-400 font-medium">
+              <div key={hour} className="h-14 text-xs text-gray-600 dark:text-gray-400 font-medium">
                 {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
               </div>
             ))}
@@ -366,7 +358,7 @@ const MyCalendar = () => {
 
           <div className="col-span-9 relative">
             {hours.map((hour) => (
-              <div key={hour} className="h-14 border-b border-gray-700/40"></div>
+              <div key={hour} className="h-14 border-b border-gray-200 dark:border-gray-700/40"></div>
             ))}
             
             {dayMeetings.map((meeting) => {
@@ -417,24 +409,24 @@ const MyCalendar = () => {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 bg-clip-text text-transparent">
                 My Calendar
               </h1>
-              <p className="text-gray-400 mt-2">Manage your meetings, tasks, and deadlines</p>
+              <p className="text-gray-600 dark:text-gray-400 mt-2">Manage your meetings, tasks, and deadlines</p>
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className={`px-4 py-2.5 rounded-lg transition-all flex items-center gap-2 font-medium ${
+                className={`px-4 py-2.5 rounded-lg transition-all flex items-center gap-2 font-medium border ${
                   showFilters 
-                    ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50 shadow-lg shadow-purple-500/20' 
-                    : 'bg-gray-800/50 text-gray-300 hover:bg-gray-700/50 border border-gray-700/50'
+                    ? 'bg-purple-100 text-purple-700 border-purple-300 shadow-lg dark:bg-purple-600/30 dark:text-purple-300 dark:border-purple-500/50 dark:shadow-purple-500/20' 
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:hover:bg-gray-700/50 dark:border-gray-700/50'
                 }`}
               >
                 <Filter size={16} />
                 <span className="hidden sm:inline">Filters</span>
               </button>
-              <button className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 transition-all flex items-center gap-2 font-medium shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
+              <button className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all flex items-center gap-2 font-medium shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
                 <Plus size={16} />
                 <span className="hidden sm:inline">Add Event</span>
                 <span className="sm:hidden">Add</span>
@@ -444,58 +436,58 @@ const MyCalendar = () => {
 
           {/* Search Bar */}
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={20} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search events, workspaces, or participants..."
-              className="w-full pl-12 pr-4 py-3.5 bg-gray-800/50 border border-gray-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all backdrop-blur-sm"
+              className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-white dark:placeholder-gray-500"
             />
           </div>
         </div>
 
         {/* Filters Panel */}
         {showFilters && (
-          <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6 shadow-xl">
+          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-xl dark:bg-gray-800/40 dark:border-gray-700/50">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-white">Filters</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h3>
               <button
                 onClick={() => setShowFilters(false)}
-                className="p-2 hover:bg-gray-700/50 rounded-lg transition-colors"
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors dark:hover:bg-gray-700/50"
               >
-                <X size={18} className="text-gray-400" />
+                <X size={18} className="text-gray-600 dark:text-gray-400" />
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-3">Workspaces</label>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Workspaces</label>
                 <div className="space-y-3">
                   {workspaces.map((workspace) => (
-                    <label key={workspace} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
-                      <input type="checkbox" className="rounded border-gray-600 bg-gray-800/50 text-purple-500 focus:ring-purple-500/50" />
+                    <label key={workspace} className="flex items-center gap-3 text-sm text-gray-700 cursor-pointer hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors">
+                      <input type="checkbox" className="rounded border-gray-300 text-purple-600 focus:ring-purple-500/50 dark:border-gray-600 dark:bg-gray-800/50 dark:text-purple-500" />
                       <span>{workspace}</span>
                     </label>
                   ))}
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-3">Event Type</label>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Event Type</label>
                 <div className="space-y-3">
                   {['Meeting', 'Task', 'Deadline'].map((type) => (
-                    <label key={type} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
-                      <input type="checkbox" className="rounded border-gray-600 bg-gray-800/50 text-purple-500 focus:ring-purple-500/50" />
+                    <label key={type} className="flex items-center gap-3 text-sm text-gray-700 cursor-pointer hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors">
+                      <input type="checkbox" className="rounded border-gray-300 text-purple-600 focus:ring-purple-500/50 dark:border-gray-600 dark:bg-gray-800/50 dark:text-purple-500" />
                       <span>{type}</span>
                     </label>
                   ))}
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-3">Status</label>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Status</label>
                 <div className="space-y-3">
                   {['Upcoming', 'Completed', 'Cancelled'].map((status) => (
-                    <label key={status} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
-                      <input type="checkbox" className="rounded border-gray-600 bg-gray-800/50 text-purple-500 focus:ring-purple-500/50" />
+                    <label key={status} className="flex items-center gap-3 text-sm text-gray-700 cursor-pointer hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors">
+                      <input type="checkbox" className="rounded border-gray-300 text-purple-600 focus:ring-purple-500/50 dark:border-gray-600 dark:bg-gray-800/50 dark:text-purple-500" />
                       <span>{status}</span>
                     </label>
                   ))}
@@ -507,7 +499,7 @@ const MyCalendar = () => {
 
         {/* View Mode and Stats */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg p-1 flex border border-gray-700/50 shadow-lg">
+          <div className="bg-white border border-gray-200 rounded-lg p-1 flex shadow-lg dark:bg-gray-800/40 dark:border-gray-700/50">
             {(['month', 'week', 'day'] as const).map((mode) => (
               <button
                 key={mode}
@@ -515,7 +507,7 @@ const MyCalendar = () => {
                 className={`px-5 py-2.5 rounded-md font-semibold transition-all text-sm ${
                   viewMode === mode
                     ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700/50'
                 }`}
               >
                 {mode.charAt(0).toUpperCase() + mode.slice(1)}
@@ -524,30 +516,30 @@ const MyCalendar = () => {
           </div>
 
           {/* Quick Stats */}
-          <div className="flex items-center gap-6 text-sm bg-gray-800/40 backdrop-blur-sm rounded-lg px-4 py-2 border border-gray-700/50">
+          <div className="flex items-center gap-6 text-sm bg-white border border-gray-200 rounded-lg px-4 py-2 dark:bg-gray-800/40 dark:border-gray-700/50">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-purple-500 shadow-lg shadow-purple-500/50"></div>
-              <span className="text-gray-400">Meetings</span>
-              <span className="text-white font-bold">3</span>
+              <span className="text-gray-600 dark:text-gray-400">Meetings</span>
+              <span className="text-gray-900 dark:text-white font-bold">3</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-blue-500 shadow-lg shadow-blue-500/50"></div>
-              <span className="text-gray-400">Tasks</span>
-              <span className="text-white font-bold">1</span>
+              <span className="text-gray-600 dark:text-gray-400">Tasks</span>
+              <span className="text-gray-900 dark:text-white font-bold">1</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-rose-500 shadow-lg shadow-rose-500/50"></div>
-              <span className="text-gray-400">Deadlines</span>
-              <span className="text-white font-bold">1</span>
+              <span className="text-gray-600 dark:text-gray-400">Deadlines</span>
+              <span className="text-gray-900 dark:text-white font-bold">1</span>
             </div>
           </div>
         </div>
 
         {/* Calendar */}
-        <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg border border-gray-700/50 p-4 sm:p-6 shadow-xl">
+        <div className="bg-white border border-gray-200 rounded-lg p-4 sm:p-6 shadow-xl dark:bg-gray-800/40 dark:border-gray-700/50 dark:backdrop-blur-sm">
           {/* Calendar Header */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
               {viewMode === 'day' 
                 ? currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
                 : currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
@@ -555,19 +547,19 @@ const MyCalendar = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => navigateDate('prev')}
-                className="p-2.5 hover:bg-gray-700/50 rounded-lg transition-all text-gray-400 hover:text-white border border-gray-700/50"
+                className="p-2.5 rounded-lg transition-all text-gray-600 hover:text-gray-900 hover:bg-gray-50 border border-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700/50 dark:border-gray-700/50"
               >
                 <ChevronLeft size={20} />
               </button>
               <button
                 onClick={() => setCurrentDate(new Date())}
-                className="px-4 py-2.5 bg-gray-700/50 text-gray-300 rounded-lg hover:bg-gray-600/50 transition-all text-sm font-semibold border border-gray-700/50"
+                className="px-4 py-2.5 rounded-lg transition-all text-sm font-semibold bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-300 dark:bg-gray-700/50 dark:text-gray-300 dark:hover:bg-gray-600/50 dark:border-gray-700/50"
               >
                 Today
               </button>
               <button
                 onClick={() => navigateDate('next')}
-                className="p-2.5 hover:bg-gray-700/50 rounded-lg transition-all text-gray-400 hover:text-white border border-gray-700/50"
+                className="p-2.5 rounded-lg transition-all text-gray-600 hover:text-gray-900 hover:bg-gray-50 border border-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700/50 dark:border-gray-700/50"
               >
                 <ChevronRight size={20} />
               </button>
@@ -582,29 +574,29 @@ const MyCalendar = () => {
 
         {/* Selected Date Details */}
         {selectedDate && viewMode !== 'day' && (
-          <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6 shadow-xl">
+          <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-xl dark:bg-gray-800/40 dark:border-gray-700/50 dark:backdrop-blur-sm">
             <div className="flex items-start justify-between mb-6">
               <div>
-                <h3 className="text-2xl font-bold text-white mb-1">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
                   {formatDate(selectedDate)}
                 </h3>
-                <p className="text-gray-400">
+                <p className="text-gray-700 dark:text-gray-400">
                   {getMeetingsForDate(selectedDate).length} events scheduled
                 </p>
               </div>
               <button
                 onClick={() => setSelectedDate(null)}
-                className="p-2 hover:bg-gray-700/50 rounded-lg transition-colors"
+                className="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/50"
               >
-                <X size={20} className="text-gray-400" />
+                <X size={20} className="text-gray-600 dark:text-gray-400" />
               </button>
             </div>
             <div className="space-y-3">
               {getMeetingsForDate(selectedDate).length === 0 ? (
-                <div className="text-center py-12 bg-gray-800/30 rounded-lg border border-gray-700/30">
-                  <Calendar size={56} className="mx-auto text-gray-600 mb-4" />
-                  <p className="text-gray-400 text-lg">No events scheduled for this day</p>
-                  <button className="mt-4 px-4 py-2 bg-purple-600/30 text-purple-300 rounded-lg hover:bg-purple-600/40 transition-all border border-purple-500/40">
+                <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200 dark:bg-gray-800/30 dark:border-gray-700/30">
+                  <Calendar size={56} className="mx-auto text-gray-500 dark:text-gray-600 mb-4" />
+                  <p className="text-gray-700 dark:text-gray-400 text-lg">No events scheduled for this day</p>
+                  <button className="mt-4 px-4 py-2 rounded-lg transition-all border bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200 dark:bg-purple-600/30 dark:text-purple-300 dark:hover:bg-purple-600/40 dark:border-purple-500/40">
                     Add Event
                   </button>
                 </div>
@@ -612,7 +604,7 @@ const MyCalendar = () => {
                 getMeetingsForDate(selectedDate).map((meeting) => (
                   <div
                     key={meeting.id}
-                    className="bg-gray-800/50 rounded-lg p-5 border border-gray-700/50 hover:border-gray-600/50 transition-all group relative"
+                    className="rounded-lg p-5 border transition-all group relative bg-white border-gray-200 hover:border-gray-300 dark:bg-gray-800/50 dark:border-gray-700/50 dark:hover:border-gray-600/50"
                     onMouseEnter={() => setHoveredMeeting(meeting.id)}
                     onMouseLeave={() => setHoveredMeeting(null)}
                   >
@@ -622,13 +614,13 @@ const MyCalendar = () => {
                           <div className={`p-2 rounded-lg ${getEventColor(meeting.type).split(' ')[0]}`}>
                             {getTypeIcon(meeting.type)}
                           </div>
-                          <h4 className="font-bold text-lg text-white truncate">{meeting.title}</h4>
+                          <h4 className="font-bold text-lg text-gray-900 dark:text-white truncate">{meeting.title}</h4>
                           <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-lg ${getPriorityColor(meeting.priority)}`} />
                         </div>
                         
                         <div className="space-y-2 text-sm">
-                          <div className="flex items-center gap-2 text-gray-300">
-                            <Clock size={16} className="text-purple-400 flex-shrink-0" />
+                          <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                            <Clock size={16} className="text-purple-600 dark:text-purple-400 flex-shrink-0" />
                             <span className="font-medium">
                               {meeting.startTime.toLocaleTimeString('en-US', { 
                                 hour: '2-digit', 
@@ -643,20 +635,20 @@ const MyCalendar = () => {
                             </span>
                           </div>
                           
-                          <div className="flex items-center gap-2 text-gray-300">
-                            <Calendar size={16} className="text-indigo-400 flex-shrink-0" />
+                          <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                            <Calendar size={16} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
                             <span className="truncate">{meeting.workspace}</span>
                           </div>
                           
                           {meeting.location && (
-                            <div className="flex items-center gap-2 text-gray-300">
-                              <MapPin size={16} className="text-emerald-400 flex-shrink-0" />
+                            <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                              <MapPin size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                               <span className="truncate">{meeting.location}</span>
                             </div>
                           )}
                           
-                          <div className="flex items-center gap-2 text-gray-300">
-                            <Users size={16} className="text-blue-400 flex-shrink-0" />
+                          <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                            <Users size={16} className="text-blue-600 dark:text-blue-400 flex-shrink-0" />
                             <span className="truncate">{meeting.participants.join(', ')}</span>
                           </div>
                         </div>
@@ -665,21 +657,21 @@ const MyCalendar = () => {
                       <div className="flex sm:flex-col items-center gap-3">
                         <span className={`px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0 border shadow-sm ${
                           meeting.status === 'upcoming' 
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40'
                             : meeting.status === 'completed'
-                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                            : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40'
+                            : 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40'
                         }`}>
                           {meeting.status.charAt(0).toUpperCase() + meeting.status.slice(1)}
                         </span>
                         
                         {hoveredMeeting === meeting.id && (
                           <div className="flex items-center gap-2">
-                            <button className="p-2 bg-gray-700/50 hover:bg-gray-600/50 rounded-lg transition-all border border-gray-600/50">
-                              <Edit size={16} className="text-gray-300" />
+                            <button className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all border border-gray-300 dark:bg-gray-700/50 dark:hover:bg-gray-600/50 dark:border-gray-600/50">
+                              <Edit size={16} className="text-gray-700 dark:text-gray-300" />
                             </button>
-                            <button className="p-2 bg-rose-500/20 hover:bg-rose-500/30 rounded-lg transition-all border border-rose-500/40">
-                              <Trash size={16} className="text-rose-400" />
+                            <button className="p-2 bg-rose-100 hover:bg-rose-200 rounded-lg transition-all border border-rose-300 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 dark:border-rose-500/40">
+                              <Trash size={16} className="text-rose-700 dark:text-rose-400" />
                             </button>
                           </div>
                         )}
@@ -693,40 +685,96 @@ const MyCalendar = () => {
         )}
 
         {/* Upcoming Events Summary */}
-        <div className="bg-gradient-to-br from-purple-600/10 via-indigo-600/10 to-pink-600/10 backdrop-blur-sm rounded-lg border border-purple-500/30 p-6 shadow-xl">
-          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-            <Clock size={24} className="text-purple-400" />
+        <div
+          className="
+            rounded-lg border p-6 shadow-xl backdrop-blur-sm
+            bg-gradient-to-br from-purple-600/10 via-indigo-600/10 to-pink-600/10
+            dark:from-purple-600/10 dark:via-indigo-600/10 dark:to-pink-600/10
+            border-purple-500/30 dark:border-purple-500/30
+          "
+        >
+          <h3
+            className="
+              text-xl font-bold mb-4 flex items-center gap-2
+              text-gray-900 dark:text-white
+            "
+          >
+            <Clock
+              size={24}
+              className="text-purple-600 dark:text-purple-400"
+            />
             Upcoming Events
           </h3>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {meetings
-              .filter(m => m.status === 'upcoming')
+              .filter((m) => m.status === 'upcoming')
               .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
               .slice(0, 6)
               .map((meeting) => (
                 <div
                   key={meeting.id}
-                  className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50 hover:border-purple-500/50 transition-all cursor-pointer group"
                   onClick={() => {
                     setSelectedDate(new Date(meeting.startTime));
                     setViewMode('day');
                   }}
+                  className="
+                    rounded-lg p-4 border transition-all cursor-pointer group
+                    bg-white/70 hover:bg-white/90 border-gray-300 hover:border-purple-300
+                    dark:bg-gray-800/50 dark:hover:bg-gray-700/60
+                    dark:border-gray-700/50 dark:hover:border-purple-500/50
+                  "
                 >
                   <div className="flex items-start gap-3">
-                    <div className={`p-2 rounded-lg ${getEventColor(meeting.type).split(' ')[0]} flex-shrink-0`}>
+                    <div
+                      className={`p-2 rounded-lg flex-shrink-0 ${getEventColor(
+                        meeting.type
+                      ).split(' ')[0]}`}
+                    >
                       {getTypeIcon(meeting.type)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-white truncate mb-1 group-hover:text-purple-300 transition-colors">
+                      <h4
+                        className="
+                          font-semibold mb-1 truncate transition-colors
+                          text-gray-900 group-hover:text-purple-700
+                          dark:text-white dark:group-hover:text-purple-300
+                        "
+                      >
                         {meeting.title}
                       </h4>
-                      <p className="text-xs text-gray-400 mb-2">
-                        {meeting.startTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at{' '}
-                        {meeting.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+
+                      <p
+                        className="
+                          text-xs mb-2
+                          text-gray-500 dark:text-gray-400
+                        "
+                      >
+                        {meeting.startTime.toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}{' '}
+                        at{' '}
+                        {meeting.startTime.toLocaleTimeString('en-US', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </p>
+
                       <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${getPriorityColor(meeting.priority)}`} />
-                        <span className="text-xs text-gray-400 truncate">{meeting.workspace}</span>
+                        <div
+                          className={`w-2 h-2 rounded-full ${getPriorityColor(
+                            meeting.priority
+                          )}`}
+                        />
+                        <span
+                          className="
+                            text-xs truncate
+                            text-gray-600 dark:text-gray-400
+                          "
+                        >
+                          {meeting.workspace}
+                        </span>
                       </div>
                     </div>
                   </div>

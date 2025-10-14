@@ -198,20 +198,20 @@ const MeetingsDashboard = () => {
 
         <div className="mb-8 flex items-start justify-between gap-3 relative z-20">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-1 tracking-tight">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1 tracking-tight">
               Meetings
             </h1>
-            <p className="text-slate-400">Manage your meetings and AI-powered insights</p>
+            <p className="text-gray-600 dark:text-slate-400">Manage your meetings and AI-powered insights</p>
           </div>
           
           <div className="flex items-center gap-3">
-            <div className="flex items-center space-x-1 bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-lg p-0.5">
+            <div className="flex items-center space-x-1 rounded-lg p-0.5 bg-white border border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50">
               <button
                 onClick={() => setViewType('list')}
                 className={`p-2 rounded transition-all ${
                   viewType === 'list'
                     ? 'bg-purple-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
                 }`}
                 title="List View"
               >
@@ -222,7 +222,7 @@ const MeetingsDashboard = () => {
                 className={`p-2 rounded transition-all ${
                   viewType === 'grid'
                     ? 'bg-purple-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
                 }`}
                 title="Grid View"
               >
@@ -233,7 +233,7 @@ const MeetingsDashboard = () => {
                 className={`p-2 rounded transition-all ${
                   viewType === 'kanban'
                     ? 'bg-purple-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
                 }`}
                 title="Kanban View"
               >
@@ -244,7 +244,7 @@ const MeetingsDashboard = () => {
                 className={`p-2 rounded transition-all ${
                   viewType === 'calendar'
                     ? 'bg-purple-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
                 }`}
                 title="Calendar View"
               >
@@ -256,21 +256,21 @@ const MeetingsDashboard = () => {
               <button
                 type="button"
                 onClick={() => setShowTimeFilterMenu(v => !v)}
-                className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 text-white rounded-lg text-sm hover:bg-slate-800/70 transition-all"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all bg-white border border-gray-300 text-gray-900 hover:bg-gray-100 dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-white"
                 aria-haspopup="menu"
                 aria-expanded={showTimeFilterMenu}
               >
-                <Filter className="w-4 h-4 text-slate-300" />
+                <Filter className="w-4 h-4 text-gray-500 dark:text-slate-300" />
                 <span className="capitalize">{timeFilter === 'week' ? 'This Week' : timeFilter === 'today' ? 'Today' : timeFilter === 'month' ? 'This Month' : 'This Quarter'}</span>
               </button>
               {showTimeFilterMenu && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900/95 backdrop-blur-xl border border-slate-700/60 rounded-lg shadow-xl z-50" role="menu">
+                <div className="absolute right-0 top-full mt-2 w-48 rounded-lg shadow-xl z-50 bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60" role="menu">
                   <div className="p-1">
-                    <button onClick={() => { setTimeFilter('all'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-white/5 text-slate-200 ${timeFilter==='all' ? 'bg-white/5' : ''}`} role="menuitem">All</button>
-                    <button onClick={() => { setTimeFilter('today'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-white/5 text-slate-200 ${timeFilter==='today' ? 'bg-white/5' : ''}`} role="menuitem">Today</button>
-                    <button onClick={() => { setTimeFilter('week'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-white/5 text-slate-200 ${timeFilter==='week' ? 'bg-white/5' : ''}`} role="menuitem">This Week</button>
-                    <button onClick={() => { setTimeFilter('month'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-white/5 text-slate-200 ${timeFilter==='month' ? 'bg-white/5' : ''}`} role="menuitem">This Month</button>
-                    <button onClick={() => { setTimeFilter('quarter'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-white/5 text-slate-200 ${timeFilter==='quarter' ? 'bg-white/5' : ''}`} role="menuitem">This Quarter</button>
+                    <button onClick={() => { setTimeFilter('all'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='all' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">All</button>
+                    <button onClick={() => { setTimeFilter('today'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='today' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">Today</button>
+                    <button onClick={() => { setTimeFilter('week'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='week' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Week</button>
+                    <button onClick={() => { setTimeFilter('month'); setShowTimeFilterMenu(false); }} className={`w/full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='month' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Month</button>
+                    <button onClick={() => { setTimeFilter('quarter'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='quarter' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Quarter</button>
                   </div>
                 </div>
               )}
@@ -284,10 +284,10 @@ const MeetingsDashboard = () => {
                   New
                 </button>
                 {showPlusMenu && (
-                  <div className="absolute right-0 mt-2 w-56 bg-slate-900/95 backdrop-blur-xl border border-slate-700/60 rounded-lg shadow-xl z-50" role="menu">
+                  <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-xl z-50 bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60" role="menu">
                     <div className="p-2">
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-white/5 text-slate-200" role="menuitem">Schedule new meeting</button>
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-white/5 text-slate-200" role="menuitem">Import from Calendar</button>
+                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200" role="menuitem">Schedule new meeting</button>
+                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200" role="menuitem">Import from Calendar</button>
                     </div>
                   </div>
                 )}
@@ -300,16 +300,16 @@ const MeetingsDashboard = () => {
                   Settings
                 </button>
                 {showSettingsMenu && (
-                  <div className="absolute right-0 mt-2 w-56 bg-slate-900/95 backdrop-blur-xl border border-slate-700/60 rounded-lg shadow-xl z-50" role="menu">
+                  <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-xl z-50 bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60" role="menu">
                     <div className="p-2">
-                      <p className="px-2 py-1 text-xs uppercase tracking-wider text-slate-500">Sync Frequency</p>
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-white/5 text-slate-300" role="menuitem">Manual</button>
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-white/5 text-slate-300" role="menuitem">Every 15 minutes</button>
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-white/5 text-slate-300" role="menuitem">Hourly</button>
-                      <div className="h-px bg-slate-700/60 my-2" />
-                      <p className="px-2 py-1 text-xs uppercase tracking-wider text-slate-500">Integrations</p>
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-white/5 text-slate-300" role="menuitem">Google Calendar</button>
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-white/5 text-slate-300" role="menuitem">Outlook</button>
+                      <p className="px-2 py-1 text-xs uppercase tracking-wider text-gray-500 dark:text-slate-500">Sync Frequency</p>
+                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-300" role="menuitem">Manual</button>
+                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-300" role="menuitem">Every 15 minutes</button>
+                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-300" role="menuitem">Hourly</button>
+                      <div className="h-px bg-gray-200 my-2 dark:bg-slate-700/60" />
+                      <p className="px-2 py-1 text-xs uppercase tracking-wider text-gray-500 dark:text-slate-500">Integrations</p>
+                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-300" role="menuitem">Google Calendar</button>
+                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-300" role="menuitem">Outlook</button>
                     </div>
                   </div>
                 )}
@@ -324,25 +324,25 @@ const MeetingsDashboard = () => {
             return (
               <div
                 key={idx}
-                className="bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-5 hover:border-slate-600 transition-all duration-200 group cursor-pointer"
+                className="rounded-lg p-5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className={`p-2.5 bg-gradient-to-br ${stat.color} rounded-lg group-hover:scale-105 transition-transform duration-200`}>
                     <Icon className="w-5 h-5 text-white" />
                   </div>
-                  <span className="text-green-400 text-xs font-medium flex items-center gap-0.5">
+                  <span className="text-green-600 dark:text-green-400 text-xs font-medium flex items-center gap-0.5">
                     <ArrowUpRight className="w-3.5 h-3.5" />
                     {stat.change}
                   </span>
                 </div>
-                <h3 className="text-2xl font-bold text-white mb-0.5">{stat.value}</h3>
-                <p className="text-slate-400 text-sm">{stat.label}</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-0.5">{stat.value}</h3>
+                <p className="text-gray-600 dark:text-slate-400 text-sm">{stat.label}</p>
               </div>
             );
           })}
         </div>
 
-        <div className="bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg p-1 mb-6">
+        <div className="rounded-lg border p-1 mb-6 bg-white border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
           <div className="flex space-x-1 relative">
             <div
               className="absolute top-1 bottom-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-md transition-all duration-300 ease-out"
@@ -359,14 +359,14 @@ const MeetingsDashboard = () => {
                 className="relative flex-1 flex items-center justify-center space-x-2 px-5 py-2.5 rounded-md transition-all duration-200 z-10"
               >
                 <span className={`font-medium text-sm transition-all ${
-                  activeTab === tab.id ? 'text-white' : 'text-slate-400'
+                  activeTab === tab.id ? 'text-white' : 'text-gray-600 dark:text-slate-400'
                 }`}>
                   {tab.label}
                 </span>
                 <span className={`px-1.5 py-0.5 rounded text-xs font-medium transition-all ${
                   activeTab === tab.id 
                     ? 'bg-white/15 text-white' 
-                    : 'bg-slate-700/30 text-slate-500'
+                    : 'bg-gray-100 text-gray-600 dark:bg-slate-700/30 dark:text-slate-500'
                 }`}>
                   {tab.count}
                 </span>
@@ -384,7 +384,7 @@ const MeetingsDashboard = () => {
                 placeholder="Search meetings..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-11 pr-4 py-2.5 bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                className="w-full pl-11 pr-4 py-2.5 rounded-lg text-sm transition-all bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-slate-800/40 dark:border-slate-700/50 dark:text-white dark:placeholder-slate-500"
               />
             </div>
           </div>

@@ -18,25 +18,25 @@ export default function WorkspaceIntegrationsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-gray-900/50 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Connected Services</h3>
+      <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Connected Services</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {integrations.map((integration) => (
-            <div key={integration.id} className="bg-gray-800/50 rounded-md p-4 border border-gray-700/50">
+            <div key={integration.id} className="rounded-md p-4 border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/50">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
                   <div className="text-3xl">{integration.icon}</div>
                   <div>
-                    <h4 className="text-white font-medium">{integration.name}</h4>
-                    <p className="text-sm text-gray-400 mt-1">{integration.desc}</p>
+                    <h4 className="text-gray-900 dark:text-white font-medium">{integration.name}</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{integration.desc}</p>
                   </div>
                 </div>
                 <button
                   onClick={() => toggleIntegration(integration.id)}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                     integration.connected
-                      ? 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30'
-                      : 'bg-gray-700/50 text-gray-300 border border-gray-600/50 hover:bg-purple-600/20 hover:text-purple-400 hover:border-purple-500/30'
+                      ? 'bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 dark:bg-green-600/20 dark:text-green-400 dark:border-green-500/30'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600/50 dark:hover:bg-purple-600/20 dark:hover:text-purple-400 dark:hover:border-purple-500/30'
                   }`}
                 >
                   {integration.connected ? 'Connected' : 'Connect'}

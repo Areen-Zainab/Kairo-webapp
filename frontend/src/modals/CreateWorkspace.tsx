@@ -53,17 +53,17 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 rounded-lg shadow-2xl w-full max-w-4xl border border-gray-700/50 flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="rounded-xl shadow-2xl w-full max-w-4xl border flex flex-col max-h-[85vh] bg-white border-gray-200 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 dark:border-gray-700/50">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-700/50 bg-gray-900/50 backdrop-blur-sm flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-5 border-b flex-shrink-0 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
           <div>
-            <h2 className="text-2xl font-bold text-white tracking-tight">Create Workspace</h2>
-            <p className="text-sm text-gray-400 mt-1">Set up your collaborative environment</p>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Create Workspace</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Set up your collaborative environment</p>
           </div>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-white transition-all hover:rotate-90 duration-300 p-1"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-all hover:rotate-90 duration-300 p-1"
           >
             <X size={24} />
           </button>
@@ -76,15 +76,15 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
             <div className="space-y-5">
               {/* Logo Upload */}
               <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+                <label className="block text-sm font-semibold text-gray-900 dark:text-gray-300 mb-3 uppercase tracking-wider">
                   Workspace Logo
                 </label>
                 <div className="flex items-center gap-4">
-                  <div className="w-20 h-20 rounded-md bg-gradient-to-br from-gray-800 to-gray-900 border-2 border-dashed border-purple-500/30 flex items-center justify-center overflow-hidden hover:border-purple-500/60 transition-all duration-300">
+                  <div className="w-20 h-20 rounded-md border-2 border-dashed flex items-center justify-center overflow-hidden transition-all duration-300 bg-gray-50 border-purple-300 hover:border-purple-400 dark:bg-gradient-to-br dark:from-gray-800 dark:to-gray-900 dark:border-purple-500/30 dark:hover:border-purple-500/60">
                     {logoPreview ? (
                       <img src={logoPreview} alt="Logo preview" className="w-full h-full object-cover" />
                     ) : (
-                      <Upload className="text-gray-600" size={28} />
+                      <Upload className="text-gray-500" size={28} />
                     )}
                   </div>
                   <label className="cursor-pointer flex-1">
@@ -94,7 +94,7 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
                       onChange={handleLogoUpload}
                       className="hidden"
                     />
-                    <div className="px-5 py-2.5 bg-gradient-to-r from-gray-800 to-gray-700 text-gray-200 rounded-md hover:from-gray-700 hover:to-gray-600 transition-all duration-300 border border-gray-600/50 text-sm font-medium text-center shadow-lg hover:shadow-purple-500/10">
+                    <div className="px-5 py-2.5 rounded-md transition-all duration-300 text-sm font-medium text-center shadow-sm bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 dark:bg-gradient-to-r dark:from-gray-800 dark:to-gray-700 dark:text-gray-200 dark:border-gray-600/50 dark:hover:from-gray-700 dark:hover:to-gray-600 dark:shadow-lg dark:hover:shadow-purple-500/10">
                       {logoPreview ? 'Change Logo' : 'Upload Logo'}
                     </div>
                   </label>
@@ -103,7 +103,7 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
 
               {/* Workspace Name */}
               <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
+                <label className="block text-sm font-semibold text-gray-900 dark:text-gray-300 mb-2 uppercase tracking-wider">
                   Workspace Name <span className="text-purple-400">*</span>
                 </label>
                 <input
@@ -111,13 +111,13 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
                   value={workspaceName}
                   onChange={(e) => setWorkspaceName(e.target.value)}
                   placeholder="e.g., Acme Corporation"
-                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-300 backdrop-blur-sm"
+                  className="w-full px-4 py-3 rounded-md transition-all duration-300 bg-white border border-gray-300 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-white dark:placeholder-gray-500"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
+                <label className="block text-sm font-semibold text-gray-900 dark:text-gray-300 mb-2 uppercase tracking-wider">
                   Description
                 </label>
                 <textarea
@@ -125,7 +125,7 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What's this workspace about?"
                   rows={4}
-                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-300 resize-none backdrop-blur-sm"
+                  className="w-full px-4 py-3 rounded-md transition-all duration-300 resize-none bg-white border border-gray-300 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-white dark:placeholder-gray-500"
                 />
               </div>
             </div>
@@ -134,7 +134,7 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
             <div className="flex flex-col">
               {/* Invite Members */}
               <div className="flex-1 flex flex-col">
-                <label className="block text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider flex items-center gap-2">
+                <label className="block text-sm font-semibold text-gray-900 dark:text-gray-300 mb-3 uppercase tracking-wider flex items-center gap-2">
                   <Users size={16} className="text-purple-400" />
                   Invite Members
                 </label>
@@ -145,7 +145,7 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
                     onChange={(e) => setEmailInput(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addMember())}
                     placeholder="Enter email address"
-                    className="flex-1 px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-300 backdrop-blur-sm"
+                    className="flex-1 px-4 py-3 rounded-md transition-all duration-300 bg-white border border-gray-300 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 dark:bg-gray-800/50 dark:border-gray-700/50 dark:text-white dark:placeholder-gray-500"
                   />
                   <button
                     type="button"
@@ -163,13 +163,13 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
                       {members.map((email, index) => (
                         <div
                           key={index}
-                          className="flex items-center justify-between px-4 py-3 bg-gray-800/50 rounded-md border border-gray-700/50 hover:border-purple-500/30 transition-all duration-300 backdrop-blur-sm group"
+                          className="flex items-center justify-between px-4 py-3 rounded-md border transition-all duration-300 group bg-gray-50 border-gray-200 hover:border-purple-300 dark:bg-gray-800/50 dark:border-gray-700/50 dark:hover:border-purple-500/30"
                         >
-                          <span className="text-gray-300 text-sm truncate pr-2">{email}</span>
+                          <span className="text-gray-700 dark:text-gray-300 text-sm truncate pr-2">{email}</span>
                           <button
                             type="button"
                             onClick={() => removeMember(index)}
-                            className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 p-1 hover:bg-red-500/10 rounded"
+                            className="text-gray-500 hover:text-red-600 transition-colors flex-shrink-0 p-1 hover:bg-red-100 rounded dark:hover:bg-red-500/10 dark:hover:text-red-400"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -177,7 +177,7 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
                       ))}
                     </div>
                   ) : (
-                    <div className="h-full flex items-center justify-center border-2 border-dashed border-gray-700/50 rounded-md">
+                    <div className="h-full flex items-center justify-center border-2 border-dashed rounded-md border-gray-300 dark:border-gray-700/50">
                       <p className="text-gray-500 text-sm">No members added yet</p>
                     </div>
                   )}
@@ -188,12 +188,12 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-5 border-t border-gray-700/50 bg-gray-900/30 backdrop-blur-sm flex-shrink-0">
+        <div className="px-6 py-5 border-t flex-shrink-0 bg-gray-50 border-gray-200 dark:bg-gray-900/30 dark:border-gray-700/50">
           <div className="flex gap-3">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-6 py-3 bg-gray-800/50 text-gray-300 rounded-md hover:bg-gray-700/50 transition-all duration-300 border border-gray-700/50 font-medium backdrop-blur-sm"
+              className="flex-1 px-6 py-3 rounded-md transition-all duration-300 font-medium bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:border-gray-700/50 dark:hover:bg-gray-700/50"
             >
               Cancel
             </button>
