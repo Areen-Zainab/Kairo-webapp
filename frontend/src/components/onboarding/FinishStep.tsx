@@ -1,11 +1,19 @@
 import React from 'react';
 import { Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface FinishStepProps {
   onFinish: () => void;
 }
 
 const FinishStep: React.FC<FinishStepProps> = ({ onFinish }) => {
+  const navigate = useNavigate();
+
+  const handleFinish = () => {
+    onFinish();
+    navigate('/dashboard');
+  };
+
   return (
     <div className="space-y-6 text-center">
       <div className="flex justify-center">
@@ -45,7 +53,7 @@ const FinishStep: React.FC<FinishStepProps> = ({ onFinish }) => {
       </div>
 
       <button
-        onClick={onFinish}
+        onClick={handleFinish}
         className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl font-semibold text-white hover:shadow-2xl hover:shadow-purple-500/50 transition-all hover:scale-105"
       >
         Go to Dashboard →

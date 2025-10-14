@@ -1,0 +1,742 @@
+import { useState } from 'react';
+import { ChevronLeft, ChevronRight, Calendar, Clock, Users, MapPin, Plus, Filter, X, Search, Edit, Trash } from 'lucide-react';
+import Layout from '../../components/Layout';
+
+interface Meeting {
+  id: string;
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  workspace: string;
+  participants: string[];
+  location?: string;
+  type: 'meeting' | 'task' | 'deadline';
+  status: 'upcoming' | 'completed' | 'cancelled';
+  priority: 'low' | 'medium' | 'high';
+}
+
+const MyCalendar = () => {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hoveredMeeting, setHoveredMeeting] = useState<string | null>(null);
+
+  // Mock data - using current month for better demo
+  const today = new Date();
+  const meetings: Meeting[] = [
+    {
+      id: '1',
+      title: 'Sprint Planning',
+      startTime: new Date(today.getFullYear(), today.getMonth(), 15, 10, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), 15, 11, 30),
+      workspace: 'Product Team Alpha',
+      participants: ['Sarah Johnson', 'Mike Chen', 'Emily Rodriguez'],
+      location: 'Conference Room A',
+      type: 'meeting',
+      status: 'upcoming',
+      priority: 'high',
+    },
+    {
+      id: '2',
+      title: 'Code Review Deadline',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 17, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 17, 0),
+      workspace: 'Design Sprint Team',
+      participants: ['David Kim'],
+      type: 'deadline',
+      status: 'upcoming',
+      priority: 'high',
+    },
+    {
+      id: '3',
+      title: 'Client Presentation',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 4, 14, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 4, 15, 0),
+      workspace: 'Client Solutions',
+      participants: ['Alex Johnson', 'Jessica Brown'],
+      location: 'Zoom',
+      type: 'meeting',
+      status: 'upcoming',
+      priority: 'high',
+    },
+    {
+      id: '4',
+      title: 'Bug Fix Task',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 9, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 12, 0),
+      workspace: 'Product Team Alpha',
+      participants: ['Mike Chen'],
+      type: 'task',
+      status: 'upcoming',
+      priority: 'medium',
+    },
+    {
+      id: '5',
+      title: 'Team Standup',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10, 0),
+      workspace: 'Product Team Alpha',
+      participants: ['Team'],
+      type: 'meeting',
+      status: 'upcoming',
+      priority: 'low',
+    },
+  ];
+
+  const workspaces = ['Product Team Alpha', 'Design Sprint Team', 'Client Solutions'];
+
+  // Helper functions
+  const navigateDate = (direction: 'prev' | 'next') => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      if (viewMode === 'month') {
+        newDate.setMonth(prev.getMonth() + (direction === 'next' ? 1 : -1));
+      } else if (viewMode === 'week') {
+        newDate.setDate(prev.getDate() + (direction === 'next' ? 7 : -7));
+      } else {
+        newDate.setDate(prev.getDate() + (direction === 'next' ? 1 : -1));
+      }
+      return newDate;
+    });
+  };
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    
+    const days = [];
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+      days.push(day);
+    }
+    return days;
+  };
+
+  const getWeekDays = (date: Date) => {
+    const day = date.getDay();
+    const diff = date.getDate() - day;
+    const sunday = new Date(date.setDate(diff));
+    
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const currentDay = new Date(sunday);
+      currentDay.setDate(sunday.getDate() + i);
+      days.push(currentDay);
+    }
+    return days;
+  };
+
+  const getMeetingsForDate = (date: Date) => {
+    return meetings.filter(meeting => {
+      const meetingDate = new Date(meeting.startTime);
+      return (
+        meetingDate.getDate() === date.getDate() &&
+        meetingDate.getMonth() === date.getMonth() &&
+        meetingDate.getFullYear() === date.getFullYear()
+      );
+    }).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return (
+      date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear()
+    );
+  };
+
+  // const isSameDay = (date1: Date, date2: Date) => {
+  //   return (
+  //     date1.getDate() === date2.getDate() &&
+  //     date1.getMonth() === date2.getMonth() &&
+  //     date1.getFullYear() === date2.getFullYear()
+  //   );
+  // };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'high': return 'bg-red-500';
+      case 'medium': return 'bg-amber-500';
+      case 'low': return 'bg-emerald-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'meeting': return <Users size={14} />;
+      case 'task': return <Clock size={14} />;
+      case 'deadline': return <Calendar size={14} />;
+      default: return <Calendar size={14} />;
+    }
+  };
+
+  const getEventColor = (type: string) => {
+    switch (type) {
+      case 'meeting': return 'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30';
+      case 'task': return 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30';
+      case 'deadline': return 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30';
+      default: return 'bg-gray-500/20 text-gray-300 border-gray-500/40 hover:bg-gray-500/30';
+    }
+  };
+
+  // Render Month View
+  const renderMonthView = () => (
+    <div className="grid grid-cols-7 gap-1 sm:gap-2">
+      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+        <div key={day} className="p-2 sm:p-3 text-center text-xs sm:text-sm font-semibold text-gray-400 uppercase tracking-wider">
+          <span className="hidden sm:inline">{day}</span>
+          <span className="sm:hidden">{day.charAt(0)}</span>
+        </div>
+      ))}
+      
+      {getDaysInMonth(currentDate).map((day, index) => {
+        if (day === null) {
+          return <div key={index} className="p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] rounded-lg bg-gray-800/20" />;
+        }
+
+        const dayDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+        const dayMeetings = getMeetingsForDate(dayDate);
+        const today = isToday(dayDate);
+
+        return (
+          <div
+            key={day}
+            className={`p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] border rounded-lg cursor-pointer transition-all ${
+              today 
+                ? 'bg-gradient-to-br from-purple-600/20 to-indigo-600/20 border-purple-500/50 shadow-lg ring-2 ring-purple-500/20' 
+                : 'border-gray-700/40 bg-gray-800/20 hover:bg-gray-800/40 hover:border-gray-600/50'
+            }`}
+            onClick={() => setSelectedDate(dayDate)}
+          >
+            <div className="flex items-center justify-between mb-1 sm:mb-2">
+              <span className={`text-xs sm:text-sm font-bold ${
+                today ? 'text-purple-300' : 'text-white'
+              }`}>
+                {day}
+              </span>
+              {dayMeetings.length > 0 && (
+                <span className="text-xs bg-purple-500/30 text-purple-200 px-1.5 py-0.5 rounded-full font-semibold border border-purple-400/40 shadow-sm">
+                  {dayMeetings.length}
+                </span>
+              )}
+            </div>
+            
+            <div className="space-y-1">
+              {dayMeetings.slice(0, 3).map((meeting) => (
+                <div
+                  key={meeting.id}
+                  className={`text-xs p-1.5 rounded border transition-all ${getEventColor(meeting.type)}`}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getPriorityColor(meeting.priority)}`} />
+                    <span className="font-medium truncate">{meeting.title}</span>
+                  </div>
+                  <div className="text-xs opacity-75 mt-0.5 hidden sm:block">
+                    {meeting.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              ))}
+              {dayMeetings.length > 3 && (
+                <div className="text-xs text-gray-400 font-medium pl-1">
+                  +{dayMeetings.length - 3} more
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // Render Week View
+  const renderWeekView = () => {
+    const weekDays = getWeekDays(new Date(currentDate));
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+
+    return (
+      <div className="flex flex-col">
+        <div className="grid grid-cols-8 gap-2 mb-2">
+          <div className="p-2"></div>
+          {weekDays.map((day, index) => {
+            const today = isToday(day);
+            return (
+              <div
+                key={index}
+                className={`p-2 text-center rounded-lg border transition-all ${
+                  today 
+                    ? 'bg-purple-600/20 border-purple-500/50 shadow-lg'
+                    : 'border-gray-700/40 bg-gray-800/20'
+                }`}
+              >
+                <div className={`text-xs font-semibold uppercase ${today ? 'text-purple-300' : 'text-gray-400'}`}>
+                  {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                </div>
+                <div className={`text-xl font-bold ${today ? 'text-purple-300' : 'text-white'}`}>
+                  {day.getDate()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="overflow-y-auto max-h-[600px] pr-2">
+          <div className="grid grid-cols-8 gap-2">
+            <div className="space-y-14">
+              {hours.map((hour) => (
+                <div key={hour} className="text-xs text-gray-500 text-right pr-2 -mt-2">
+                  {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
+                </div>
+              ))}
+            </div>
+
+            {weekDays.map((day, dayIndex) => (
+              <div key={dayIndex} className="relative border-l border-gray-700/40">
+                {hours.map((hour) => (
+                  <div key={hour} className="h-14 border-b border-gray-700/20"></div>
+                ))}
+                
+                {getMeetingsForDate(day).map((meeting) => {
+                  const startHour = meeting.startTime.getHours();
+                  const startMinute = meeting.startTime.getMinutes();
+                  const duration = (meeting.endTime.getTime() - meeting.startTime.getTime()) / (1000 * 60);
+                  const top = (startHour * 56) + (startMinute / 60 * 56);
+                  const height = Math.max((duration / 60) * 56, 28);
+
+                  return (
+                    <div
+                      key={meeting.id}
+                      className={`absolute left-1 right-1 rounded border p-1 cursor-pointer transition-all ${getEventColor(meeting.type)}`}
+                      style={{ top: `${top}px`, height: `${height}px` }}
+                      onClick={() => setSelectedDate(day)}
+                    >
+                      <div className="text-xs font-semibold truncate">{meeting.title}</div>
+                      <div className="text-xs opacity-75 truncate">
+                        {meeting.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Day View
+  const renderDayView = () => {
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+    const dayMeetings = getMeetingsForDate(currentDate);
+
+    return (
+      <div className="space-y-4">
+        <div className="bg-gradient-to-r from-purple-600/20 to-indigo-600/20 border border-purple-500/40 rounded-lg p-4">
+          <div className="text-2xl font-bold text-white mb-1">{formatDate(currentDate)}</div>
+          <div className="text-gray-300">{dayMeetings.length} events scheduled</div>
+        </div>
+
+        <div className="grid grid-cols-12 gap-4">
+          <div className="col-span-3 space-y-2">
+            {hours.map((hour) => (
+              <div key={hour} className="h-14 text-xs text-gray-400 font-medium">
+                {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
+              </div>
+            ))}
+          </div>
+
+          <div className="col-span-9 relative">
+            {hours.map((hour) => (
+              <div key={hour} className="h-14 border-b border-gray-700/40"></div>
+            ))}
+            
+            {dayMeetings.map((meeting) => {
+              const startHour = meeting.startTime.getHours();
+              const startMinute = meeting.startTime.getMinutes();
+              const duration = (meeting.endTime.getTime() - meeting.startTime.getTime()) / (1000 * 60);
+              const top = (startHour * 56) + (startMinute / 60 * 56);
+              const height = Math.max((duration / 60) * 56, 56);
+
+              return (
+                <div
+                  key={meeting.id}
+                  className={`absolute left-0 right-0 rounded-lg border p-3 cursor-pointer transition-all ${getEventColor(meeting.type)}`}
+                  style={{ top: `${top}px`, height: `${height}px` }}
+                >
+                  <div className="flex items-start gap-2">
+                    {getTypeIcon(meeting.type)}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm truncate">{meeting.title}</div>
+                      <div className="text-xs opacity-75 mt-1">
+                        {meeting.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                        {' - '}
+                        {meeting.endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div className="text-xs opacity-75 mt-1 truncate">{meeting.workspace}</div>
+                      {meeting.location && (
+                        <div className="text-xs opacity-75 flex items-center gap-1 mt-1">
+                          <MapPin size={10} />
+                          {meeting.location}
+                        </div>
+                      )}
+                    </div>
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getPriorityColor(meeting.priority)}`} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <Layout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+                My Calendar
+              </h1>
+              <p className="text-gray-400 mt-2">Manage your meetings, tasks, and deadlines</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`px-4 py-2.5 rounded-lg transition-all flex items-center gap-2 font-medium ${
+                  showFilters 
+                    ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50 shadow-lg shadow-purple-500/20' 
+                    : 'bg-gray-800/50 text-gray-300 hover:bg-gray-700/50 border border-gray-700/50'
+                }`}
+              >
+                <Filter size={16} />
+                <span className="hidden sm:inline">Filters</span>
+              </button>
+              <button className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 transition-all flex items-center gap-2 font-medium shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
+                <Plus size={16} />
+                <span className="hidden sm:inline">Add Event</span>
+                <span className="sm:hidden">Add</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search events, workspaces, or participants..."
+              className="w-full pl-12 pr-4 py-3.5 bg-gray-800/50 border border-gray-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all backdrop-blur-sm"
+            />
+          </div>
+        </div>
+
+        {/* Filters Panel */}
+        {showFilters && (
+          <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-white">Filters</h3>
+              <button
+                onClick={() => setShowFilters(false)}
+                className="p-2 hover:bg-gray-700/50 rounded-lg transition-colors"
+              >
+                <X size={18} className="text-gray-400" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-3">Workspaces</label>
+                <div className="space-y-3">
+                  {workspaces.map((workspace) => (
+                    <label key={workspace} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+                      <input type="checkbox" className="rounded border-gray-600 bg-gray-800/50 text-purple-500 focus:ring-purple-500/50" />
+                      <span>{workspace}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-3">Event Type</label>
+                <div className="space-y-3">
+                  {['Meeting', 'Task', 'Deadline'].map((type) => (
+                    <label key={type} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+                      <input type="checkbox" className="rounded border-gray-600 bg-gray-800/50 text-purple-500 focus:ring-purple-500/50" />
+                      <span>{type}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-3">Status</label>
+                <div className="space-y-3">
+                  {['Upcoming', 'Completed', 'Cancelled'].map((status) => (
+                    <label key={status} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+                      <input type="checkbox" className="rounded border-gray-600 bg-gray-800/50 text-purple-500 focus:ring-purple-500/50" />
+                      <span>{status}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* View Mode and Stats */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg p-1 flex border border-gray-700/50 shadow-lg">
+            {(['month', 'week', 'day'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-5 py-2.5 rounded-md font-semibold transition-all text-sm ${
+                  viewMode === mode
+                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                }`}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {/* Quick Stats */}
+          <div className="flex items-center gap-6 text-sm bg-gray-800/40 backdrop-blur-sm rounded-lg px-4 py-2 border border-gray-700/50">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-purple-500 shadow-lg shadow-purple-500/50"></div>
+              <span className="text-gray-400">Meetings</span>
+              <span className="text-white font-bold">3</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-blue-500 shadow-lg shadow-blue-500/50"></div>
+              <span className="text-gray-400">Tasks</span>
+              <span className="text-white font-bold">1</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-rose-500 shadow-lg shadow-rose-500/50"></div>
+              <span className="text-gray-400">Deadlines</span>
+              <span className="text-white font-bold">1</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Calendar */}
+        <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg border border-gray-700/50 p-4 sm:p-6 shadow-xl">
+          {/* Calendar Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">
+              {viewMode === 'day' 
+                ? currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+                : currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigateDate('prev')}
+                className="p-2.5 hover:bg-gray-700/50 rounded-lg transition-all text-gray-400 hover:text-white border border-gray-700/50"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                onClick={() => setCurrentDate(new Date())}
+                className="px-4 py-2.5 bg-gray-700/50 text-gray-300 rounded-lg hover:bg-gray-600/50 transition-all text-sm font-semibold border border-gray-700/50"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => navigateDate('next')}
+                className="p-2.5 hover:bg-gray-700/50 rounded-lg transition-all text-gray-400 hover:text-white border border-gray-700/50"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+
+          {/* Calendar Views */}
+          {viewMode === 'month' && renderMonthView()}
+          {viewMode === 'week' && renderWeekView()}
+          {viewMode === 'day' && renderDayView()}
+        </div>
+
+        {/* Selected Date Details */}
+        {selectedDate && viewMode !== 'day' && (
+          <div className="bg-gray-800/40 backdrop-blur-sm rounded-lg border border-gray-700/50 p-6 shadow-xl">
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-1">
+                  {formatDate(selectedDate)}
+                </h3>
+                <p className="text-gray-400">
+                  {getMeetingsForDate(selectedDate).length} events scheduled
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedDate(null)}
+                className="p-2 hover:bg-gray-700/50 rounded-lg transition-colors"
+              >
+                <X size={20} className="text-gray-400" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {getMeetingsForDate(selectedDate).length === 0 ? (
+                <div className="text-center py-12 bg-gray-800/30 rounded-lg border border-gray-700/30">
+                  <Calendar size={56} className="mx-auto text-gray-600 mb-4" />
+                  <p className="text-gray-400 text-lg">No events scheduled for this day</p>
+                  <button className="mt-4 px-4 py-2 bg-purple-600/30 text-purple-300 rounded-lg hover:bg-purple-600/40 transition-all border border-purple-500/40">
+                    Add Event
+                  </button>
+                </div>
+              ) : (
+                getMeetingsForDate(selectedDate).map((meeting) => (
+                  <div
+                    key={meeting.id}
+                    className="bg-gray-800/50 rounded-lg p-5 border border-gray-700/50 hover:border-gray-600/50 transition-all group relative"
+                    onMouseEnter={() => setHoveredMeeting(meeting.id)}
+                    onMouseLeave={() => setHoveredMeeting(null)}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-3 flex-wrap">
+                          <div className={`p-2 rounded-lg ${getEventColor(meeting.type).split(' ')[0]}`}>
+                            {getTypeIcon(meeting.type)}
+                          </div>
+                          <h4 className="font-bold text-lg text-white truncate">{meeting.title}</h4>
+                          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-lg ${getPriorityColor(meeting.priority)}`} />
+                        </div>
+                        
+                        <div className="space-y-2 text-sm">
+                          <div className="flex items-center gap-2 text-gray-300">
+                            <Clock size={16} className="text-purple-400 flex-shrink-0" />
+                            <span className="font-medium">
+                              {meeting.startTime.toLocaleTimeString('en-US', { 
+                                hour: '2-digit', 
+                                minute: '2-digit' 
+                              })}
+                              {meeting.endTime && meeting.startTime.getTime() !== meeting.endTime.getTime() && (
+                                <> - {meeting.endTime.toLocaleTimeString('en-US', { 
+                                  hour: '2-digit', 
+                                  minute: '2-digit' 
+                                })}</>
+                              )}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 text-gray-300">
+                            <Calendar size={16} className="text-indigo-400 flex-shrink-0" />
+                            <span className="truncate">{meeting.workspace}</span>
+                          </div>
+                          
+                          {meeting.location && (
+                            <div className="flex items-center gap-2 text-gray-300">
+                              <MapPin size={16} className="text-emerald-400 flex-shrink-0" />
+                              <span className="truncate">{meeting.location}</span>
+                            </div>
+                          )}
+                          
+                          <div className="flex items-center gap-2 text-gray-300">
+                            <Users size={16} className="text-blue-400 flex-shrink-0" />
+                            <span className="truncate">{meeting.participants.join(', ')}</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex sm:flex-col items-center gap-3">
+                        <span className={`px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0 border shadow-sm ${
+                          meeting.status === 'upcoming' 
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : meeting.status === 'completed'
+                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                            : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        }`}>
+                          {meeting.status.charAt(0).toUpperCase() + meeting.status.slice(1)}
+                        </span>
+                        
+                        {hoveredMeeting === meeting.id && (
+                          <div className="flex items-center gap-2">
+                            <button className="p-2 bg-gray-700/50 hover:bg-gray-600/50 rounded-lg transition-all border border-gray-600/50">
+                              <Edit size={16} className="text-gray-300" />
+                            </button>
+                            <button className="p-2 bg-rose-500/20 hover:bg-rose-500/30 rounded-lg transition-all border border-rose-500/40">
+                              <Trash size={16} className="text-rose-400" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Upcoming Events Summary */}
+        <div className="bg-gradient-to-br from-purple-600/10 via-indigo-600/10 to-pink-600/10 backdrop-blur-sm rounded-lg border border-purple-500/30 p-6 shadow-xl">
+          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <Clock size={24} className="text-purple-400" />
+            Upcoming Events
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {meetings
+              .filter(m => m.status === 'upcoming')
+              .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
+              .slice(0, 6)
+              .map((meeting) => (
+                <div
+                  key={meeting.id}
+                  className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50 hover:border-purple-500/50 transition-all cursor-pointer group"
+                  onClick={() => {
+                    setSelectedDate(new Date(meeting.startTime));
+                    setViewMode('day');
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-lg ${getEventColor(meeting.type).split(' ')[0]} flex-shrink-0`}>
+                      {getTypeIcon(meeting.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-white truncate mb-1 group-hover:text-purple-300 transition-colors">
+                        {meeting.title}
+                      </h4>
+                      <p className="text-xs text-gray-400 mb-2">
+                        {meeting.startTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at{' '}
+                        {meeting.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${getPriorityColor(meeting.priority)}`} />
+                        <span className="text-xs text-gray-400 truncate">{meeting.workspace}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+};
+
+export default MyCalendar;

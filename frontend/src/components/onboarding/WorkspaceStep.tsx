@@ -1,10 +1,14 @@
 import React from 'react';
+import { ArrowLeft } from 'lucide-react';
 
 interface OnboardingData {
   displayName: string;
   timezone: string;
   profilePicture: File | null;
   audioSample: File | null;
+  calendarConnected: boolean;
+  calendarProvider: 'google' | 'microsoft' | null;
+  autoJoinEnabled: boolean;
   workspaceAction: 'create' | 'join' | 'skip' | null;
   workspaceName: string;
   workspaceCode: string;
@@ -13,11 +17,23 @@ interface OnboardingData {
 interface WorkspaceStepProps {
   data: OnboardingData;
   onChange: (data: Partial<OnboardingData>) => void;
+  onBack?: () => void;
 }
 
-const WorkspaceStep: React.FC<WorkspaceStepProps> = ({ data, onChange }) => {
+const WorkspaceStep: React.FC<WorkspaceStepProps> = ({ data, onChange, onBack }) => {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fadeIn">
+      {/* Back Button */}
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="flex items-center space-x-2 text-slate-400 hover:text-white transition-colors text-sm mb-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Calendar</span>
+        </button>
+      )}
+
       <div className="text-center mb-3">
         <h2 className="text-2xl font-bold text-white mb-1">Join a Workspace</h2>
         <p className="text-sm text-slate-300">Create a new workspace or join an existing one</p>

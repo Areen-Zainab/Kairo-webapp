@@ -4,12 +4,21 @@ import ProfileStep from '../components/onboarding/ProfileStep';
 import VoiceStep from '../components/onboarding/VoiceStep';
 import WorkspaceStep from '../components/onboarding/WorkspaceStep';
 import FinishStep from '../components/onboarding/FinishStep';
+import CalendarStep from '../components/onboarding/CalendarStep';
 
 interface OnboardingData {
+  // Existing fields
   displayName: string;
   timezone: string;
   profilePicture: File | null;
   audioSample: File | null;
+  
+  // NEW: Calendar fields
+  calendarConnected: boolean;
+  calendarProvider: 'google' | 'microsoft' | null;
+  autoJoinEnabled: boolean;
+  
+  // Workspace fields
   workspaceAction: 'create' | 'join' | 'skip' | null;
   workspaceName: string;
   workspaceCode: string;
@@ -22,22 +31,24 @@ export default function KairoOnboarding() {
     timezone: '',
     profilePicture: null,
     audioSample: null,
+    // NEW: Calendar defaults
+    calendarConnected: false,
+    calendarProvider: null,
+    autoJoinEnabled: false,
+    // Workspace
     workspaceAction: null,
     workspaceName: '',
     workspaceCode: ''
   });
 
-  const totalSteps = 4;
+  const totalSteps = 5; // Changed from 4 to 5
   const steps = [
     { number: 1, title: 'Profile' },
     { number: 2, title: 'Voice' },
-    { number: 3, title: 'Workspace' },
-    { number: 4, title: 'Finish' }
+    { number: 3, title: 'Calendar' }, // NEW
+    { number: 4, title: 'Workspace' },
+    { number: 5, title: 'Finish' }
   ];
-
-  const updateFormData = (data: Partial<OnboardingData>) => {
-    setFormData(prev => ({ ...prev, ...data }));
-  };
 
   const canProceed = () => {
     switch (currentStep) {
@@ -46,6 +57,9 @@ export default function KairoOnboarding() {
       case 2:
         return formData.audioSample !== null;
       case 3:
+        // Calendar step can always proceed (skip is allowed)
+        return true;
+      case 4:
         if (formData.workspaceAction === 'skip') return true;
         return (
           formData.workspaceAction === 'create' ? formData.workspaceName.trim() !== '' :
@@ -72,6 +86,11 @@ export default function KairoOnboarding() {
     alert('Redirecting to dashboard...');
   };
 
+  // Add this function to update formData from child steps
+  const updateFormData = (newData: Partial<OnboardingData>) => {
+    setFormData(prev => ({ ...prev, ...newData }));
+  };
+
   const renderCurrentStep = () => {
     switch (currentStep) {
       case 1:
@@ -79,8 +98,10 @@ export default function KairoOnboarding() {
       case 2:
         return <VoiceStep data={formData} onChange={updateFormData} />;
       case 3:
-        return <WorkspaceStep data={formData} onChange={updateFormData} />;
+        return <CalendarStep data={formData} onChange={updateFormData} />; // NEW
       case 4:
+        return <WorkspaceStep data={formData} onChange={updateFormData} />;
+      case 5:
         return <FinishStep onFinish={handleFinish} />;
       default:
         return null;
@@ -136,12 +157,12 @@ export default function KairoOnboarding() {
       {/* Main Container */}
       <div className="relative z-10 w-full max-w-2xl px-4">
         {/* Step Indicator */}
-        {currentStep < 4 && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between">
-              {steps.slice(0, 3).map((step, idx) => (
+        {currentStep < 5 && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between max-w-3xl mx-auto">
+              {steps.slice(0, 4).map((step, idx) => (
                 <React.Fragment key={step.number}>
-                  <div className="flex flex-col items-center">
+                  <div className="flex flex-col items-center flex-shrink-0">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-all text-sm ${
                       step.number < currentStep
                         ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg shadow-purple-500/50'
@@ -151,10 +172,10 @@ export default function KairoOnboarding() {
                     }`}>
                       {step.number < currentStep ? <Check className="w-5 h-5" /> : step.number}
                     </div>
-                    <div className="mt-1.5 text-xs font-medium text-slate-300">{step.title}</div>
+                    <div className="mt-2 text-xs font-medium text-slate-300 whitespace-nowrap">{step.title}</div>
                   </div>
-                  {idx < 2 && (
-                    <div className={`flex-1 h-1 mx-3 mb-5 rounded-full transition-all ${
+                  {idx < 3 && (
+                    <div className={`flex-1 h-1 mx-4 mb-6 rounded-full transition-all ${
                       step.number < currentStep 
                         ? 'bg-gradient-to-r from-purple-600 to-blue-600'
                         : 'bg-white/10'
@@ -171,7 +192,7 @@ export default function KairoOnboarding() {
           {renderCurrentStep()}
 
           {/* Navigation */}
-          {currentStep < 4 && (
+          {currentStep < 5 && (
             <div className="flex space-x-3 mt-6">
               {currentStep > 1 && (
                 <button
@@ -193,9 +214,9 @@ export default function KairoOnboarding() {
         </div>
 
         {/* Progress Text */}
-        {currentStep < 4 && (
+        {currentStep < 5 && (
           <div className="text-center mt-3 text-xs text-slate-400">
-            Step {currentStep} of 3
+            Step {currentStep} of 4
           </div>
         )}
       </div>

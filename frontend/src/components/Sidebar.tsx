@@ -18,6 +18,7 @@ import {
   Sparkles,
   LayoutGrid,
 } from 'lucide-react';
+import CreateWorkspaceModal from '../modals/CreateWorkspace';
 
 interface Workspace {
   id: string;
@@ -55,6 +56,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
+  const [showCreateWorkspaceModal, setShowCreateWorkspaceModal] = useState(false);
 
   // Auto-detect view mode based on URL path
   useEffect(() => {
@@ -92,7 +94,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const workspaceBottomItems: MenuItem[] = [
-    { id: 'team', icon: Users, label: 'Team Members', badge: null, path: '/workspace/team' },
+    { id: 'team', icon: Users, label: 'Team Members', badge: null, path: '/workspace/team-members' },
     { id: 'workspace-settings', icon: Settings, label: 'Workspace Settings', badge: null, path: '/workspace/settings' },
   ];
 
@@ -104,6 +106,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   const bottomItems = viewMode === 'workspace' ? workspaceBottomItems : generalBottomItems;
 
   const isActiveItem = (path: string) => {
+    // Exact-match for top-level hubs to avoid double-highlighting their children
+    if (path === '/workspace' || path === '/dashboard') {
+      return location.pathname === path;
+    }
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
@@ -132,7 +138,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {collapsed ? (
             <button
               onClick={onToggle}
-              className="w-full flex items-center justify-center p-2 hover:bg-white/10 rounded-xl transition-all duration-200 group"
+              className="w-full flex items-center bg-transparent justify-center p-2 hover:bg-white/10 rounded-xl transition-all duration-200 group"
               aria-label="Expand sidebar"
               title="Expand sidebar"
             >
@@ -167,11 +173,11 @@ const Sidebar: React.FC<SidebarProps> = ({
               {onToggle && (
                 <button
                   onClick={onToggle}
-                  className="p-2 hover:bg-white/5 rounded-lg transition-all duration-200 group"
+                  className="p-2 bg-transparent hover:bg-white/5 rounded-lg transition-all duration-200 group"
                   aria-label="Collapse sidebar"
                   title="Collapse sidebar"
                 >
-                  <ChevronLeft className="w-5 h-5 text-slate-400 group-hover:text-white transition-colors" />
+                  <ChevronLeft className="w-5 h-5 bg-transparent text-slate-400 group-hover:text-white transition-colors" />
                 </button>
               )}
             </>
@@ -259,7 +265,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       key={workspace.id}
                       onClick={() => handleWorkspaceChange(workspace)}
-                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 ${
+                      className={`w-full bg-transparent flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 ${
                         currentWorkspace?.id === workspace.id && viewMode === 'workspace'
                           ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30'
                           : 'hover:bg-white/5'
@@ -279,7 +285,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   ))}
                 </div>
                 <div className="p-2 border-t border-white/10 bg-white/5">
-                  <button className="w-full flex items-center gap-3 px-3 py-2 text-purple-400 hover:bg-white/5 rounded-lg transition-colors group">
+                  <button 
+                    onClick={() => setShowCreateWorkspaceModal(true)}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-purple-400 hover:bg-white/5 rounded-lg transition-colors group"
+                  >
                     <div className="w-8 h-8 bg-purple-500/10 group-hover:bg-purple-500/20 rounded-lg flex items-center justify-center transition-colors">
                       <Plus className="w-4 h-4" />
                     </div>
@@ -311,7 +320,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative ${
                   isActive
                     ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/30'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
                 }`}
                 title={collapsed ? item.label : ''}
               >
@@ -321,7 +330,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <Icon className={`relative w-5 h-5 ${
                   isActive 
                     ? 'text-white' 
-                    : 'text-slate-400 group-hover:text-white'
+                    : 'text-slate-300 group-hover:text-white'
                 }`} />
                 {!collapsed && (
                   <>
@@ -358,14 +367,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative ${
                   isActive
                     ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/30'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
                 }`}
                 title={collapsed ? item.label : ''}
               >
                 {isActive && (
                   <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl blur opacity-50"></div>
                 )}
-                <Icon className={`relative w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+                <Icon className={`relative w-5 h-5 ${isActive ? 'text-white' : 'text-slate-300 group-hover:text-white'}`} />
                 {!collapsed && <span className="relative flex-1 text-left font-medium text-sm">{item.label}</span>}
               </button>
             );
@@ -388,6 +397,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           background: rgb(71 85 105);
         }
       `}</style>
+      
+      {/* Create Workspace Modal */}
+      {showCreateWorkspaceModal && (
+        <CreateWorkspaceModal 
+          isOpen={showCreateWorkspaceModal}
+          onClose={() => setShowCreateWorkspaceModal(false)}
+        />
+      )}
     </div>
   );
 };

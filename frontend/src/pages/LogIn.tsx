@@ -28,7 +28,8 @@ export default function KairoLoginPage() {
 
     setTimeout(() => {
       if (email && password) {
-        alert('Login successful!');
+        // Navigate to dashboard on success
+        navigate('/dashboard');
       } else {
         setError('Please fill in all fields');
       }

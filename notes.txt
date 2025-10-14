@@ -4,15 +4,32 @@
 DONE: 
 - Connected dashboard to sidebar
 - reorganized files to be easier to handle
+- onboarding ---> calendar sync
+- onboarding + signin connected to dashboard
+- meeting dashboard
+- meeting live page 
+- create workspace modal
+- add members modal
+- team members page
+- workspace settings
+- calendar
+- notifications
+- tasks
 
 
-DO:
+DO with backend:
 - Add protected route logic using `AuthContext` ---> Ensure that only authenticated users can access internal Kairo pages
 - backend setup
-- onboarding ---> calendar sync
-- ass marks
-- micro-recaps on webapp? in chat?
+* [x] Build reusable UI components:
+  * [x] `Button`
+  * [x] `InputField`
+  * [x] `FormContainer`
+- Divide Dshboard into components:   `DashboardCard` (meeting summary, action item preview)
 
+- graph page with dummy data
+- post meeting page with dummy data
+- transcript veiw page with dummy data
+- setup express.js backend folder
 
 
 ## **📦 Phase 1 — Core Setup & Auth Flow**
@@ -27,13 +44,7 @@ DO:
 * [DONE] Create `/login` page (email, password)    ---> DONE
 * [DONE] Create `/signup` page (basic info: name, email, password)    ---> DONE
 * [DONE] Create `/onboarding` flow (multi-step profile setup + voice sample)    ---> DONE
-* [DONE ] Create `/forgot-password` page (email input + reset message)    ---> DONE
-
-* [x] Build reusable UI components:
-  * [x] `Button`
-  * [x] `InputField`
-  * [x] `FormContainer`
-  * [x] `Stepper` (for onboarding)
+* [DONE] Create `/forgot-password` page (email input + reset message)    ---> DONE
 * [DONE] Create `AuthLayout` (shared design for all auth-related pages)
 * [DONE] Implement basic input validation and UI states
 
@@ -47,14 +58,13 @@ DO:
 
 * [DONE] Create `/dashboard` page (default landing after login) ---> DONE
 * [DONE] Create `/settings` page (profile, preferences, theme toggle) ---> DONE
-* [x] Build layout components:
+* [DONE] Build layout components:
   * [DONE] `Navbar` (with user menu, notifications, search) ---> DONE
   * [DONE] `Sidebar` (navigation links: Dashboard, Meetings, Memory, Tasks, Analytics) ---> DONE
   * [DONE] `PageWrapper` (shared container with padding and grid layout) ---> DONE
-  * [ ] `DashboardCard` (meeting summary, action item preview)
 * [DONE] Make layout responsive and adaptive ---> DONE
 * [DONE] Add route-based highlighting in sidebar ---> DONE
-* [ ] Integrate logout functionality ---> 
+* [DONE] Integrate logout functionality ---> 
 
 ---
 
@@ -63,16 +73,14 @@ DO:
 **Goal:** Implement Kairo’s live meeting assistant and past meeting views.
 
 **To-Do:**
-
-* [ ] Create `/meetings/live` page
+* [DONE] Create `/meetings/live` page
 * [ ] Create `/meetings/history` page (list of past meetings with filters)
 * [ ] Build components:
-
-  * [ ] `MeetingSidebar` (Recall Memory, Action Items, Notes tabs)
-  * [ ] `TranscriptionPanel` (real-time transcript UI)
-  * [ ] `ActionItemList` (editable list with completion state)
+  * [DONE] `MeetingSidebar` (Recall Memory, Action Items, Notes tabs)
+  * [DONE] `TranscriptionPanel` (real-time transcript UI)
+  * [DONE] `ActionItemList` (editable list with completion state)
   * [ ] `MeetingSummaryCard` (post-meeting summary view)
-* [ ] Add mock data and placeholder states for testing
+* [DONE] Add mock data and placeholder states for testing
 
 ---
 
