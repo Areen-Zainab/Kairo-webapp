@@ -16,8 +16,7 @@ DONE:
 - notifications
 - tasks
 - light/dark mode
-- graph page with dummy data
-Doing: 
+- graph page with dummy data 
 - post meeting page with dummy data
 - transcript veiw page with dummy data
 
