@@ -31,10 +31,10 @@ const WorkspaceOverview = () => {
   ];
 
   const activityFeed = [
-    { id: 1, type: 'task', text: 'New task assigned from Sprint Planning', time: '5 min ago', user: 'Alex M.' },
+    { id: 1, type: 'task', text: 'New task assigned from Sprint Planning', time: '5 min ago', user: 'Ali H.' },
     { id: 2, type: 'meeting', text: 'Meeting summary ready: Client Demo', time: '1 hour ago', user: 'System' },
     { id: 3, type: 'memory', text: 'Memory link created between 2 meetings', time: '2 hours ago', user: 'System' },
-    { id: 4, type: 'complete', text: 'API Integration Sync completed', time: '3 hours ago', user: 'John D.' },
+    { id: 4, type: 'complete', text: 'API Integration Sync completed', time: '3 hours ago', user: 'Areeba R.' },
     { id: 5, type: 'transcript', text: 'Transcript processed for Product Review', time: '4 hours ago', user: 'System' },
   ];
 

@@ -169,9 +169,9 @@ export default function KairoHomePage() {
   const testimonials = [
     {
       quote: "The meeting memory feature is incredible. It's like having a perfect team assistant who never forgets.",
-      author: "Dr. Ali Zeeshan Ijaz",
+      author: "Ahmad Hussain",
       role: "Engineering Lead at SuperviseTech",
-      avatar: "AZ",
+      avatar: "AH",
       company: "SuperviseTech"
     },
     {
@@ -768,9 +768,9 @@ export default function KairoHomePage() {
                 {/* Simulated transcript feed */}
                 <div className="absolute inset-0 p-4 md:p-6 space-y-3 overflow-hidden">
                   {[
-                    { speaker: "Sarah", text: "Let's assign this to the dev team", highlight: true },
-                    { speaker: "Mike", text: "I'll handle the deployment by Friday", highlight: true },
-                    { speaker: "John", text: "Sounds good, let's review on Monday", highlight: false },
+                    { speaker: "Sana", text: "Let's assign this to the dev team", highlight: true },
+                    { speaker: "Muhammad", text: "I'll handle the deployment by Friday", highlight: true },
+                    { speaker: "Areeba", text: "Sounds good, let's review on Monday", highlight: false },
                   ].map((line, idx) => (
                     <div 
                       key={idx}

@@ -59,7 +59,7 @@ const MyNotifications = () => {
     {
       id: '4',
       title: 'New Team Member',
-      message: 'Sarah Johnson joined the Product Team Alpha workspace',
+      message: 'Sana Khan joined the Product Team Alpha workspace',
       type: 'workspace',
       priority: 'low',
       workspace: 'Product Team Alpha',

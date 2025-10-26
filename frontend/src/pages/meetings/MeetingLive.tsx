@@ -82,22 +82,22 @@ const LiveMeetingView = () => {
 
   const participants: Participant[] = [
     { id: '1', name: 'Kairo Bot', avatar: 'KB', isMuted: false, isVideoOn: false, isSpeaking: false },
-    { id: '2', name: 'Sarah Kim', avatar: 'SK', isMuted: false, isVideoOn: true, isSpeaking: true },
-    { id: '3', name: 'Mike Johnson', avatar: 'MJ', isMuted: true, isVideoOn: true, isSpeaking: false },
-    { id: '4', name: 'Emily Chen', avatar: 'EC', isMuted: false, isVideoOn: false, isSpeaking: false },
+    { id: '2', name: 'Sana Khan', avatar: 'SK', isMuted: false, isVideoOn: true, isSpeaking: true },
+    { id: '3', name: 'Muhammad Ali', avatar: 'MA', isMuted: true, isVideoOn: true, isSpeaking: false },
+    { id: '4', name: 'Fatima Sheikh', avatar: 'FS', isMuted: false, isVideoOn: false, isSpeaking: false },
   ];
 
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([
-    { id: '1', speaker: 'Sarah Kim', text: "Thanks everyone for joining. Let's start with the Q4 planning discussion.", timestamp: '10:02 AM', isUser: false },
-    { id: '2', speaker: 'Mike Johnson', text: "I've prepared a roadmap overview. Should we go through the key milestones first?", timestamp: '10:03 AM', isUser: false },
+    { id: '1', speaker: 'Sana Khan', text: "Thanks everyone for joining. Let's start with the Q4 planning discussion.", timestamp: '10:02 AM', isUser: false },
+    { id: '2', speaker: 'Muhammad Ali', text: "I've prepared a roadmap overview. Should we go through the key milestones first?", timestamp: '10:03 AM', isUser: false },
     { id: '3', speaker: 'You', text: "Yes, that would be great. Let's focus on the high-priority items.", timestamp: '10:03 AM', isUser: true },
-    { id: '4', speaker: 'Emily Chen', text: "I think we should also discuss the resource allocation for the design system project.", timestamp: '10:04 AM', isUser: false },
+    { id: '4', speaker: 'Fatima Sheikh', text: "I think we should also discuss the resource allocation for the design system project.", timestamp: '10:04 AM', isUser: false },
   ]);
 
   const [actionItems, setActionItems] = useState<ActionItem[]>([
-    { id: '1', text: 'Review Q4 roadmap document', assignee: 'Sarah Kim', isCompleted: false },
-    { id: '2', text: 'Schedule design system workshop', assignee: 'Emily Chen', isCompleted: false },
-    { id: '3', text: 'Update project timeline', assignee: 'Mike Johnson', isCompleted: true },
+    { id: '1', text: 'Review Q4 roadmap document', assignee: 'Sana Khan', isCompleted: false },
+    { id: '2', text: 'Schedule design system workshop', assignee: 'Fatima Sheikh', isCompleted: false },
+    { id: '3', text: 'Update project timeline', assignee: 'Muhammad Ali', isCompleted: true },
   ]);
   type ActionStatus = 'confirmed' | 'removed' | 'undecided';
   const [actionStatusById, setActionStatusById] = useState<Record<string, ActionStatus>>({
@@ -113,7 +113,7 @@ const LiveMeetingView = () => {
   ]);
 
   const [notes, setNotes] = useState([
-    { id: '1', text: 'Focus on mobile-first approach', timestamp: '10:02 AM', author: 'Sarah Kim', isPrivate: false },
+    { id: '1', text: 'Focus on mobile-first approach', timestamp: '10:02 AM', author: 'Sana Khan', isPrivate: false },
     { id: '2', text: 'Need to hire 2 more engineers', timestamp: '10:03 AM', author: 'You', isPrivate: true },
   ]);
   const [newNotePrivacy, setNewNotePrivacy] = useState<'public' | 'private'>('public');
@@ -277,7 +277,7 @@ const LiveMeetingView = () => {
                 <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500 animate-pulse" />
                 <span className="hidden sm:inline text-xs font-medium text-red-400">REC</span>
               </div>
-              <h1 className="text-sm font-semibold text-black truncate max-w-[40vw] sm:max-w-none">Sprint Planning – Team Kairo</h1>
+              <h1 className="text-sm font-semibold text-black truncate max-w-[40vw] sm:max-w-none dark:text-white">Sprint Planning – Team Kairo</h1>
               <button
                 type="button"
                 aria-pressed={isSidebarCollapsed}

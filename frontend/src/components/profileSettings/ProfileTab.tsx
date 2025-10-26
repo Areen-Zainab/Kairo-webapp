@@ -149,7 +149,7 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
           className={`w-full px-4 py-2.5 bg-gray-50 dark:bg-white/5 border ${
             errors.name ? 'border-red-400 dark:border-red-500/50' : 'border-gray-300 dark:border-white/10'
           } rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all`}
-          placeholder="John Doe"
+          placeholder="Areeba Riaz"
         />
         {errors.name && <p className="text-xs text-red-500 dark:text-red-400">{errors.name}</p>}
       </div>
@@ -167,7 +167,7 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
           className={`w-full px-4 py-2.5 bg-gray-50 dark:bg-white/5 border ${
             errors.email ? 'border-red-400 dark:border-red-500/50' : 'border-gray-300 dark:border-white/10'
           } rounded-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all`}
-          placeholder="john@example.com"
+          placeholder="areeba@example.com"
         />
         {errors.email && <p className="text-xs text-red-500 dark:text-red-400">{errors.email}</p>}
       </div>

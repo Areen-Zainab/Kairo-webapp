@@ -20,6 +20,7 @@ import ListView from '../../components/meetings/dashboard/ListView';
 import GridView from '../../components/meetings/dashboard/GridView';
 import KanbanView from '../../components/meetings/dashboard/KanbanView';
 import CalendarView from '../../components/meetings/dashboard/CalendarView';
+import NewMeetingModal from '../../modals/NewMeetingModal';
 import { useNavigate } from 'react-router-dom';
 
 type TabType = 'all' | 'upcoming' | 'live' | 'history';
@@ -40,6 +41,18 @@ interface Meeting {
   transcriptReady?: boolean;
   memoryLinks?: number;
 }
+interface MeetingData {
+  title: string;
+  description: string;
+  meetingLink: string;
+  platform: 'zoom' | 'google-meet' | 'teams' | 'other';
+  duration: number;
+  participants: string[];
+  meetingType: 'instant' | 'scheduled';
+  scheduledDate?: string;
+  scheduledTime?: string;
+}
+
 const MeetingsDashboard = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('all');
@@ -47,12 +60,24 @@ const MeetingsDashboard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState('week');
   const [showTimeFilterMenu, setShowTimeFilterMenu] = useState(false);
+  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
 
   const plusMenuRef = useRef<HTMLDivElement>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const timeFilterMenuRef = useRef<HTMLDivElement>(null);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+
+  const handleJoinInstantly = (meetingData: MeetingData) => {
+    console.log('Joining external meeting:', meetingData);
+    // TODO: Implement external meeting join logic
+    navigate('/workspace/meetings/live');
+  };
+
+  const handleScheduleMeeting = (meetingData: MeetingData) => {
+    console.log('Scheduling external meeting join:', meetingData);
+    // TODO: Implement scheduled meeting join logic
+  };
 
   const stats = [
     { label: 'Total Meetings', value: '24', change: '+12%', icon: Video, color: 'from-blue-500 to-cyan-500' },
@@ -70,9 +95,9 @@ const MeetingsDashboard = () => {
       duration: '1h',
       status: 'live',
       participants: [
-        { name: 'John', avatar: 'JD' },
-        { name: 'Sarah', avatar: 'SK' },
-        { name: 'Mike', avatar: 'MJ' },
+        { name: 'Areeba', avatar: 'AR' },
+        { name: 'Sana', avatar: 'SK' },
+        { name: 'Muhammad', avatar: 'MJ' },
       ],
       summary: 'Prioritizing Q4 backlog and discussing sprint goals',
       topics: ['Q4 Planning', 'Backlog', 'Sprint Goals'],
@@ -87,8 +112,8 @@ const MeetingsDashboard = () => {
       duration: '1.5h',
       status: 'upcoming',
       participants: [
-        { name: 'Emily', avatar: 'EC' },
-        { name: 'David', avatar: 'DL' },
+        { name: 'Fatima', avatar: 'FC' },
+        { name: 'Daniyal', avatar: 'DL' },
       ],
       summary: 'Reviewing Q1 2025 product roadmap with stakeholders',
       topics: ['Product Strategy', 'Roadmap', 'Q1 Goals'],
@@ -97,14 +122,14 @@ const MeetingsDashboard = () => {
     {
       id: '3',
       title: 'Design System Workshop',
-      date: 'Dec 10, 2024',
+      date: 'Oct 15, 2024',
       time: '9:00 AM - 10:30 AM',
       duration: '1.5h',
       status: 'completed',
       participants: [
-        { name: 'Alex', avatar: 'AT' },
-        { name: 'Lisa', avatar: 'LM' },
-        { name: 'Tom', avatar: 'TP' },
+        { name: 'Ali', avatar: 'AT' },
+        { name: 'Layla', avatar: 'LM' },
+        { name: 'Tariq', avatar: 'TP' },
       ],
       summary: 'Established new component guidelines and updated design tokens',
       topics: ['Design System', 'Components', 'Guidelines'],
@@ -116,12 +141,12 @@ const MeetingsDashboard = () => {
     {
       id: '4',
       title: 'Client Demo: New Features',
-      date: 'Dec 15, 2024',
+      date: 'Oct 20, 2024',
       time: '3:00 PM - 4:00 PM',
       duration: '1h',
       status: 'upcoming',
       participants: [
-        { name: 'John', avatar: 'JD' },
+        { name: 'Areeba', avatar: 'AR' },
         { name: 'Client', avatar: 'CL' },
       ],
       summary: 'Showcasing latest platform updates to client',
@@ -131,6 +156,10 @@ const MeetingsDashboard = () => {
 
   const liveMeeting = meetings.find(m => m.status === 'live');
   const [dismissLiveBanner, setDismissLiveBanner] = useState(false);
+
+  const handleMeetingClick = (meetingId: string) => {
+    navigate(`/workspace/meetings/${meetingId}`);
+  };
 
   const withinTimeFilter = (meeting: Meeting) => {
     if (timeFilter === 'all') return true;
@@ -286,7 +315,7 @@ const MeetingsDashboard = () => {
                 {showPlusMenu && (
                   <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-xl z-50 bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60" role="menu">
                     <div className="p-2">
-                      <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200" role="menuitem">Schedule new meeting</button>
+                      <button onClick={() => { setShowNewMeetingModal(true); setShowPlusMenu(false); }} className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200" role="menuitem">Schedule new meeting</button>
                       <button className="w-full bg-transparent text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200" role="menuitem">Import from Calendar</button>
                     </div>
                   </div>
@@ -390,13 +419,13 @@ const MeetingsDashboard = () => {
           </div>
         )}
 
-        {viewType === 'list' && (<ListView meetings={filteredMeetings} />)}
+        {viewType === 'list' && (<ListView meetings={filteredMeetings} onMeetingClick={handleMeetingClick} />)}
 
-        {viewType === 'grid' && (<GridView meetings={filteredMeetings} />)}
+        {viewType === 'grid' && (<GridView meetings={filteredMeetings} onMeetingClick={handleMeetingClick} />)}
 
-        {viewType === 'kanban' && (<KanbanView meetings={filteredMeetings} />)}
+        {viewType === 'kanban' && (<KanbanView meetings={filteredMeetings} onMeetingClick={handleMeetingClick} />)}
 
-        {viewType === 'calendar' && (<CalendarView meetings={filteredMeetings} />)}
+        {viewType === 'calendar' && (<CalendarView meetings={filteredMeetings} onMeetingClick={handleMeetingClick} />)}
 
         {filteredMeetings.length === 0 && viewType !== 'calendar' && (
           <div className="text-center py-20">
@@ -406,6 +435,14 @@ const MeetingsDashboard = () => {
           </div>
         )}
       </div>
+
+      {/* New Meeting Modal */}
+      <NewMeetingModal
+        isOpen={showNewMeetingModal}
+        onClose={() => setShowNewMeetingModal(false)}
+        onJoinInstantly={handleJoinInstantly}
+        onScheduleMeeting={handleScheduleMeeting}
+      />
     </Layout>
   );
 };

@@ -30,8 +30,8 @@ const ProfileSettings = () => {
 
   const [profile, setProfile] = useState<UserProfile>({
     id: 'user-1',
-    name: 'John Doe',
-    email: 'john@example.com',
+    name: 'Areeba Riaz',
+    email: 'areeba@example.com',
     profilePicture: null,
     audioSample: null,
   });

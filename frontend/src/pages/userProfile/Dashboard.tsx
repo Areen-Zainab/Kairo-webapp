@@ -3,10 +3,24 @@ import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail,
 import Layout from '../../components/Layout';
 import CreateWorkspaceModal from '../../modals/CreateWorkspace';
 import JoinWorkspaceModal from '../../modals/JoinWorkspace';
+import NewMeetingModal from '../../modals/NewMeetingModal';
+
+interface MeetingData {
+  title: string;
+  description: string;
+  meetingLink: string;
+  platform: 'zoom' | 'google-meet' | 'teams' | 'other';
+  duration: number;
+  participants: string[];
+  meetingType: 'instant' | 'scheduled';
+  scheduledDate?: string;
+  scheduledTime?: string;
+}
 
 const Dashboard = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const user = {
@@ -107,6 +121,17 @@ const Dashboard = () => {
 
   const formatMonthYear = (date: Date) => {
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  const handleJoinInstantly = (meetingData: MeetingData) => {
+    console.log('Joining external meeting:', meetingData);
+    // TODO: Implement external meeting join logic
+    window.open(meetingData.meetingLink, '_blank');
+  };
+
+  const handleScheduleMeeting = (meetingData: MeetingData) => {
+    console.log('Scheduling external meeting join:', meetingData);
+    // TODO: Implement scheduled meeting join logic
   };
 
   return (
@@ -318,7 +343,7 @@ const Dashboard = () => {
         <div>
           <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 dark:text-slate-400">Quick Actions</h3>
           <div className="space-y-1.5">
-            <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
+            <button onClick={() => setShowNewMeetingModal(true)} className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
               <Calendar size={16} className="text-cyan-600 dark:text-cyan-400" />
               <span className="text-sm text-gray-900 dark:text-white">Schedule Meeting</span>
             </button>
@@ -342,6 +367,14 @@ const Dashboard = () => {
 
       {/* Join Workspace Modal */}
       <JoinWorkspaceModal isOpen={showJoinModal} onClose={() => setShowJoinModal(false)} />
+
+      {/* New Meeting Modal */}
+      <NewMeetingModal
+        isOpen={showNewMeetingModal}
+        onClose={() => setShowNewMeetingModal(false)}
+        onJoinInstantly={handleJoinInstantly}
+        onScheduleMeeting={handleScheduleMeeting}
+      />
 
       <style>{`
         .no-scrollbar::-webkit-scrollbar {

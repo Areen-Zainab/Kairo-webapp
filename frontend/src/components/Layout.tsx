@@ -1,13 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
+import NewMeetingModal from '../modals/NewMeetingModal';
 
 interface LayoutProps {
   children: React.ReactNode;
+  forceSidebarCollapsed?: boolean;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+interface MeetingData {
+  title: string;
+  description: string;
+  meetingLink: string;
+  platform: 'zoom' | 'google-meet' | 'teams' | 'other';
+  duration: number;
+  participants: string[];
+  meetingType: 'instant' | 'scheduled';
+  scheduledDate?: string;
+  scheduledTime?: string;
+}
+
+const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false }) => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  
+  // Initialize sidebar state - will be updated from localStorage in useEffect
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState<'general' | 'workspace'>('general');
 
@@ -32,6 +48,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const [currentWorkspace, setCurrentWorkspace] = useState(getInitialWorkspace());
   const [searchQuery, setSearchQuery] = useState('');
+  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
 
   // Automatically set view mode based on URL path
   useEffect(() => {
@@ -42,10 +59,34 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   }, [location.pathname]);
 
-  const user = {
-    name: 'John Doe',
-    email: 'john@example.com',
-    avatar: 'JD'
+  // Initialize sidebar state from localStorage on component mount
+  useEffect(() => {
+    const savedState = localStorage.getItem('sidebarCollapsed');
+    if (savedState !== null) {
+      try {
+        const parsedState = JSON.parse(savedState);
+        setSidebarCollapsed(parsedState);
+      } catch (error) {
+        console.error('Failed to parse saved sidebar state:', error);
+        // Keep default state (false = expanded)
+      }
+    }
+  }, []); // Empty dependency array - only run on mount
+
+  // Update sidebar state when forceSidebarCollapsed changes
+  useEffect(() => {
+    // Only apply forceSidebarCollapsed if it's explicitly true (not just falsy)
+    if (forceSidebarCollapsed === true) {
+      setSidebarCollapsed(true);
+      localStorage.setItem('sidebarCollapsed', JSON.stringify(true));
+    }
+  }, [forceSidebarCollapsed]);
+
+  // Default user data for guest mode
+  const displayUser = {
+    name: 'Guest',
+    email: 'guest@example.com',
+    avatar: 'G'
   };
 
   React.useEffect(() => {
@@ -58,7 +99,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }, []);
 
   const handleSidebarToggle = () => {
-    setSidebarCollapsed(!sidebarCollapsed);
+    const newState = !sidebarCollapsed;
+    setSidebarCollapsed(newState);
+    localStorage.setItem('sidebarCollapsed', JSON.stringify(newState));
   };
 
   const handleViewModeChange = (mode: 'general' | 'workspace') => {
@@ -67,6 +110,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const handleWorkspaceChange = (workspace: any) => {
     setCurrentWorkspace(workspace);
+  };
+
+  const handleNewMeetingClick = () => {
+    setShowNewMeetingModal(true);
+  };
+
+  const handleJoinInstantly = (meetingData: MeetingData) => {
+    console.log('Joining external meeting:', meetingData);
+    // TODO: Implement external meeting join logic
+    // This could open the meeting link and add Kairo as a participant
+    // or trigger a bot to join the meeting automatically
+  };
+
+  const handleScheduleMeeting = (meetingData: MeetingData) => {
+    console.log('Scheduling external meeting join:', meetingData);
+    // TODO: Implement scheduled meeting join logic
+    // This could create a calendar event with the meeting link
+    // and schedule Kairo to join at the specified time
   };
 
   return (
@@ -92,12 +153,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           className="fixed top-0 right-0 left-0 z-30 transition-all duration-300" 
           style={{ marginLeft: sidebarCollapsed ? '5rem' : '18rem' }}
         >
-          <Navbar
-            sidebarCollapsed={sidebarCollapsed}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            user={user}
-          />
+        <Navbar
+          sidebarCollapsed={sidebarCollapsed}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          user={displayUser}
+          onNewMeetingClick={handleNewMeetingClick}
+        />
         </div>
 
         {/* Enhanced Animated Background with Mouse Tracking */}
@@ -146,6 +208,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {children}
         </div>
       </div>
+
+      {/* New Meeting Modal - Rendered at page level */}
+      <NewMeetingModal
+        isOpen={showNewMeetingModal}
+        onClose={() => setShowNewMeetingModal(false)}
+        onJoinInstantly={handleJoinInstantly}
+        onScheduleMeeting={handleScheduleMeeting}
+      />
 
       <style>{`
         @keyframes float {

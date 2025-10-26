@@ -289,7 +289,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     ? 'bg-slate-800/95 backdrop-blur-xl border-white/10'
                     : 'bg-white border-gray-200'
                 }`}>
-                  <div className="p-2 max-h-80 overflow-y-auto space-y-1">
+                  <div className="p-2 max-h-80 overflow-y-auto space-y-1 scrollbar-hide">
                     <button
                       onClick={() => {
                         onSetViewMode('general');
@@ -369,7 +369,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Main Navigation */}
-        <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-4 space-y-1 overflow-y-auto scrollbar-hide">
           <div className="mb-3">
             {!collapsed && (
               <p className={`text-xs font-semibold uppercase tracking-wider px-3 mb-2 ${

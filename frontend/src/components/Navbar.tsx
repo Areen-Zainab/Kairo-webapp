@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Calendar, Bell, User, Settings, LogOut, Sun, Moon } from 'lucide-react';
+import { Search, Calendar, Bell, User, Settings, LogOut, Sun, Moon, Plus } from 'lucide-react';
 
 interface User {
   name: string;
@@ -13,13 +13,15 @@ interface NavbarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   user: User;
+  onNewMeetingClick: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({ 
   sidebarCollapsed, 
   searchQuery, 
   onSearchChange, 
-  user 
+  user,
+  onNewMeetingClick
 }) => {
   const navigate = useNavigate();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -33,7 +35,8 @@ const Navbar: React.FC<NavbarProps> = ({
     : `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.name || 'User')}`;
 
   const handleLogout = () => {
-    navigate('/login');
+    // Simple logout without authentication
+    navigate('/');
   };
 
   const toggleTheme = () => {
@@ -100,6 +103,21 @@ const Navbar: React.FC<NavbarProps> = ({
               <Sun className="w-4 h-4 md:w-[18px] md:h-[18px]" />
             )}
           </button>
+
+          {/* New Meeting Button - Only show in workspace mode */}
+          {location.pathname.startsWith('/workspace') && (
+            <button
+              onClick={onNewMeetingClick}
+              className={`p-1.5 md:p-2 rounded-lg transition-all duration-300 ${
+                isDark
+                  ? 'hover:bg-slate-800/50 text-slate-400 hover:text-white'
+                  : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+              }`}
+              title="New Meeting"
+            >
+              <Plus className="w-4 h-4 md:w-[18px] md:h-[18px]" />
+            </button>
+          )}
 
           <button 
             onClick={() => navigate('/calendar')}

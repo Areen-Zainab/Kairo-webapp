@@ -33,6 +33,24 @@ html.dark {
   transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
+/* Hide scrollbars utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  scrollbar-width: none;  /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Safari and Chrome */
+}
+
+/* Alternative scrollbar hiding for better compatibility */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 a {
   font-weight: 500;
   color: #646cff;

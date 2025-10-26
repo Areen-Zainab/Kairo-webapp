@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Mail, Lock, Eye, EyeOff, User, ArrowRight, Chrome, Github, CheckCircle2, Shield, Zap, Globe } from 'lucide-react';
+import { Sparkles, Mail, Lock, Eye, EyeOff, User, ArrowRight, Chrome, Github, CheckCircle2, Shield, Zap, Globe, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function KairoSignUpPage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -16,6 +17,7 @@ export default function KairoSignUpPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -94,7 +96,7 @@ export default function KairoSignUpPage() {
     }
   };
 
-  const handleSubmit = (e: React.MouseEvent) => {
+  const handleSubmit = async (e: React.MouseEvent) => {
     e.preventDefault();
     
     if (!validateForm()) {
@@ -102,14 +104,13 @@ export default function KairoSignUpPage() {
     }
 
     setIsLoading(true);
+    
+    // Simulate signup process
     setTimeout(() => {
-      alert('Account created successfully!');
+      // Navigate to onboarding without authentication
+      navigate('/onboarding');
       setIsLoading(false);
-    }, 1500);
-
-    // navigate to onboarding or dashboard
-    window.location.href = '/onboarding';
-
+    }, 1000);
   };
 
   const handleSocialSignUp = (provider: string) => {
@@ -303,7 +304,7 @@ export default function KairoSignUpPage() {
                           onChange={(e) => handleInputChange('fullName', e.target.value)}
                           onFocus={() => setFocusedInput('fullName')}
                           onBlur={() => setFocusedInput(null)}
-                          placeholder="John Doe"
+                          placeholder="Areeba Riaz"
                           className={`w-full pl-10 pr-3 py-2.5 text-sm bg-white/5 border rounded-xl focus:outline-none transition-all ${
                             errors.fullName
                               ? 'border-red-500 focus:ring-1 focus:ring-red-500/50'
@@ -439,6 +440,14 @@ export default function KairoSignUpPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* General Error Message */}
+                  {errors.general && (
+                    <div className="flex items-center space-x-2 p-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>{errors.general}</span>
+                    </div>
+                  )}
 
                   {/* Terms Checkbox */}
                   <div className="pt-2">

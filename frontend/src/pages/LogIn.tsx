@@ -21,20 +21,24 @@ export default function KairoLoginPage() {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  const handleSubmit = (e: React.MouseEvent) => {
+  const handleSubmit = async (e: React.MouseEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      if (email && password) {
-        // Navigate to dashboard on success
-        navigate('/dashboard');
-      } else {
-        setError('Please fill in all fields');
-      }
+    // Basic validation
+    if (!email || !password) {
+      setError('Please fill in all fields');
       setIsLoading(false);
-    }, 1500);
+      return;
+    }
+
+    // Simulate login process
+    setTimeout(() => {
+      // Navigate to dashboard without authentication
+      navigate('/dashboard');
+      setIsLoading(false);
+    }, 1000);
   };
 
   const handleSocialLogin = (provider: string) => {

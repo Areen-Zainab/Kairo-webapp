@@ -16,6 +16,10 @@ DONE:
 - notifications
 - tasks
 - light/dark mode
+- graph page with dummy data
+Doing: 
+- post meeting page with dummy data
+- transcript veiw page with dummy data
 
 
 DO with backend:
@@ -27,17 +31,10 @@ DO with backend:
   * [x] `FormContainer`
 - Divide Dshboard into components:   `DashboardCard` (meeting summary, action item preview)
 
-- graph page with dummy data
-- post meeting page with dummy data
-- transcript veiw page with dummy data
-
 
 ## **📦 Phase 1 — Core Setup & Auth Flow**
-
 **Goal:** Set up the foundational UI and authentication flow.
-
 **To-Do:**
-
 * [DONE] Initialize React + Vite + Tailwind project    ---> DONE
 * [DONE] Setup folder structure (`components`, `pages`, `context`, etc.)    ---> DONE
 * [DONE] Configure routing (React Router DOM)    ---> DONE
@@ -51,11 +48,8 @@ DO with backend:
 ---
 
 ## **🧭 Phase 2 — Dashboard Shell (Main Layout)**
-
 **Goal:** Establish the main layout after login (core navigation and layout consistency).
-
 **To-Do:**
-
 * [DONE] Create `/dashboard` page (default landing after login) ---> DONE
 * [DONE] Create `/settings` page (profile, preferences, theme toggle) ---> DONE
 * [DONE] Build layout components:
@@ -69,9 +63,7 @@ DO with backend:
 ---
 
 ## **💬 Phase 3 — Meeting Interface (Live & History)**
-
 **Goal:** Implement Kairo’s live meeting assistant and past meeting views.
-
 **To-Do:**
 * [DONE] Create `/meetings/live` page
 * [ ] Create `/meetings/history` page (list of past meetings with filters)
@@ -85,56 +77,45 @@ DO with backend:
 ---
 
 ## **🧠 Phase 4 — Memory Engine UI (Knowledge Graph & Recall)**
-
 **Goal:** Build the interactive meeting memory and graph explorer.
-
 **To-Do:**
 
-* [ ] Create `/memory` page (main visualization)
+* [DONE] Create `/memory` page (main visualization)
 * [ ] Create `/memory/:topic` dynamic route for topic details
 * [ ] Build components:
-
-  * [ ] `GraphCanvas` (D3.js / Vis.js for graph visualization)
+  * [DONE] `GraphCanvas` (D3.js / Vis.js for graph visualization)
   * [ ] `GraphNodeTooltip` (hover summary)
-  * [ ] `SearchPanel` (topic/speaker filters)
+  * [DONE] `SearchPanel` (topic/speaker filters)
   * [ ] `TimelineBar` (chronological graph evolution)
-* [ ] Add loading and empty states for graph view
+* [DONE] Add loading and empty states for graph view
 
 ---
 
 ## **🗂 Phase 5 — Tasks & Action Items**
-
 **Goal:** Translate meeting outcomes into actionable tasks via Kanban-style board.
-
 **To-Do:**
-
-* [ ] Create `/tasks` page
-* [ ] Build components:
-
-  * [ ] `KanbanBoard` (drag-and-drop layout)
-  * [ ] `TaskCard` (individual task info)
-  * [ ] `TaskDetailModal` (expanded view + edit)
-* [ ] Enable drag-and-drop using a library like `@dnd-kit/core` or `react-beautiful-dnd`
-* [ ] Add filtering (by meeting, due date, or status)
+* [DONE] Create `/tasks` page
+* [DONE] Build components:
+  * [DONE] `KanbanBoard` (drag-and-drop layout)
+  * [DONE] `TaskCard` (individual task info)
+  * [DONE] `TaskDetailModal` (expanded view + edit)
+* [DONE] Enable drag-and-drop using a library like `@dnd-kit/core` or `react-beautiful-dnd`
+* [DONE] Add filtering (by meeting, due date, or status)
 
 ---
 
 ## **📊 Phase 6 — Analytics & Reports**
-
 **Goal:** Deliver performance insights and engagement metrics.
-
 **To-Do:**
-
-* [ ] Create `/analytics` page
-* [ ] Build visualization components using Recharts:
-
-  * [ ] `StatsCard` (headline metrics)
-  * [ ] `BarChart`
-  * [ ] `PieChart`
-  * [ ] `LineChart`
-  * [ ] `SummaryPanel`
-* [ ] Add data mockups for testing
-* [ ] Integrate time-based filters (“This Week”, “This Month”, etc.)
+* [DONE] Create `/analytics` page
+* [DONE] Build visualization components using Recharts:
+  * [DONE] `StatsCard` (headline metrics)
+  * [DONE ] `BarChart`
+  * [DONE] `PieChart`
+  * [DONE] `LineChart`
+  * [DONE] `SummaryPanel`
+* [DONE] Add data mockups for testing
+* [DONE] Integrate time-based filters (“This Week”, “This Month”, etc.)
 
 ---
 

@@ -56,7 +56,7 @@ const LiveChat: React.FC<LiveChatProps> = ({ messages, input, onChangeInput, onS
   return (
     <div className="h-full flex flex-col">
       {/* Transcript */}
-      <div ref={transcriptRef} className="flex-1 overflow-y-auto px-2 sm:px-3">
+      <div ref={transcriptRef} className="flex-1 overflow-y-auto px-2 sm:px-3 scrollbar-hide">
         <div className="max-w-2xl mx-auto py-3">
           {messages.length === 0 ? (
             <div className="min-h-[45vh] flex flex-col items-center justify-center">

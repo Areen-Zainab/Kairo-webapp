@@ -4,13 +4,18 @@ import type { Meeting } from './types';
 
 interface ListViewProps {
   meetings: Meeting[];
+  onMeetingClick: (meetingId: string) => void;
 }
 
-const ListView: React.FC<ListViewProps> = ({ meetings }) => {
+const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick }) => {
   return (
     <div className="space-y-3">
       {meetings.map((meeting) => (
-        <div key={meeting.id} className="rounded-lg p-5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50 dark:hover:border-purple-500/50">
+        <div 
+          key={meeting.id} 
+          onClick={() => onMeetingClick(meeting.id)}
+          className="rounded-lg p-5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50 dark:hover:border-purple-500/50"
+        >
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2.5">
@@ -56,18 +61,50 @@ const ListView: React.FC<ListViewProps> = ({ meetings }) => {
             </div>
             <div className="flex items-center gap-2 ml-4">
               {meeting.status === 'live' && (
-                <button className="flex items-center justify-center space-x-1.5 px-5 py-2.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 rounded-md text-white text-sm font-medium transition-all"><Play className="w-3.5 h-3.5" /><span>Join Now</span></button>
+                <button 
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center space-x-1.5 px-5 py-2.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 rounded-md text-white text-sm font-medium transition-all"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Join Now</span>
+                </button>
               )}
               {meeting.status === 'upcoming' && (
-                <button className="flex items-center justify-center space-x-1.5 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-md text-white text-sm font-medium transition-all"><Video className="w-3.5 h-3.5" /><span>Join</span></button>
+                <button 
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center space-x-1.5 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-md text-white text-sm font-medium transition-all"
+                >
+                  <Video className="w-3.5 h-3.5" />
+                  <span>Join</span>
+                </button>
               )}
               {meeting.status === 'completed' && (
                 <>
-                  <button className="p-2.5 rounded-md transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-300" title="Download"><Download className="w-3.5 h-3.5" /></button>
-                  <button className="flex items-center space-x-1.5 px-5 py-2.5 rounded-md text-sm font-medium transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-300"><span>View Details</span><ChevronRight className="w-3.5 h-3.5" /></button>
+                  <button 
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-2.5 rounded-md transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-300" 
+                    title="Download"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMeetingClick(meeting.id);
+                    }}
+                    className="flex items-center space-x-1.5 px-5 py-2.5 rounded-md text-sm font-medium transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-300"
+                  >
+                    <span>View Details</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
                 </>
               )}
-              <button className="p-2.5 rounded-md transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-600 hover:text-gray-900 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-400 dark:hover:text-white"><MoreVertical className="w-3.5 h-3.5" /></button>
+              <button 
+                onClick={(e) => e.stopPropagation()}
+                className="p-2.5 rounded-md transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-600 hover:text-gray-900 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-400 dark:hover:text-white"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         </div>

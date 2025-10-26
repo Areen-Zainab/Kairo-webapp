@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Circle } from 'lucide-react';
 import type { Meeting } from './types';
 
 type CalendarMode = 'month' | 'year' | 'week';
 
 const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
+  const navigate = useNavigate();
   const daysOfWeekShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const today = new Date();
   const [mode, setMode] = useState<CalendarMode>('month');
@@ -167,7 +169,11 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
         <h4 className="font-medium text-gray-900 dark:text-white text-sm mb-4">Today's Meetings</h4>
         <div className="space-y-2">
           {meetings.filter(m => m.date.includes('Today')).map(meeting => (
-            <div key={meeting.id} className="rounded-lg p-4 transition-all cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50">
+            <div 
+              key={meeting.id} 
+              className="rounded-lg p-4 transition-all cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
+              onClick={() => navigate(`/workspace/meetings/${meeting.id}`)}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <h5 className="font-medium text-gray-900 dark:text-white text-sm mb-1">{meeting.title}</h5>

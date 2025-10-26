@@ -6,12 +6,12 @@ import AddMemberModal from '../../modals/AddMember';
 
 // Main Component
 const MOCK_MEMBERS = [
-  { id: 1, name: 'Sarah Johnson', email: 'sarah.j@company.com', role: 'Owner', status: 'active', avatar: 'SJ', contributions: 145, meetings: 23, messages: 892 },
-  { id: 2, name: 'Michael Chen', email: 'michael.c@company.com', role: 'Admin', status: 'active', avatar: 'MC', contributions: 98, meetings: 18, messages: 654 },
-  { id: 3, name: 'Emily Rodriguez', email: 'emily.r@company.com', role: 'Member', status: 'active', avatar: 'ER', contributions: 127, meetings: 21, messages: 743 },
-  { id: 4, name: 'David Kim', email: 'david.k@company.com', role: 'Member', status: 'active', avatar: 'DK', contributions: 76, meetings: 15, messages: 521 },
-  { id: 5, name: 'Jessica Brown', email: 'jessica.b@company.com', role: 'Observer', status: 'invited', avatar: 'JB', contributions: 0, meetings: 0, messages: 0 },
-  { id: 6, name: 'Alex Thompson', email: 'alex.t@company.com', role: 'Member', status: 'active', avatar: 'AT', contributions: 89, meetings: 17, messages: 612 },
+  { id: 1, name: 'Sana Khan', email: 'sana.k@company.com', role: 'Owner', status: 'active', avatar: 'SK', contributions: 145, meetings: 23, messages: 892 },
+  { id: 2, name: 'Muhammad Ali', email: 'muhammad.a@company.com', role: 'Admin', status: 'active', avatar: 'MA', contributions: 98, meetings: 18, messages: 654 },
+  { id: 3, name: 'Fatima Sheikh', email: 'fatima.s@company.com', role: 'Member', status: 'active', avatar: 'FS', contributions: 127, meetings: 21, messages: 743 },
+  { id: 4, name: 'Daniyal Ahmed', email: 'daniyal.a@company.com', role: 'Member', status: 'active', avatar: 'DA', contributions: 76, meetings: 15, messages: 521 },
+  { id: 5, name: 'Javeria Butt', email: 'javeria.b@company.com', role: 'Observer', status: 'invited', avatar: 'JB', contributions: 0, meetings: 0, messages: 0 },
+  { id: 6, name: 'Ali Hassan', email: 'ali.h@company.com', role: 'Member', status: 'active', avatar: 'AH', contributions: 89, meetings: 17, messages: 612 },
 ];
 
 export default function WorkspaceMembersPage() {

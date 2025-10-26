@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Calendar, Clock, Users, MapPin, Plus, Filter, X, Search, Edit, Trash } from 'lucide-react';
 import Layout from '../../components/Layout';
+import NewMeetingModal from '../../modals/NewMeetingModal';
 
 interface Meeting {
   id: string;
@@ -15,24 +17,38 @@ interface Meeting {
   priority: 'low' | 'medium' | 'high';
 }
 
+interface MeetingData {
+  title: string;
+  description: string;
+  meetingLink: string;
+  platform: 'zoom' | 'google-meet' | 'teams' | 'other';
+  duration: number;
+  participants: string[];
+  meetingType: 'instant' | 'scheduled';
+  scheduledDate?: string;
+  scheduledTime?: string;
+}
+
 const MyCalendar = () => {
+  const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredMeeting, setHoveredMeeting] = useState<string | null>(null);
+  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
 
-  // Mock data - using current month for better demo
-  const today = new Date();
+  // Mock data - using October 2024 for better demo
+  const today = new Date(2024, 9, 15); // October 15, 2024
   const meetings: Meeting[] = [
     {
       id: '1',
       title: 'Sprint Planning',
-      startTime: new Date(today.getFullYear(), today.getMonth(), 15, 10, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), 15, 11, 30),
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 10, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 11, 30),
       workspace: 'Product Team Alpha',
-      participants: ['Sarah Johnson', 'Mike Chen', 'Emily Rodriguez'],
+      participants: ['Sana Khan', 'Muhammad Ali', 'Fatima Sheikh'],
       location: 'Conference Room A',
       type: 'meeting',
       status: 'upcoming',
@@ -41,10 +57,10 @@ const MyCalendar = () => {
     {
       id: '2',
       title: 'Code Review Deadline',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 17, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 17, 0),
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3, 17, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3, 17, 0),
       workspace: 'Design Sprint Team',
-      participants: ['David Kim'],
+      participants: ['Daniyal Ahmed'],
       type: 'deadline',
       status: 'upcoming',
       priority: 'high',
@@ -52,10 +68,10 @@ const MyCalendar = () => {
     {
       id: '3',
       title: 'Client Presentation',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 4, 14, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 4, 15, 0),
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5, 14, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5, 15, 0),
       workspace: 'Client Solutions',
-      participants: ['Alex Johnson', 'Jessica Brown'],
+      participants: ['Ali Hassan', 'Javeria Butt'],
       location: 'Zoom',
       type: 'meeting',
       status: 'upcoming',
@@ -64,10 +80,10 @@ const MyCalendar = () => {
     {
       id: '4',
       title: 'Bug Fix Task',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 9, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 12, 0),
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 9, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 12, 0),
       workspace: 'Product Team Alpha',
-      participants: ['Mike Chen'],
+      participants: ['Muhammad Ali'],
       type: 'task',
       status: 'upcoming',
       priority: 'medium',
@@ -190,6 +206,32 @@ const MyCalendar = () => {
     }
   };
 
+  const handleEventClick = (meeting: Meeting) => {
+    switch (meeting.type) {
+      case 'meeting':
+        navigate(`/workspace/meetings/${meeting.id}`);
+        break;
+      case 'task':
+        navigate(`/workspace/tasks?task=${meeting.id}`);
+        break;
+      case 'deadline':
+        navigate(`/workspace/tasks?task=${meeting.id}`);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleJoinInstantly = (meetingData: MeetingData) => {
+    console.log('Joining external meeting:', meetingData);
+    window.open(meetingData.meetingLink, '_blank');
+  };
+
+  const handleScheduleMeeting = (meetingData: MeetingData) => {
+    console.log('Scheduling external meeting join:', meetingData);
+    // TODO: Implement scheduled meeting join logic
+  };
+
   // Render Month View
   const renderMonthView = () => (
     <div className="grid grid-cols-7 gap-1 sm:gap-2">
@@ -236,7 +278,8 @@ const MyCalendar = () => {
               {dayMeetings.slice(0, 3).map((meeting) => (
                 <div
                   key={meeting.id}
-                  className={`text-xs p-1.5 rounded border transition-all ${getEventColor(meeting.type)}`}
+                  className={`text-xs p-1.5 rounded border transition-all cursor-pointer ${getEventColor(meeting.type)}`}
+                  onClick={() => handleEventClick(meeting)}
                 >
                   <div className="flex items-center gap-1.5 truncate">
                     <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getPriorityColor(meeting.priority)}`} />
@@ -318,7 +361,7 @@ const MyCalendar = () => {
                       key={meeting.id}
                       className={`absolute left-1 right-1 rounded border p-1 cursor-pointer transition-all ${getEventColor(meeting.type)}`}
                       style={{ top: `${top}px`, height: `${height}px` }}
-                      onClick={() => setSelectedDate(day)}
+                      onClick={() => handleEventClick(meeting)}
                     >
                       <div className="text-xs font-semibold truncate">{meeting.title}</div>
                       <div className="text-xs opacity-75 truncate">
@@ -373,6 +416,7 @@ const MyCalendar = () => {
                   key={meeting.id}
                   className={`absolute left-0 right-0 rounded-lg border p-3 cursor-pointer transition-all ${getEventColor(meeting.type)}`}
                   style={{ top: `${top}px`, height: `${height}px` }}
+                  onClick={() => handleEventClick(meeting)}
                 >
                   <div className="flex items-start gap-2">
                     {getTypeIcon(meeting.type)}
@@ -426,7 +470,7 @@ const MyCalendar = () => {
                 <Filter size={16} />
                 <span className="hidden sm:inline">Filters</span>
               </button>
-              <button className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all flex items-center gap-2 font-medium shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
+              <button onClick={() => setShowNewMeetingModal(true)} className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all flex items-center gap-2 font-medium shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
                 <Plus size={16} />
                 <span className="hidden sm:inline">Add Event</span>
                 <span className="sm:hidden">Add</span>
@@ -604,9 +648,10 @@ const MyCalendar = () => {
                 getMeetingsForDate(selectedDate).map((meeting) => (
                   <div
                     key={meeting.id}
-                    className="rounded-lg p-5 border transition-all group relative bg-white border-gray-200 hover:border-gray-300 dark:bg-gray-800/50 dark:border-gray-700/50 dark:hover:border-gray-600/50"
+                    className="rounded-lg p-5 border transition-all group relative bg-white border-gray-200 hover:border-gray-300 dark:bg-gray-800/50 dark:border-gray-700/50 dark:hover:border-gray-600/50 cursor-pointer"
                     onMouseEnter={() => setHoveredMeeting(meeting.id)}
                     onMouseLeave={() => setHoveredMeeting(null)}
+                    onClick={() => handleEventClick(meeting)}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
@@ -714,10 +759,7 @@ const MyCalendar = () => {
               .map((meeting) => (
                 <div
                   key={meeting.id}
-                  onClick={() => {
-                    setSelectedDate(new Date(meeting.startTime));
-                    setViewMode('day');
-                  }}
+                  onClick={() => handleEventClick(meeting)}
                   className="
                     rounded-lg p-4 border transition-all cursor-pointer group
                     bg-white/70 hover:bg-white/90 border-gray-300 hover:border-purple-300
@@ -782,6 +824,14 @@ const MyCalendar = () => {
               ))}
           </div>
         </div>
+
+        {/* New Meeting Modal */}
+        <NewMeetingModal
+          isOpen={showNewMeetingModal}
+          onClose={() => setShowNewMeetingModal(false)}
+          onJoinInstantly={handleJoinInstantly}
+          onScheduleMeeting={handleScheduleMeeting}
+        />
       </div>
     </Layout>
   );
