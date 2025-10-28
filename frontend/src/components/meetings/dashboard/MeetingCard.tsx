@@ -93,7 +93,7 @@ const MeetingCard: React.FC<{ meeting: Meeting }> = ({ meeting }) => {
         {meeting.status === 'upcoming' && (
           <button 
             className="flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-md text-white text-sm font-medium transition-all"
-            onClick={handleJoinButtonClick}
+            onClick={handleJoinClick}
           >
             <Video className="w-3.5 h-3.5" />
             <span>View</span>

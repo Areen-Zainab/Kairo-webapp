@@ -41,6 +41,10 @@ router.post("/", authenticateToken, async (req, res) => {
       exists = await prisma.workspace.findUnique({ where: { code } });
     }
 
+    // Generate random color from available palette
+    const availableColors = ['#9333ea', '#3b82f6', '#10b981', '#ec4899', '#f97316', '#14b8a6'];
+    const randomColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+
     // Create workspace
     // 1️⃣ You create the workspace and set ownerId
     const workspace = await prisma.workspace.create({
@@ -48,6 +52,7 @@ router.post("/", authenticateToken, async (req, res) => {
         name: name.trim(),
         description: description?.trim() || null,
         code,
+        colorTheme: randomColor,
         ownerId: req.user.id,  // <-- assigns the user as the owner
       },
     });
@@ -158,6 +163,7 @@ router.get("/", authenticateToken, async (req, res) => {
       name: wm.workspace.name,
       description: wm.workspace.description,
       code: wm.workspace.code,
+      colorTheme: wm.workspace.colorTheme,
       role: wm.role,
       ownerId: wm.workspace.ownerId,
       owner: wm.workspace.owner,
@@ -427,24 +433,32 @@ router.get("/:id", authenticateToken, async (req, res) => {
 router.put("/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, colorTheme } = req.body;
     const workspaceId = parseInt(id);
 
     if (!workspaceId || isNaN(workspaceId)) {
       return res.status(400).json({ error: "Invalid workspace ID" });
     }
 
-    // Check if user is owner
+    // Check if user is owner or admin
     const workspace = await prisma.workspace.findUnique({
-      where: { id: workspaceId }
+      where: { id: workspaceId },
+      include: {
+        members: {
+          where: { userId: req.user.id }
+        }
+      }
     });
 
     if (!workspace) {
       return res.status(404).json({ error: "Workspace not found" });
     }
 
-    if (workspace.ownerId !== req.user.id) {
-      return res.status(403).json({ error: "Only owner can update workspace" });
+    const isOwner = workspace.ownerId === req.user.id;
+    const isAdmin = workspace.members[0]?.role === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: "Only owner or admin can update workspace" });
     }
 
     const changes = {};
@@ -454,13 +468,18 @@ router.put("/:id", authenticateToken, async (req, res) => {
     if (description !== undefined && description.trim() !== workspace.description) {
       changes.description = { from: workspace.description, to: description.trim() };
     }
+    if (colorTheme !== undefined && colorTheme !== workspace.colorTheme) {
+      changes.colorTheme = { from: workspace.colorTheme, to: colorTheme };
+    }
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name.trim();
+    if (description !== undefined) updateData.description = description.trim();
+    if (colorTheme !== undefined) updateData.colorTheme = colorTheme;
 
     const updatedWorkspace = await prisma.workspace.update({
       where: { id: workspaceId },
-      data: {
-        name: name ? name.trim() : undefined,
-        description: description !== undefined ? description.trim() : undefined,
-      }
+      data: updateData
     });
 
     // Log workspace update
@@ -814,6 +833,84 @@ router.get("/:id/invites", authenticateToken, async (req, res) => {
     res.json({ invites });
   } catch (error) {
     console.error("Get workspace invites error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Search for workspace members by email (for adding participants to meetings)
+router.get("/:id/members/search", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email } = req.query;
+    const workspaceId = parseInt(id);
+
+    if (!workspaceId || isNaN(workspaceId)) {
+      return res.status(400).json({ error: "Invalid workspace ID" });
+    }
+
+    // Check if user is a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You are not a member of this workspace" });
+    }
+
+    // Get all workspace members for autocomplete
+    const allMembers = await prisma.workspaceMember.findMany({
+      where: { workspaceId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profilePictureUrl: true
+          }
+        }
+      }
+    });
+
+    // If email is provided, search for exact match first
+    if (email && email.trim()) {
+      const emailLower = email.trim().toLowerCase();
+      
+      // Try exact match first
+      const exactMatch = allMembers.find(m => 
+        m.user.email.toLowerCase() === emailLower
+      );
+
+      if (exactMatch) {
+        return res.json({
+          members: [exactMatch.user],
+          allMembers: allMembers.map(m => m.user)
+        });
+      }
+
+      // If no exact match, try fuzzy match (contains)
+      const fuzzyMatches = allMembers.filter(m => 
+        m.user.email.toLowerCase().includes(emailLower)
+      );
+
+      return res.json({
+        members: fuzzyMatches.map(m => m.user),
+        allMembers: allMembers.map(m => m.user)
+      });
+    }
+
+    // If no email provided, return all members
+    res.json({
+      members: [],
+      allMembers: allMembers.map(m => m.user)
+    });
+  } catch (error) {
+    console.error("Search workspace members error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

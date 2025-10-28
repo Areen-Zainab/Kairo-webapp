@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { X, Upload, Plus, Trash2, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import apiService from '../services/api';
-import { useUser } from '../context/UserContext';
-import { useToastContext } from '../context/ToastContext';
+import apiService from '../../services/api';
+import { useUser } from '../../context/UserContext';
+import { useToastContext } from '../../context/ToastContext';
 
 interface CreateWorkspaceModalProps {
   isOpen?: boolean;

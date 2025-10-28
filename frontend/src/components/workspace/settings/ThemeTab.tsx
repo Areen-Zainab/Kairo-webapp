@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Check, AlertCircle } from 'lucide-react';
 import { useUser } from '../../../context/UserContext';
+import { apiService } from '../../../services/api';
+import { useToastContext } from '../../../context/ToastContext';
 
 interface ThemeSettings {
   mode: 'light' | 'dark';
@@ -15,17 +17,34 @@ interface ThemeTabProps {
 
 const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
   const { workspaceId } = useParams<{ workspaceId?: string }>();
-  const { workspaces } = useUser();
+  const { workspaces, refreshWorkspaces } = useUser();
+  const { success: toastSuccess, error: toastError } = useToastContext();
   
-  // Get user's role in the workspace
-  const workspaceRole = workspaceId 
-    ? workspaces.find((ws: any) => String(ws.id) === workspaceId)?.role 
-    : null;
+  // Get workspace and user's role
+  const currentWorkspace = workspaces.find((ws: any) => String(ws.id) === workspaceId);
+  const workspaceRole = currentWorkspace?.role || null;
   
   const canEdit = workspaceRole === 'owner' || workspaceRole === 'admin';
 
-  const [formData, setFormData] = useState<ThemeSettings>(theme);
+  const [formData, setFormData] = useState<ThemeSettings>(() => {
+    const accentColor = currentWorkspace?.colorTheme || theme.accentColor;
+    return {
+      mode: theme.mode,
+      accentColor
+    };
+  });
   const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Update form data when workspace changes
+  useEffect(() => {
+    if (currentWorkspace?.colorTheme) {
+      setFormData(prev => ({
+        ...prev,
+        accentColor: currentWorkspace.colorTheme || prev.accentColor
+      }));
+    }
+  }, [currentWorkspace?.colorTheme]);
 
   const accentColors = [
     { name: 'Purple', value: '#9333ea', gradient: 'from-purple-600 to-purple-400' },
@@ -41,13 +60,46 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
     setHasChanges(true);
   };
 
-  const handleSave = () => {
-    onSave(formData);
-    setHasChanges(false);
+  const handleSave = async () => {
+    if (!workspaceId) {
+      toastError('Workspace ID is missing');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await apiService.updateWorkspace(parseInt(workspaceId), {
+        colorTheme: formData.accentColor
+      });
+
+      if (response.error) {
+        toastError(response.error);
+      } else {
+        toastSuccess('Color theme updated successfully!');
+        setHasChanges(false);
+        // Refresh workspaces to get updated color theme
+        if (refreshWorkspaces) {
+          await refreshWorkspaces();
+        }
+        onSave(formData);
+      }
+    } catch (error: any) {
+      console.error('Error updating color theme:', error);
+      toastError('Failed to update color theme. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCancel = () => {
-    setFormData(theme);
+    if (currentWorkspace?.colorTheme) {
+      setFormData({
+        mode: theme.mode,
+        accentColor: currentWorkspace.colorTheme
+      });
+    } else {
+      setFormData(theme);
+    }
     setHasChanges(false);
   };
 
@@ -156,9 +208,10 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:shadow-lg hover:shadow-purple-500/40 rounded-lg text-sm text-white font-medium transition-all"
+            disabled={isSaving}
+            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:shadow-lg hover:shadow-purple-500/40 rounded-lg text-sm text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Changes
+            {isSaving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       )}

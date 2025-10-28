@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import Layout from '../../components/Layout';
 import LiveMeetingBanner from '../../components/meetings/dashboard/LiveMeetingBanner';
+import MeetingEndedBanner from '../../components/meetings/dashboard/MeetingEndedBanner';
 import ListView from '../../components/meetings/dashboard/ListView';
 import GridView from '../../components/meetings/dashboard/GridView';
 import KanbanView from '../../components/meetings/dashboard/KanbanView';
@@ -88,6 +89,12 @@ const MeetingsDashboard = () => {
   const timeFilterMenuRef = useRef<HTMLDivElement>(null);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  
+  // Track live and ended meetings
+  const [endedMeetingId, setEndedMeetingId] = useState<string | null>(null);
+  const [dismissLiveBanner, setDismissLiveBanner] = useState(false);
+  const [dismissEndedBanner, setDismissEndedBanner] = useState(false);
+  const [lastKnownLiveMeetings, setLastKnownLiveMeetings] = useState<Set<number>>(new Set());
 
   const { success: toastSuccess, error: toastError } = useToastContext();
 
@@ -126,7 +133,13 @@ const MeetingsDashboard = () => {
       try {
         const response = await apiService.getMeetingsByWorkspace(parseInt(wsId));
         if (response.data?.meetings) {
-          setRealMeetings(response.data.meetings);
+          // Sort meetings by creation date (newest first)
+          const sortedMeetings = [...response.data.meetings].sort((a, b) => {
+            const dateA = new Date(a.createdAt || a.startTime);
+            const dateB = new Date(b.createdAt || b.startTime);
+            return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
+          });
+          setRealMeetings(sortedMeetings);
         }
       } catch (error) {
         console.error('Error fetching meetings:', error);
@@ -145,7 +158,13 @@ const MeetingsDashboard = () => {
       apiService.getMeetingsByWorkspace(parseInt(wsId))
         .then(response => {
           if (response.data?.meetings) {
-            setRealMeetings(response.data.meetings);
+            // Sort meetings by creation date (newest first)
+            const sortedMeetings = [...response.data.meetings].sort((a, b) => {
+              const dateA = new Date(a.createdAt || a.startTime);
+              const dateB = new Date(b.createdAt || b.startTime);
+              return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
+            });
+            setRealMeetings(sortedMeetings);
           }
         })
         .catch(error => console.error('Error refreshing meetings:', error));
@@ -182,7 +201,16 @@ const MeetingsDashboard = () => {
       }
     } catch (error) {
       console.error('Error deleting meeting:', error);
-      toastError('Failed to delete meeting', 'Error');
+      
+      // Extract error message
+      let errorMessage = 'Failed to delete meeting';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'message' in error) {
+        errorMessage = (error as any).message;
+      }
+      
+      toastError(errorMessage, 'Error');
     } finally {
       setDeleteModalState({ isOpen: false, meetingId: null, meetingName: '' });
     }
@@ -199,7 +227,40 @@ const MeetingsDashboard = () => {
       }
     } catch (error) {
       console.error('Error completing meeting:', error);
-      toastError('Failed to mark meeting as completed', 'Error');
+      
+      // Extract error message
+      let errorMessage = 'Failed to mark meeting as completed';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'message' in error) {
+        errorMessage = (error as any).message;
+      }
+      
+      toastError(errorMessage, 'Error');
+    }
+  };
+
+  const handleCancelMeeting = async (meetingId: number) => {
+    try {
+      const response = await apiService.updateMeetingStatus(meetingId, 'cancelled');
+      if (response.error) {
+        toastError(response.error, 'Cancel Failed');
+      } else {
+        toastSuccess('Meeting cancelled', 'Meeting Cancelled');
+        handleMeetingCreated();
+      }
+    } catch (error) {
+      console.error('Error cancelling meeting:', error);
+      
+      // Extract error message
+      let errorMessage = 'Failed to cancel meeting';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'message' in error) {
+        errorMessage = (error as any).message;
+      }
+      
+      toastError(errorMessage, 'Error');
     }
   };
 
@@ -339,7 +400,56 @@ const MeetingsDashboard = () => {
   const meetings: Meeting[] = shouldShowDummyData ? dummyMeetings : transformedRealMeetings;
 
   const liveMeeting = meetings.find(m => m.status === 'live');
-  const [dismissLiveBanner, setDismissLiveBanner] = useState(false);
+  const endedMeeting = meetings.find(m => m.status === 'completed' && endedMeetingId === m.id);
+
+  // Monitor for newly ended meetings
+  useEffect(() => {
+    if (shouldShowDummyData) return;
+    
+    const checkForEndedMeetings = () => {
+      const currentlyLiveMeetingIds = new Set<number>();
+      
+      meetings.forEach(m => {
+        if (m.status === 'live' && m.backendId) {
+          currentlyLiveMeetingIds.add(m.backendId);
+        }
+      });
+      
+      // Check which meetings just ended (were live before, but not live now)
+      const newlyEnded: string[] = [];
+      lastKnownLiveMeetings.forEach(meetingId => {
+        if (!currentlyLiveMeetingIds.has(meetingId)) {
+          // This meeting was live but is no longer live
+          const meeting = meetings.find(m => m.backendId === meetingId);
+          if (meeting) {
+            newlyEnded.push(meeting.id);
+          }
+        }
+      });
+      
+      // Only update if the set actually changed
+      const currentIdsArray = Array.from(currentlyLiveMeetingIds).sort().join(',');
+      const lastIdsArray = Array.from(lastKnownLiveMeetings).sort().join(',');
+      
+      if (currentIdsArray !== lastIdsArray) {
+        setLastKnownLiveMeetings(currentlyLiveMeetingIds);
+      }
+      
+      // Show notifications for newly ended meetings
+      newlyEnded.forEach(meetingId => {
+        const meeting = meetings.find(m => m.id === meetingId);
+        if (meeting && !dismissEndedBanner) {
+          setEndedMeetingId(meetingId);
+          toastSuccess(`Meeting ended: ${meeting.title}`, 'View the meeting summary');
+        }
+      });
+    };
+    
+    checkForEndedMeetings();
+    const intervalId = setInterval(checkForEndedMeetings, 30000); // Check every 30 seconds
+    
+    return () => clearInterval(intervalId);
+  }, [meetings, lastKnownLiveMeetings, dismissEndedBanner, shouldShowDummyData]);
 
   const handleMeetingClick = (meetingId: string) => {
     // Find the meeting to determine its status
@@ -427,6 +537,22 @@ const MeetingsDashboard = () => {
             }
           }}
           onDismiss={() => setDismissLiveBanner(true)}
+        />
+
+        <MeetingEndedBanner
+          endedMeeting={dismissEndedBanner ? undefined : endedMeeting}
+          onView={() => {
+            if (endedMeeting?.backendId) {
+              const meetId = endedMeeting.backendId.toString();
+              const navPath = workspaceId 
+                ? `/workspace/${workspaceId}/meetings/${meetId}`
+                : `/workspace/meetings/${meetId}`;
+              navigate(navPath);
+            } else {
+              navigate('/workspace/meetings');
+            }
+          }}
+          onDismiss={() => setDismissEndedBanner(true)}
         />
 
         <div className="mb-6 sm:mb-8 space-y-4 relative z-20">
@@ -639,6 +765,33 @@ const MeetingsDashboard = () => {
               if (meeting) handleDeleteClick(id, meeting.title);
             }}
             onCompleteMeeting={handleCompleteMeeting}
+            onCancelMeeting={handleCancelMeeting}
+            canDelete={(m) => {
+              // Owner/admin or the meeting creator can delete
+              const ws = currentWorkspace || JSON.parse(localStorage.getItem('currentWorkspace') || 'null');
+              const role = ws?.role?.toLowerCase();
+              if (role === 'owner' || role === 'admin') return true;
+              const raw = realMeetings.find((rm: any) => rm.id === m.backendId);
+              return raw?.createdById === user?.id;
+            }}
+            canCancel={(m) => {
+              // Only owner/admin/meeting scheduler can cancel
+              const ws = currentWorkspace || JSON.parse(localStorage.getItem('currentWorkspace') || 'null');
+              const role = ws?.role?.toLowerCase();
+              if (role === 'owner' || role === 'admin') return true;
+              // Fallback: allow if current user is creator based on raw data
+              const raw = realMeetings.find((rm: any) => rm.id === m.backendId);
+              return raw?.createdById === user?.id;
+            }}
+            canComplete={(m) => {
+              // Only owner/admin/meeting scheduler can complete
+              const ws = currentWorkspace || JSON.parse(localStorage.getItem('currentWorkspace') || 'null');
+              const role = ws?.role?.toLowerCase();
+              if (role === 'owner' || role === 'admin') return true;
+              // Fallback: allow if current user is creator based on raw data
+              const raw = realMeetings.find((rm: any) => rm.id === m.backendId);
+              return raw?.createdById === user?.id;
+            }}
           />
         )}
 

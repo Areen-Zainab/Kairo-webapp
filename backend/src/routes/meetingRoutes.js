@@ -51,6 +51,27 @@ router.post("/", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "You are not a member of this workspace" });
     }
 
+    // Validate that all participants are members of the workspace
+    if (participantIds && participantIds.length > 0) {
+      const workspaceMemberIds = await prisma.workspaceMember.findMany({
+        where: {
+          workspaceId: parseInt(workspaceId),
+          userId: { in: participantIds }
+        },
+        select: { userId: true }
+      });
+
+      const validParticipantIds = new Set(workspaceMemberIds.map(m => m.userId));
+      const invalidParticipants = participantIds.filter(id => !validParticipantIds.has(id));
+
+      if (invalidParticipants.length > 0) {
+        return res.status(400).json({ 
+          error: `Cannot invite these participants. They must be members of the workspace first. Please ask them to join the workspace before inviting them to the meeting.`,
+          details: `Invalid participant IDs: ${invalidParticipants.join(', ')}`
+        });
+      }
+    }
+
     // Create meeting
     const meeting = await Meeting.create({
       workspaceId: parseInt(workspaceId),
@@ -296,8 +317,32 @@ router.put("/:id", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "Only the meeting creator or workspace admin can update this meeting" });
     }
 
-    // Update meeting
-    const updatedMeeting = await Meeting.update(meetingId, req.body);
+    // Validate that all participants are members of the workspace
+    if (req.body.participantIds && req.body.participantIds.length > 0) {
+      const workspaceMemberIds = await prisma.workspaceMember.findMany({
+        where: {
+          workspaceId: existingMeeting.workspaceId,
+          userId: { in: req.body.participantIds }
+        },
+        select: { userId: true }
+      });
+
+      const validParticipantIds = new Set(workspaceMemberIds.map(m => m.userId));
+      const invalidParticipants = req.body.participantIds.filter(id => !validParticipantIds.has(id));
+
+      if (invalidParticipants.length > 0) {
+        return res.status(400).json({ 
+          error: `Cannot invite these participants. They must be members of the workspace first. Please ask them to join the workspace before inviting them to the meeting.`,
+          details: `Invalid participant IDs: ${invalidParticipants.join(', ')}`
+        });
+      }
+    }
+
+    // Update meeting (pass updaterId for notification purposes)
+    const updatedMeeting = await Meeting.update(meetingId, {
+      ...req.body,
+      updaterId: req.user.id
+    });
 
     // Log meeting update
     try {
@@ -356,11 +401,11 @@ router.delete("/:id", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "You do not have access to this workspace" });
     }
 
-    // Only creator, admin, or owner can delete
-    if (existingMeeting.createdById !== req.user.id && 
-        membership.role !== 'admin' && 
-        membership.role !== 'owner') {
-      return res.status(403).json({ error: "Only the meeting creator or workspace admin can delete this meeting" });
+    // Allow owner/admin or meeting creator to delete
+    const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin';
+    const isCreator = existingMeeting.createdById === req.user.id;
+    if (!isOwnerOrAdmin && !isCreator) {
+      return res.status(403).json({ error: "Only workspace owner, admin, or the meeting creator can delete this meeting" });
     }
 
     await Meeting.delete(meetingId);
@@ -420,7 +465,26 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "You do not have access to this workspace" });
     }
 
-    const updatedMeeting = await Meeting.updateStatus(meetingId, status);
+    // Enforce permissions for cancellation and completion
+    if (status === 'cancelled') {
+      // Allow owner/admin or meeting creator
+      const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin';
+      const isCreator = meeting.createdById === req.user.id;
+      if (!isOwnerOrAdmin && !isCreator) {
+        return res.status(403).json({ error: "Only workspace owner, admin, or the meeting creator can cancel this meeting" });
+      }
+    }
+
+    if (status === 'completed') {
+      // Allow owner/admin or meeting creator
+      const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin';
+      const isCreator = meeting.createdById === req.user.id;
+      if (!isOwnerOrAdmin && !isCreator) {
+        return res.status(403).json({ error: "Only workspace owner, admin, or the meeting creator can mark this meeting as completed" });
+      }
+    }
+
+    const updatedMeeting = await Meeting.updateStatus(meetingId, status, req.user.id);
 
     // Log status change
     try {

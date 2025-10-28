@@ -44,6 +44,7 @@ export interface Workspace {
   name: string;
   description?: string;
   code: string;
+  colorTheme?: string;
   role?: string;
   ownerId: number;
   memberCount: number;

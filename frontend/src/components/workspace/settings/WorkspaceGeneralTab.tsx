@@ -157,23 +157,29 @@ export default function WorkspaceGeneralTab() {
               Workspace Logo
             </label>
             <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-md bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 border-2 border-dashed border-purple-300 dark:border-purple-500/30 flex items-center justify-center overflow-hidden hover:border-purple-400 dark:hover:border-purple-500/60 transition-all duration-300">
+              <div className={`w-20 h-20 rounded-md bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 border-2 ${canEdit ? 'border-dashed border-purple-300 dark:border-purple-500/30 hover:border-purple-400 dark:hover:border-purple-500/60' : 'border-gray-300 dark:border-gray-700'} flex items-center justify-center overflow-hidden transition-all duration-300`}>
                 {logoPreview ? (
                   typeof logoPreview === 'string' ? (
                     <img src={logoPreview} alt="Logo" className="w-full h-full object-cover" />
                   ) : (
-                    <Upload className="text-gray-500 dark:text-gray-600" size={28} />
+                    <Upload className={`${canEdit ? 'text-gray-500 dark:text-gray-600' : 'text-gray-400 dark:text-gray-600'}`} size={28} />
                   )
                 ) : (
-                  <Upload className="text-gray-500 dark:text-gray-600" size={28} />
+                  <Upload className={`${canEdit ? 'text-gray-500 dark:text-gray-600' : 'text-gray-400 dark:text-gray-600'}`} size={28} />
                 )}
               </div>
-              <label className="cursor-pointer">
-                <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                <div className="px-5 py-2.5 rounded-md transition-all border text-sm font-medium bg-white border-gray-300 text-gray-900 hover:bg-gray-100 dark:bg-gray-800/50 dark:border-gray-600/50 dark:text-gray-200 dark:hover:bg-gray-700/50">
-                  {logoPreview ? 'Change Logo' : 'Upload Logo'}
+              {canEdit ? (
+                <label className="cursor-pointer">
+                  <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                  <div className="px-5 py-2.5 rounded-md transition-all border text-sm font-medium bg-white border-gray-300 text-gray-900 hover:bg-gray-100 dark:bg-gray-800/50 dark:border-gray-600/50 dark:text-gray-200 dark:hover:bg-gray-700/50">
+                    {logoPreview ? 'Change Logo' : 'Upload Logo'}
+                  </div>
+                </label>
+              ) : (
+                <div className="px-5 py-2.5 rounded-md border text-sm font-medium bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed dark:bg-gray-900 dark:border-gray-700 dark:text-gray-600">
+                  Only admins can upload logo
                 </div>
-              </label>
+              )}
             </div>
           </div>
 

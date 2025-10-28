@@ -1,5 +1,5 @@
 // ...existing code...
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LogIn";
 import SignUpPage from "./pages/SignUp";
@@ -18,11 +18,18 @@ import WorkspaceSettings from "./pages/workspace/WorkspaceSettings";
 import TaskBoard from "./pages/workspace/TaskBoard";
 import MemoryView from "./pages/workspace/MemoryView";
 import Analytics from "./pages/workspace/Analytics";
+import Transcripts from "./pages/workspace/Transcripts";
 
 import MeetingsDashboard from "./pages/meetings/MeetingsMain";
 import LiveMeetingView from "./pages/meetings/MeetingLive";
 import MeetingDetailsPage from "./pages/meetings/MeetingDetails";
-import PreMeetingPage from "./pages/meetings/PreMeeting"; 
+import PreMeetingPage from "./pages/meetings/PreMeeting";
+
+// Redirect component for invalid workspace sub-routes
+const WorkspaceRedirect = () => {
+  const { workspaceId } = useParams<{ workspaceId: string }>();
+  return <Navigate to={`/workspace/${workspaceId}`} replace />;
+}; 
 
 function App() {
   return (
@@ -49,6 +56,7 @@ function App() {
         <Route path="/workspace/:workspaceId/tasks" element={<TaskBoard key="tasks" />} />
         <Route path="/workspace/:workspaceId/memory" element={<MemoryView key="memory" />} />
         <Route path="/workspace/:workspaceId/analytics" element={<Analytics key="analytics" />} />
+        <Route path="/workspace/:workspaceId/transcripts" element={<Transcripts key="transcripts" />} />
         
         {/* Legacy workspace routes (without ID) */}
         <Route path="/workspace" element={<WorkspaceMainPage key="workspace-legacy" />} />
@@ -57,6 +65,7 @@ function App() {
         <Route path="/workspace/tasks" element={<TaskBoard key="tasks-legacy" />} />
         <Route path="/workspace/memory" element={<MemoryView key="memory-legacy" />} />
         <Route path="/workspace/analytics" element={<Analytics key="analytics-legacy" />} />
+        <Route path="/workspace/transcripts" element={<Transcripts key="transcripts-legacy" />} />
 
         {/* Meetings Routes - Support workspace ID in URL */}
         <Route path="/workspace/:workspaceId/meetings" element={<MeetingsDashboard key="meetings" />} />
@@ -71,6 +80,9 @@ function App() {
         <Route path="/workspace/meetings/live" element={<LiveMeetingView key="live-empty-legacy" />} />
         <Route path="/workspace/meetings/pre/:id" element={<PreMeetingPage key="pre-meeting-legacy" />} />
         <Route path="/workspace/meetings/:id" element={<MeetingDetailsPage key="meeting-details-legacy" />} />
+
+        {/* Catch-all for invalid workspace sub-routes */}
+        <Route path="/workspace/:workspaceId/*" element={<WorkspaceRedirect />} />
       </Routes>
     </>
   );

@@ -1,19 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail, ChevronLeft, ChevronRight, Building2, Check, X } from 'lucide-react';
+import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail, ChevronLeft, ChevronRight, Building2, Check, X, Bell } from 'lucide-react';
 import Layout from '../../components/Layout';
-import CreateWorkspaceModal from '../../modals/CreateWorkspace';
-import JoinWorkspaceModal from '../../modals/JoinWorkspace';
+import CreateWorkspaceModal from '../../modals/workspace/CreateWorkspace';
+import JoinWorkspaceModal from '../../modals/workspace/JoinWorkspace';
 import { useUser } from '../../context/UserContext';
 import { useToastContext } from '../../context/ToastContext';
+import apiService from '../../services/api';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [recentNotifications, setRecentNotifications] = useState<any[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [userMeetings, setUserMeetings] = useState<any[]>([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(true);
+  const [workspaceMeetingCounts, setWorkspaceMeetingCounts] = useState<{[key: number]: number}>({});
   
-  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite } = useUser();
+  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite, setCurrentWorkspace } = useUser();
   const { success: toastSuccess, error: toastError } = useToastContext();
   
   // Use context user or fallback
@@ -30,15 +36,146 @@ const Dashboard = () => {
   // Check if user is areeba@kairo.com to show dummy data
   const shouldShowDummyData = user?.email?.toLowerCase() === 'areeba@kairo.com';
 
+  // Fetch recent notifications
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (shouldShowDummyData) {
+        // Use dummy data for demo account
+        setRecentNotifications([
+          { id: 1, title: 'New task assigned', message: 'You have been assigned a new task in Product Team', createdAt: new Date(Date.now() - 5 * 60000).toISOString(), isRead: false, type: 'task' },
+          { id: 2, title: 'Meeting reminder', message: 'Team meeting starts in 30 minutes', createdAt: new Date(Date.now() - 10 * 60000).toISOString(), isRead: false, type: 'meeting' },
+          { id: 3, title: 'Sprint completed', message: 'Sprint retrospective has been completed', createdAt: new Date(Date.now() - 2 * 3600000).toISOString(), isRead: true, type: 'system' },
+        ]);
+        setNotificationsLoading(false);
+        return;
+      }
+
+      try {
+        setNotificationsLoading(true);
+        const response = await apiService.getNotifications();
+        
+        if (response.error) {
+          console.error('Failed to fetch notifications:', response.error);
+          setRecentNotifications([]);
+        } else if (response.data) {
+          // Get the most recent 3-4 notifications, sorted by date
+          const sortedNotifications = response.data.notifications
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .slice(0, 4);
+          setRecentNotifications(sortedNotifications);
+        }
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+        setRecentNotifications([]);
+      } finally {
+        setNotificationsLoading(false);
+      }
+    };
+
+    fetchNotifications();
+  }, [shouldShowDummyData]);
+
+  // Fetch user meetings for calendar
+  useEffect(() => {
+    const fetchUserMeetings = async () => {
+      if (shouldShowDummyData) {
+        // Use dummy data for demo account - add meetings to current month
+        const today = new Date();
+        const thisMonth = today.getMonth();
+        const thisYear = today.getFullYear();
+        
+        // Create meetings on different days of the current month
+        const dummyMeetings = [
+          { id: 1, startTime: new Date(thisYear, thisMonth, 5, 10).toISOString(), title: 'Team Standup', status: 'scheduled' },
+          { id: 2, startTime: new Date(thisYear, thisMonth, 12, 14).toISOString(), title: 'Sprint Planning', status: 'scheduled' },
+          { id: 3, startTime: new Date(thisYear, thisMonth, 18, 9).toISOString(), title: 'Client Review', status: 'scheduled' },
+          { id: 4, startTime: new Date(thisYear, thisMonth, 22, 15).toISOString(), title: 'Retrospective', status: 'scheduled' },
+          { id: 5, startTime: new Date(thisYear, thisMonth, 28, 11).toISOString(), title: 'Design Review', status: 'scheduled' },
+        ];
+        setUserMeetings(dummyMeetings);
+        setMeetingsLoading(false);
+        console.log('Dummy meetings set:', dummyMeetings.map(m => ({ 
+          title: m.title, 
+          date: new Date(m.startTime).toLocaleDateString() 
+        })));
+        return;
+      }
+
+      try {
+        setMeetingsLoading(true);
+        const response = await apiService.getMyMeetings({ upcoming: false });
+        
+        if (response.error) {
+          console.error('Failed to fetch meetings:', response.error);
+          setUserMeetings([]);
+        } else if (response.data) {
+          setUserMeetings(response.data.meetings || []);
+        }
+      } catch (error) {
+        console.error('Error fetching meetings:', error);
+        setUserMeetings([]);
+      } finally {
+        setMeetingsLoading(false);
+      }
+    };
+
+    fetchUserMeetings();
+  }, [shouldShowDummyData]);
+
+  // Fetch meeting counts for each workspace
+  useEffect(() => {
+    const fetchWorkspaceMeetingsCounts = async () => {
+      if (shouldShowDummyData) {
+        // Use dummy data for demo account
+        const dummyCounts: {[key: number]: number} = {
+          1: 24,
+          2: 15,
+          3: 31,
+        };
+        setWorkspaceMeetingCounts(dummyCounts);
+        return;
+      }
+
+      if (workspaces.length === 0) return;
+
+      try {
+        const counts: {[key: number]: number} = {};
+        
+        // Fetch meeting counts for each workspace
+        await Promise.all(
+          workspaces.map(async (ws) => {
+            try {
+              const response = await apiService.getMeetingsByWorkspace(ws.id);
+              if (response.data?.meetings) {
+                counts[ws.id] = response.data.meetings.length;
+              }
+            } catch (error) {
+              console.error(`Failed to fetch meetings for workspace ${ws.id}:`, error);
+              counts[ws.id] = 0;
+            }
+          })
+        );
+        
+        setWorkspaceMeetingCounts(counts);
+      } catch (error) {
+        console.error('Error fetching workspace meeting counts:', error);
+      }
+    };
+
+    fetchWorkspaceMeetingsCounts();
+  }, [workspaces, shouldShowDummyData]);
+
   // Use actual user workspaces (only for real users, not demo)
-  const userWorkspaces = shouldShowDummyData ? [] : workspaces.map(ws => ({
+  const fallbackColors = ['#9333ea', '#3b82f6', '#10b981', '#f97316'];
+  
+  const userWorkspaces = shouldShowDummyData ? [] : workspaces.map((ws, index) => ({
     id: ws.id,
     name: ws.name,
     role: ws.role || 'Member',
     members: ws.memberCount,
-    meetings: 0, // TODO: Fetch actual meetings count
+    meetings: workspaceMeetingCounts[ws.id] || 0,
     pendingTasks: 0, // TODO: Fetch actual tasks count
-    gradient: 'from-blue-500 to-cyan-500',
+    colorTheme: ws.colorTheme || fallbackColors[index % fallbackColors.length],
     lastActive: new Date(ws.createdAt).toLocaleDateString(),
     isPending: false,
   }));
@@ -114,11 +251,6 @@ const Dashboard = () => {
     }
   };
 
-  const notifications = shouldShowDummyData ? [
-    { id: 1, text: 'New task assigned in Product Team', time: '5m ago', unread: true },
-    { id: 2, text: 'Meeting starts in 30 minutes', time: '10m ago', unread: true },
-    { id: 3, text: 'Sprint retrospective completed', time: '2h ago', unread: false }
-  ] : [];
 
   // Calendar helper functions
   const navigateMonth = (direction: 'prev' | 'next') => {
@@ -165,15 +297,89 @@ const Dashboard = () => {
     );
   };
 
-  const hasMeetings = (day: number) => {
-    // Mock data - in real app, this would check actual meetings
-    if (!shouldShowDummyData) return false;
-    const meetingDays = [5, 12, 18, 25, 28];
-    return meetingDays.includes(day);
+  const getMeetingShade = (_day: number, meetingsForDay: any[]) => {
+    if (meetingsLoading || meetingsForDay.length === 0) return '';
+    
+    const hasLive = meetingsForDay.some(m => m.statusType === 'live');
+    const hasUpcoming = meetingsForDay.some(m => m.statusType === 'upcoming');
+    const hasCurrentToday = meetingsForDay.some(m => m.statusType === 'current');
+    
+    if (hasLive) {
+      return 'bg-cyan-500/20 border-cyan-500/40 dark:border-cyan-500/50 text-cyan-700'; // Live meetings - brighter cyan
+    } else if (hasCurrentToday) {
+      return 'bg-cyan-500/15 border-cyan-500/30 dark:border-cyan-500/40 text-cyan-700'; // Today's upcoming - medium cyan
+    } else if (hasUpcoming) {
+      return 'bg-cyan-500/10 border-cyan-500/20 dark:text-cyan-400 text-cyan-700'; // Future meetings - lighter cyan
+    } else {
+      return 'bg-slate-500/10 border-slate-500/20 dark:text-slate-400 text-slate-600'; // Past meetings - gray
+    }
+  };
+
+  const getMeetingsForDay = (day: number) => {
+    if (meetingsLoading || userMeetings.length === 0) return [];
+    
+    const targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+    targetDate.setHours(0, 0, 0, 0);
+    
+    const matchingMeetings = userMeetings.filter(meeting => {
+      if (!meeting.startTime) return false;
+      
+      const meetingDate = new Date(meeting.startTime);
+      meetingDate.setHours(0, 0, 0, 0);
+      
+      return meetingDate.getTime() === targetDate.getTime();
+    });
+
+    return matchingMeetings.map(meeting => {
+      const meetingDate = new Date(meeting.startTime);
+      const meetingEnd = meeting.endTime ? new Date(meeting.endTime) : new Date(meetingDate.getTime() + 60 * 60 * 1000);
+      const now = new Date();
+      
+      // Check if meeting is today
+      const today = new Date();
+      const isToday = (
+        meetingDate.getDate() === today.getDate() &&
+        meetingDate.getMonth() === today.getMonth() &&
+        meetingDate.getFullYear() === today.getFullYear()
+      );
+      
+      // Check if meeting is upcoming (future)
+      const isUpcoming = meetingDate > now;
+      
+      // Check if meeting is live (between start and end time)
+      const isLive = isToday && now >= meetingDate && now <= meetingEnd && meeting.status !== 'completed' && meeting.status !== 'cancelled';
+      
+      // Check if meeting is past (completed or cancelled)
+      const isPast = now > meetingEnd || meeting.status === 'completed' || meeting.status === 'cancelled';
+      
+      return {
+        ...meeting,
+        statusType: isLive ? 'live' : isUpcoming ? 'upcoming' : isPast ? 'past' : 'current'
+      };
+    });
   };
 
   const formatMonthYear = (date: Date) => {
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffInSeconds < 60) {
+      return `${diffInSeconds}s ago`;
+    } else if (diffInSeconds < 3600) {
+      const minutes = Math.floor(diffInSeconds / 60);
+      return `${minutes}m ago`;
+    } else if (diffInSeconds < 86400) {
+      const hours = Math.floor(diffInSeconds / 3600);
+      return `${hours}h ago`;
+    } else {
+      const days = Math.floor(diffInSeconds / 86400);
+      return `${days}d ago`;
+    }
   };
 
   return (
@@ -255,11 +461,26 @@ const Dashboard = () => {
                   className={`group rounded-lg p-4 border transition-all duration-300 shadow-sm ${
                     'isPending' in workspace && workspace.isPending
                       ? 'bg-gradient-to-br from-yellow-50/50 to-orange-50/50 border-yellow-300 animate-pulse-subtle opacity-70 hover:opacity-90 dark:from-yellow-900/10 dark:to-orange-900/10 dark:border-yellow-600/50'
-                      : 'bg-white border-gray-200 hover:border-gray-300 dark:bg-slate-800/50 dark:backdrop-blur-sm dark:border-slate-700/50 dark:hover:border-slate-600'
+                      : 'bg-white border-gray-200 hover:border-gray-300 dark:bg-slate-800/50 dark:backdrop-blur-sm dark:border-slate-700/50 dark:hover:border-slate-600 cursor-pointer'
                   }`}
                   style={'isPending' in workspace && workspace.isPending ? {
                     animation: 'pulse-glow 2s ease-in-out infinite',
                   } : undefined}
+                  onClick={() => {
+                    if (!('isPending' in workspace && workspace.isPending)) {
+                      const selected = {
+                        id: String(workspace.id),
+                        name: workspace.name,
+                        role: workspace.role,
+                        colorTheme: 'colorTheme' in workspace ? (workspace as any).colorTheme : undefined,
+                        memberCount: workspace.members,
+                      } as any;
+                      setCurrentWorkspace(selected);
+                      localStorage.setItem('currentWorkspace', JSON.stringify(selected));
+                      const workspaceId = typeof workspace.id === 'string' ? workspace.id : String(workspace.id);
+                      navigate(`/workspace/${workspaceId}`);
+                    }
+                  }}
                 >
                   {'isPending' in workspace && workspace.isPending && (
                     <div className="absolute top-2 right-2 px-2 py-1 bg-yellow-500 text-white text-xs font-semibold rounded-full animate-bounce-subtle">
@@ -269,9 +490,16 @@ const Dashboard = () => {
                   
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 bg-gradient-to-br ${workspace.gradient} rounded-lg flex items-center justify-center text-lg font-bold shadow-lg ${
-                        'isPending' in workspace && workspace.isPending ? 'opacity-60 animate-pulse-subtle' : ''
-                      }`}>
+                      <div 
+                        className={`w-12 h-12 rounded-lg flex items-center justify-center text-lg font-bold shadow-lg ${
+                          'isPending' in workspace && workspace.isPending ? 'opacity-60 animate-pulse-subtle' : ''
+                        }`}
+                        style={{
+                          backgroundColor: 'colorTheme' in workspace && typeof workspace.colorTheme === 'string' 
+                            ? workspace.colorTheme 
+                            : '#9333ea'
+                        }}
+                      >
                         {workspace.name.charAt(0)}
                       </div>
                       <div>
@@ -289,29 +517,12 @@ const Dashboard = () => {
                             {workspace.lastActive}
                           </span>
                           <span>•</span>
-                          <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-700 dark:bg-slate-700 dark:text-slate-300">{workspace.role}</span>
+                          <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-700 dark:bg-slate-700 dark:text-slate-300">{`${(workspace.role || '').slice(0,1).toUpperCase()}${(workspace.role || '').slice(1).toLowerCase()}`}</span>
                         </div>
                       </div>
                     </div>
 
-                    {'isPending' in workspace && !workspace.isPending && (
-                      <div className="flex gap-1.5">
-                      <button 
-                        onClick={() => {
-                          const workspaceId = typeof workspace.id === 'string' ? workspace.id : String(workspace.id);
-                          navigate(`/workspace/${workspaceId}`);
-                        }}
-                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded text-sm font-medium hover:shadow-lg hover:shadow-cyan-500/30 transition-all text-white">
-                        Open
-                      </button>
-                      <button className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-sm font-medium transition-colors text-gray-900 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white">
-                        Manage
-                      </button>
-                      <button className="px-3 py-1.5 bg-gray-100 hover:bg-red-100 hover:text-red-600 rounded text-sm font-medium transition-all text-gray-900 dark:bg-slate-700 dark:hover:bg-red-500/20 dark:hover:text-red-400 dark:text-white">
-                        Leave
-                      </button>
-                    </div>
-                    )}
+                    {/* Removed Manage/Leave/Open buttons; card is clickable */}
                   </div>
 
                   {"isPending" in workspace && workspace.isPending ? (
@@ -403,46 +614,101 @@ const Dashboard = () => {
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-7 gap-0.5 text-center">
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-                <div key={i} className="text-xs text-gray-500 dark:text-slate-500 p-1">{day}</div>
-              ))}
-              {getDaysInMonth(currentDate).map((day, i) => (
-                <button
-                  key={i}
-                  className={`p-1 text-xs rounded transition-colors ${
-                    day === null 
-                      ? 'invisible' 
-                      : isToday(day)
-                      ? 'bg-cyan-500 text-white font-bold'
-                      : hasMeetings(day)
-                      ? 'bg-cyan-500/10 text-cyan-700 hover:bg-cyan-500/20 dark:text-cyan-400'
-                      : 'hover:bg-gray-100 text-gray-700 dark:hover:bg-slate-700 dark:text-slate-300'
-                  }`}
-                  disabled={day === null}
-                >
-                  {day}
-                </button>
-              ))}
-            </div>
+            {meetingsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-500"></div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-7 gap-0.5 text-center">
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
+                  <div key={i} className="text-xs text-gray-500 dark:text-slate-500 p-1">{day}</div>
+                ))}
+                {getDaysInMonth(currentDate).map((day, i) => {
+                  if (day === null) return null;
+                  const meetingsForDay = getMeetingsForDay(day);
+                  const meetingCount = meetingsForDay.length;
+                  
+                  const shade = getMeetingShade(day, meetingsForDay);
+                  const isCurrentDay = isToday(day);
+                  
+                  return (
+                    <button
+                      key={i}
+                      className={`p-1 text-xs rounded transition-colors relative border ${
+                        isCurrentDay
+                          ? 'bg-cyan-500 text-white font-bold border-cyan-400'
+                          : meetingsForDay.length > 0
+                          ? shade + ' hover:scale-105'
+                          : 'hover:bg-gray-100 text-gray-700 dark:hover:bg-slate-700 dark:text-slate-300 border-transparent'
+                      }`}
+                      disabled={false}
+                      title={meetingCount > 0 ? `${meetingCount} meeting${meetingCount > 1 ? 's' : ''} on ${day}` : ''}
+                    >
+                      {day}
+                      {meetingCount > 0 && (
+                        <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
+                          shade.includes('bg-slate') 
+                            ? 'bg-slate-500' 
+                            : shade.includes('live') || shade.includes('bg-cyan-500/20')
+                            ? 'bg-cyan-600' 
+                            : 'bg-cyan-500'
+                        }`}></div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Notifications */}
         <div className="mb-4">
-          <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 dark:text-slate-400">Notifications</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider dark:text-slate-400">Notifications</h3>
+            {recentNotifications.length > 0 && (
+              <button
+                onClick={() => navigate('/notifications')}
+                className="text-xs text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300"
+              >
+                View all
+              </button>
+            )}
+          </div>
           <div className="space-y-1.5">
-            {notifications.map((notif) => (
+            {notificationsLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-500"></div>
+              </div>
+            ) : recentNotifications.length === 0 ? (
+              <div className="text-center py-4">
+                <Bell className="w-8 h-8 mx-auto mb-2 text-gray-400 dark:text-slate-500" />
+                <p className="text-xs text-gray-500 dark:text-slate-400">No notifications yet</p>
+              </div>
+            ) : (
+              recentNotifications.map((notif) => (
               <div
                 key={notif.id}
-                className={`p-2.5 rounded-lg border transition-colors ${
-                  notif.unread ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50'
-                }`}
-              >
-                <p className="text-sm mb-0.5 text-gray-900 dark:text-white">{notif.text}</p>
-                <p className="text-xs text-gray-500 dark:text-slate-500">{notif.time}</p>
+                  className={`p-2.5 rounded-lg border transition-colors cursor-pointer hover:shadow-sm ${
+                    !notif.isRead ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50'
+                  }`}
+                  onClick={() => navigate('/notifications')}
+                >
+                  <div className="flex items-start gap-2">
+                    {!notif.isRead && (
+                      <div className="w-2 h-2 mt-1.5 bg-cyan-500 rounded-full flex-shrink-0"></div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium mb-0.5 text-gray-900 dark:text-white line-clamp-1">{notif.title || notif.message}</p>
+                      {notif.title && (
+                        <p className="text-xs text-gray-600 dark:text-slate-400 line-clamp-2">{notif.message}</p>
+                      )}
+                      <p className="text-xs text-gray-500 dark:text-slate-500 mt-1">{formatTimeAgo(notif.createdAt)}</p>
+                    </div>
+                  </div>
               </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 

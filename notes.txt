@@ -1,4 +1,4 @@
-# ✅ **Kairo Frontend Implementation Plan (Phased To-Do List)**
+# **Kairo Frontend Implementation Plan (Phased To-Do List)**
 
 ---
 DONE: 

@@ -5,7 +5,7 @@ import Layout from '../../components/Layout';
 import { useUser } from '../../context/UserContext';
 import UserAvatar from '../../components/ui/UserAvatar';
 import apiService from '../../services/api';
-import WorkspaceActivityLog from '../../modals/WorkspaceActivityLog';
+import WorkspaceActivityLog from '../../modals/workspace/WorkspaceActivityLog';
 import NewMeetingModal from '../../modals/NewMeetingModal';
 import { useToastContext } from '../../context/ToastContext';
 import LiveMeetingBanner from '../../components/meetings/dashboard/LiveMeetingBanner';
@@ -22,6 +22,7 @@ const WorkspaceOverview = () => {
   const [upcomingMeetingsData, setUpcomingMeetingsData] = useState<any[]>([]);
   const [liveMeeting, setLiveMeeting] = useState<any>(null);
   const [dismissedLiveBanner, setDismissedLiveBanner] = useState(false);
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
   
   const { error: toastError, success: toastSuccess } = useToastContext();
   
@@ -65,6 +66,24 @@ const WorkspaceOverview = () => {
     };
 
     fetchWorkspaceDetails();
+  }, [workspaceId, shouldShowDummyData]);
+
+  // Fetch activity logs
+  useEffect(() => {
+    const fetchActivityLogs = async () => {
+      if (!workspaceId || shouldShowDummyData) return;
+      
+      try {
+        const response = await apiService.getWorkspaceLogs(parseInt(workspaceId), 4, 0); // Fetch top 4 logs
+        if (response.data?.logs) {
+          setActivityLogs(response.data.logs);
+        }
+      } catch (error) {
+        console.error('Failed to fetch activity logs:', error);
+      }
+    };
+
+    fetchActivityLogs();
   }, [workspaceId, shouldShowDummyData]);
 
   // Store meetings locally
@@ -136,7 +155,8 @@ const WorkspaceOverview = () => {
     checkLiveMeetings();
     const interval = setInterval(checkLiveMeetings, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
-  }, [liveMeeting, dismissedLiveBanner, toastSuccess]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveMeeting, dismissedLiveBanner]);
 
   // Refresh meetings when modal closes
   const handleMeetingCreated = async () => {
@@ -269,13 +289,45 @@ const WorkspaceOverview = () => {
     { id: 3, topic: 'Q4 Goals', linkedMeetings: 8, lastDiscussed: '3 days ago' },
   ] : [];
 
+  // Format activity logs for display
+  const formatActivityTime = (createdAt: string): string => {
+    const now = new Date();
+    const activityTime = new Date(createdAt);
+    const diffMs = now.getTime() - activityTime.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    return activityTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const mapActionToType = (action: string): string => {
+    if (action.includes('task')) return 'task';
+    if (action.includes('meeting')) return 'meeting';
+    if (action.includes('memory')) return 'memory';
+    if (action.includes('transcript')) return 'transcript';
+    if (action.includes('workspace')) return 'workspace';
+    if (action.includes('member')) return 'member';
+    if (action.includes('complete')) return 'complete';
+    return 'message';
+  };
+
   const activityFeed = shouldShowDummyData ? [
     { id: 1, type: 'task', text: 'New task assigned from Sprint Planning', time: '5 min ago', user: 'Ali H.' },
     { id: 2, type: 'meeting', text: 'Meeting summary ready: Client Demo', time: '1 hour ago', user: 'System' },
     { id: 3, type: 'memory', text: 'Memory link created between 2 meetings', time: '2 hours ago', user: 'System' },
     { id: 4, type: 'complete', text: 'API Integration Sync completed', time: '3 hours ago', user: 'Areeba R.' },
-    { id: 5, type: 'transcript', text: 'Transcript processed for Product Review', time: '4 hours ago', user: 'System' },
-  ] : [];
+  ] : activityLogs.slice(0, 4).map((log) => ({
+    id: log.id,
+    type: mapActionToType(log.action),
+    text: log.title || log.description,
+    time: formatActivityTime(log.createdAt),
+    user: log.user?.name || 'System'
+  }));
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -284,6 +336,8 @@ const WorkspaceOverview = () => {
       case 'memory': return Brain;
       case 'transcript': return FileText;
       case 'complete': return TrendingUp;
+      case 'workspace': return Network;
+      case 'member': return Users;
       default: return MessageSquare;
     }
   };
@@ -302,9 +356,9 @@ const WorkspaceOverview = () => {
               duration: `${liveMeeting.duration} min`,
               status: 'live',
               participants: liveMeeting.participants?.map((p: any) => ({
-                id: p.user?.id?.toString() || '',
                 name: p.user?.name || '',
-                initials: p.user?.name?.split(' ').map((n: string) => n[0]).join('') || '',
+                avatar: p.user?.profilePictureUrl || '',
+                profilePictureUrl: p.user?.profilePictureUrl,
               })) || [],
             }}
             onJoin={handleLiveBannerJoin}
@@ -329,7 +383,7 @@ const WorkspaceOverview = () => {
                   {currentWorkspace?.name || 'Workspace'}
                 </h1>
                 <p className="text-gray-600 dark:text-slate-400 text-sm truncate">
-                  {currentWorkspace?.memberCount || 0} members • {currentWorkspace?.role || 'Member'}
+                  {currentWorkspace?.memberCount || 0} members • {currentWorkspace?.role ? `${currentWorkspace.role.slice(0,1).toUpperCase()}${currentWorkspace.role.slice(1).toLowerCase()}` : 'Member'}
                 </p>
               </div>
             </div>
@@ -579,6 +633,7 @@ const WorkspaceOverview = () => {
                   <div
                     key={meeting.id}
                     className="rounded-lg p-3 sm:p-4 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
+                    onClick={() => navigate(`/workspace/${workspaceId || currentWorkspace?.id}/meetings/pre/${meeting.id}`)}
                   >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">

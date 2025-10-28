@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { X, Plus, Trash2, Shield, Eye, Edit3, Copy, Check, Link2, Loader2 } from 'lucide-react';
-import { useUser } from '../context/UserContext';
-import apiService from '../services/api';
-import { useToastContext } from '../context/ToastContext';
+import { useUser } from '../../context/UserContext';
+import apiService from '../../services/api';
+import { useToastContext } from '../../context/ToastContext';
 
 interface AddMemberModalProps {
   isOpen: boolean;

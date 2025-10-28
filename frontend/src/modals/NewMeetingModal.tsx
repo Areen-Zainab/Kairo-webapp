@@ -51,6 +51,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   });
   const [newParticipant, setNewParticipant] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [participantUserIds, setParticipantUserIds] = useState<number[]>([]);
 
   const handleInputChange = (field: keyof MeetingData, value: any) => {
     setFormData(prev => ({
@@ -68,21 +69,65 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     }));
   };
 
-  const handleAddParticipant = () => {
-    if (newParticipant.trim() && !formData.participants.includes(newParticipant.trim())) {
-      setFormData(prev => ({
-        ...prev,
-        participants: [...prev.participants, newParticipant.trim()]
-      }));
-      setNewParticipant('');
+  const handleAddParticipant = async () => {
+    const email = newParticipant.trim();
+    
+    if (!email) {
+      return;
     }
+
+    if (formData.participants.includes(email)) {
+      toastError('Participant already added', 'Error');
+      return;
+    }
+
+    const wsId = workspaceId || (urlWorkspaceId ? parseInt(urlWorkspaceId) : undefined);
+    if (!wsId) {
+      toastError('No workspace selected', 'Error');
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      toastError('Please enter a valid email address', 'Invalid Email');
+      return;
+    }
+
+    try {
+      // Lookup user by email
+      const response = await apiService.searchWorkspaceMembers(wsId, email);
+      
+      if (response.error) {
+        toastError(response.error, 'Error');
+        return;
+      }
+
+      if (response.data?.members && response.data.members.length > 0) {
+        const member = response.data.members[0];
+        setFormData(prev => ({
+          ...prev,
+          participants: [...prev.participants, email]
+        }));
+        setParticipantUserIds(prev => [...prev, member.id]);
+        toastSuccess(`Added ${member.name || member.email}`, 'Participant Added');
+      } else {
+        toastError(`User with email "${email}" not found in this workspace`, 'User Not Found');
+      }
+    } catch (error) {
+      console.error('Error looking up participant:', error);
+      toastError('Failed to find user. Make sure they are a member of this workspace.', 'Error');
+    }
+    
+    setNewParticipant('');
   };
 
-  const handleRemoveParticipant = (participant: string) => {
+  const handleRemoveParticipant = (_participant: string, index: number) => {
     setFormData(prev => ({
       ...prev,
-      participants: prev.participants.filter(p => p !== participant)
+      participants: prev.participants.filter((_p, i) => i !== index)
     }));
+    setParticipantUserIds(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async () => {
@@ -163,7 +208,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
         status: meetingType === 'instant' ? 'in-progress' : 'scheduled',
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
-        participantIds: [], // TODO: Add participant support
+        participantIds: participantUserIds, // Send actual participant IDs
       };
 
       // Create meeting
@@ -207,7 +252,18 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       handleClose();
     } catch (error) {
       console.error('Error creating meeting:', error);
-      toastError('Failed to create meeting', 'Error');
+      
+      // Extract error message from various error types
+      let errorMessage = 'Failed to create meeting';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'message' in error) {
+        errorMessage = (error as any).message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      toastError(errorMessage, 'Error');
       setIsSubmitting(false);
     }
   };
@@ -228,6 +284,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     });
     setNewParticipant('');
     setMeetingType('instant');
+    setParticipantUserIds([]);
   };
 
   const handleClose = () => {
@@ -439,49 +496,43 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
                     className="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">
                     Time *
                   </label>
                   <div className="flex items-center gap-2">
-                    {/* Hour */}
+                    {/* Hour 1–12 */}
                     <select
-                      value={formData.scheduledHour || 12}
+                      value={formData.scheduledHour ?? 12}
                       onChange={(e) => handleInputChange('scheduledHour', parseInt(e.target.value))}
                       className="flex-1 px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      {Array.from({ length: 12 }, (_, i) => {
-                        const hour = i + 1;
-                        return (
-                          <option key={hour} value={hour}>
-                            {hour}
-                          </option>
-                        );
-                      })}
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
                     </select>
-                    
+
                     <span className="text-slate-600 dark:text-slate-400 font-semibold">:</span>
-                    
-                    {/* Minute */}
-                    <select
-                      value={formData.scheduledMinute || 0}
-                      onChange={(e) => handleInputChange('scheduledMinute', parseInt(e.target.value))}
-                      className="flex-1 px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      {Array.from({ length: 4 }, (_, i) => {
-                        const minute = i * 15;
-                        return (
-                          <option key={minute} value={minute}>
-                            {minute.toString().padStart(2, '0')}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    
+
+                    {/* Minute 0–59 (no step limits) */}
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={59}
+                      value={formData.scheduledMinute ?? 0}
+                      onChange={(e) => {
+                        const v = Math.max(0, Math.min(59, Number(e.target.value || 0)));
+                        handleInputChange('scheduledMinute', v);
+                      }}
+                      className="w-20 px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+
                     {/* AM/PM */}
                     <select
-                      value={formData.scheduledPeriod || 'AM'}
-                      onChange={(e) => handleInputChange('scheduledPeriod', e.target.value as 'AM' | 'PM')}
+                      value={formData.scheduledPeriod ?? 'AM'}
+                      onChange={(e) => handleInputChange('scheduledPeriod', e.target.value as 'AM'|'PM')}
                       className="px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="AM">AM</option>
@@ -524,7 +575,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
                       >
                         <span>{participant}</span>
                         <button
-                          onClick={() => handleRemoveParticipant(participant)}
+                          onClick={() => handleRemoveParticipant(participant, index)}
                           className="hover:text-red-500 transition-colors"
                         >
                           <X className="w-3 h-3" />

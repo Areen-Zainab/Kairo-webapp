@@ -9,9 +9,13 @@ interface ListViewProps {
   onJoinMeeting?: (meetingLink: string) => void;
   onDeleteMeeting?: (backendId: number) => void;
   onCompleteMeeting?: (backendId: number) => void;
+  onCancelMeeting?: (backendId: number) => void;
+  canDelete?: (meeting: Meeting) => boolean;
+  canCancel?: (meeting: Meeting) => boolean;
+  canComplete?: (meeting: Meeting) => boolean;
 }
 
-const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick, onJoinMeeting, onDeleteMeeting, onCompleteMeeting }) => {
+const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick, onJoinMeeting, onDeleteMeeting, onCompleteMeeting, onCancelMeeting, canDelete, canCancel, canComplete }) => {
   const [showMenuFor, setShowMenuFor] = React.useState<string | null>(null);
   return (
     <div className="space-y-3">
@@ -122,7 +126,19 @@ const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick, onJoinMee
                 {showMenuFor === meeting.id && (
                   <div className="absolute right-0 mt-1 w-40 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 z-50">
                     <div className="py-1">
-                      {meeting.status !== 'completed' && onCompleteMeeting && meeting.backendId && (
+                      {meeting.status === 'upcoming' && onCancelMeeting && meeting.backendId && (!canCancel || canCancel(meeting)) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCancelMeeting(meeting.backendId!);
+                            setShowMenuFor(null);
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm text-amber-700 dark:text-amber-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                        >
+                          Cancel Meeting
+                        </button>
+                      )}
+                      {meeting.status !== 'completed' && onCompleteMeeting && meeting.backendId && (!canComplete || canComplete(meeting)) && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -134,7 +150,7 @@ const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick, onJoinMee
                           Mark Complete
                         </button>
                       )}
-                      {onDeleteMeeting && meeting.backendId && (
+                      {onDeleteMeeting && meeting.backendId && (!canDelete || canDelete(meeting)) && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

@@ -43,6 +43,7 @@ interface Workspace {
   name: string;
   description?: string;
   code: string;
+  colorTheme?: string;
   role?: string;
   ownerId: number;
   memberCount: number;
@@ -139,16 +140,33 @@ class ApiService {
       const data = await response.json();
 
       if (!response.ok) {
+        // Try to extract a more detailed error message
+        let errorMessage = data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
+        
+        // If there's nested error information, extract it
+        if (typeof data === 'object' && data.details) {
+          errorMessage = data.details;
+        }
+        
         return {
-          error: data.error || `HTTP ${response.status}: ${response.statusText}`,
+          error: errorMessage,
         };
       }
 
       return { data };
     } catch (error) {
       console.error('API request failed:', error);
+      
+      // Better error messages for common network issues
+      let errorMessage = 'Network error occurred';
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        errorMessage = 'Unable to connect to server. Please check your connection.';
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
       return {
-        error: error instanceof Error ? error.message : 'Network error occurred',
+        error: errorMessage,
       };
     }
   }
@@ -301,7 +319,7 @@ class ApiService {
     return this.request<{ workspace: Workspace }>(`/workspaces/${id}`);
   }
 
-  async updateWorkspace(id: number, updates: Partial<Workspace>): Promise<ApiResponse<{ workspace: Workspace }>> {
+  async updateWorkspace(id: number, updates: Partial<{ name?: string; description?: string; colorTheme?: string }>): Promise<ApiResponse<{ workspace: Workspace }>> {
     return this.request<{ workspace: Workspace }>(`/workspaces/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -356,6 +374,13 @@ class ApiService {
     if (offset) params.append('offset', offset.toString());
     const queryString = params.toString() ? `?${params.toString()}` : '';
     return this.request<{ logs: any[]; pagination: any }>(`/workspaces/${workspaceId}/logs${queryString}`);
+  }
+
+  async searchWorkspaceMembers(workspaceId: number, email: string): Promise<ApiResponse<{ members: any[]; allMembers: any[] }>> {
+    const params = new URLSearchParams();
+    params.append('email', email);
+    const queryString = params.toString();
+    return this.request<{ members: any[]; allMembers: any[] }>(`/workspaces/${workspaceId}/members/search?${queryString}`);
   }
 
   // Meeting methods

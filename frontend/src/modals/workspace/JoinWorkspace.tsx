@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import apiService from '../services/api';
-import { useUser } from '../context/UserContext';
-import { useToastContext } from '../context/ToastContext';
+import apiService from '../../services/api';
+import { useUser } from '../../context/UserContext';
+import { useToastContext } from '../../context/ToastContext';
 
 interface JoinWorkspaceModalProps {
   isOpen: boolean;

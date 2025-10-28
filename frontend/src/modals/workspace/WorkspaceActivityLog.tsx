@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, Activity, User, Users, Settings, UserPlus, UserCheck, UserX, FileEdit, Loader2, Clock } from 'lucide-react';
-import UserAvatar from '../components/ui/UserAvatar';
-import apiService from '../services/api';
+import UserAvatar from '../../components/ui/UserAvatar';
+import apiService from '../../services/api';
 
 interface WorkspaceLog {
   id: number;
@@ -35,13 +35,7 @@ const WorkspaceActivityLog: React.FC<WorkspaceActivityLogProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchLogs();
-    }
-  }, [isOpen, workspaceId]);
-
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -57,7 +51,13 @@ const WorkspaceActivityLog: React.FC<WorkspaceActivityLogProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchLogs();
+    }
+  }, [isOpen, fetchLogs]);
 
   const getActionIcon = (action: string) => {
     switch (action) {

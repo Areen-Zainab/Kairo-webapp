@@ -79,13 +79,20 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
     profilePictureUrl: ''
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
+    let rafId: number;
     const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        setMousePosition({ x: e.clientX, y: e.clientY });
+      });
     };
     
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
   }, []);
 
   const handleSidebarToggle = () => {

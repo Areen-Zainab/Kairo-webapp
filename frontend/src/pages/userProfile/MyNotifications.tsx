@@ -9,7 +9,7 @@ interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'meeting' | 'task' | 'deadline' | 'system' | 'workspace' | 'account';
+  type: 'meeting' | 'meeting_updated' | 'meeting_status_changed' | 'meeting_invitation' | 'task' | 'deadline' | 'system' | 'workspace' | 'account';
   priority: 'low' | 'medium' | 'high';
   workspace: string;
   isRead: boolean;
@@ -76,18 +76,32 @@ const MyNotifications = () => {
   };
 
   const workspaces = [...new Set(notifications.map(n => n.workspace))];
-  const types = ['meeting', 'task', 'deadline', 'system', 'workspace', 'account'];
+  const types = ['meeting', 'meeting_updated', 'meeting_status_changed', 'meeting_invitation', 'task', 'deadline', 'system', 'workspace', 'account'];
   const priorities = ['low', 'medium', 'high'];
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'meeting': return <Calendar size={16} className="text-blue-600" />;
+      case 'meeting':
+      case 'meeting_invitation':
+      case 'meeting_updated':
+      case 'meeting_status_changed':
+        return <Calendar size={16} className="text-blue-600" />;
       case 'task': return <CheckCircle size={16} className="text-green-600" />;
       case 'deadline': return <AlertCircle size={16} className="text-red-600" />;
       case 'system': return <Bell size={16} className="text-purple-600" />;
       case 'workspace': return <Users size={16} className="text-cyan-600" />;
       case 'account': return <Bell size={16} className="text-orange-600" />;
       default: return <Bell size={16} className="text-gray-600" />;
+    }
+  };
+
+  const getTypeDisplayName = (type: string) => {
+    switch (type) {
+      case 'meeting_updated': return 'Meeting Updated';
+      case 'meeting_status_changed': return 'Meeting Status';
+      case 'meeting_invitation': return 'Meeting Invitation';
+      case 'meeting': return 'Meeting';
+      default: return type.charAt(0).toUpperCase() + type.slice(1);
     }
   };
 
@@ -343,7 +357,7 @@ const MyNotifications = () => {
                           className="rounded border-2 border-gray-300 bg-white text-cyan-700 focus:ring-cyan-500 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-cyan-500 dark:focus:ring-cyan-500/50"
                         />
                         <span className="text-sm capitalize transition-colors text-gray-900 group-hover:text-black dark:text-gray-300 dark:group-hover:text-white">
-                          {type}
+                          {getTypeDisplayName(type)}
                         </span>
                       </label>
                     ))}

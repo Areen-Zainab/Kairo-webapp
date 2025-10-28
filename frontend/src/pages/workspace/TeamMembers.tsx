@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { UserPlus, Search, MoreVertical, Crown, Trash2, Shield, Eye, Edit3, TrendingUp, Users, BarChart3, Clock, MessageSquare, Loader2 } from 'lucide-react';
 import Layout from '../../components/Layout';
-import AddMemberModal from '../../modals/AddMember';
+import AddMemberModal from '../../modals/workspace/AddMember';
 import { useUser } from '../../context/UserContext';
 import { useToastContext } from '../../context/ToastContext';
 import apiService from '../../services/api';
@@ -135,13 +135,19 @@ export default function WorkspaceMembersPage() {
           }
         }
 
-        // Fetch pending invitations
-        const invitesResponse = await apiService.getWorkspaceInvites(parseInt(workspaceId), 'pending');
-        
-        if (invitesResponse.error) {
-          console.error('Error fetching invites:', invitesResponse.error);
-        } else if (invitesResponse.data?.invites) {
-          setPendingInvites(invitesResponse.data.invites);
+        // Fetch pending invitations only if user is owner or admin
+        if (canManageMembers) {
+          try {
+            const invitesResponse = await apiService.getWorkspaceInvites(parseInt(workspaceId), 'pending');
+            if (invitesResponse.error) {
+              console.error('Error fetching invites:', invitesResponse.error);
+            } else if (invitesResponse.data?.invites) {
+              setPendingInvites(invitesResponse.data.invites);
+            }
+          } catch (error) {
+            // Silently ignore 403 errors for non-admin users
+            console.warn('Could not fetch invites:', error);
+          }
         }
 
       } catch (error) {
@@ -159,8 +165,8 @@ export default function WorkspaceMembersPage() {
   const handleInviteClose = async () => {
     setShowInviteModal(false);
     
-    // Refresh invites list
-    if (workspaceId && !shouldShowDummyData && user) {
+    // Refresh invites list only if user can manage members
+    if (workspaceId && !shouldShowDummyData && user && canManageMembers) {
       try {
         const invitesResponse = await apiService.getWorkspaceInvites(parseInt(workspaceId), 'pending');
         if (invitesResponse.data?.invites) {

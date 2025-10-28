@@ -18,7 +18,7 @@ import {
   Sparkles,
   LayoutGrid,
 } from 'lucide-react';
-import CreateWorkspaceModal from '../modals/CreateWorkspace';
+import CreateWorkspaceModal from '../modals/workspace/CreateWorkspace';
 import { useUser } from '../context/UserContext';
 import { apiService } from '../services/api';
 
@@ -26,7 +26,7 @@ interface CurrentWorkspace {
   id: string;
   name: string;
   role: string;
-  color: string;
+  colorTheme?: string;
   memberCount: number;
 }
 
@@ -142,21 +142,20 @@ const Sidebar: React.FC<SidebarProps> = ({
     fetchUpcomingMeetingsCount();
   }, [currentWorkspace, shouldShowDummyData]);
 
-  // Convert workspaces to Sidebar format
-  const colors = ['from-purple-500 to-blue-500', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500', 'from-orange-500 to-pink-500'];
+  const colors = ['#9333ea', '#3b82f6', '#10b981', '#f97316'];
   
   const demoWorkspaces = shouldShowDummyData ? [
-    { id: 1, name: 'Product Team Alpha', role: 'Manager', color: 'from-purple-500 to-blue-500', memberCount: 12 },
-    { id: 2, name: 'Design Squad', role: 'Member', color: 'from-blue-500 to-cyan-500', memberCount: 8 },
-    { id: 3, name: 'Engineering Core', role: 'Lead', color: 'from-green-500 to-emerald-500', memberCount: 15 },
-    { id: 4, name: 'Marketing Team', role: 'Member', color: 'from-orange-500 to-pink-500', memberCount: 10 },
+    { id: 1, name: 'Product Team Alpha', role: 'Manager', colorTheme: '#9333ea', memberCount: 12 },
+    { id: 2, name: 'Design Squad', role: 'Member', colorTheme: '#3b82f6', memberCount: 8 },
+    { id: 3, name: 'Engineering Core', role: 'Lead', colorTheme: '#10b981', memberCount: 15 },
+    { id: 4, name: 'Marketing Team', role: 'Member', colorTheme: '#f97316', memberCount: 10 },
   ] : [];
 
   const sidebarWorkspaces = shouldShowDummyData ? demoWorkspaces : workspaces.map((ws, index) => ({
     id: ws.id.toString(),
     name: ws.name,
     role: ws.role || 'Member',
-    color: colors[index % colors.length],
+    colorTheme: ws.colorTheme || colors[index % colors.length],
     memberCount: ws.memberCount,
   }));
   
@@ -349,9 +348,19 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </>
               ) : (currentWorkspace || viewMode === 'workspace') ? (
                 <>
-                  <div className="relative">
-                    <div className={`absolute inset-0 bg-gradient-to-br ${currentWorkspace?.color || 'from-gray-400 to-gray-600'} rounded-lg blur-sm opacity-50`}></div>
-                    <div className={`relative w-8 h-8 bg-gradient-to-br ${currentWorkspace?.color || 'from-gray-400 to-gray-600'} rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-105 transition-transform`}>
+                      <div className="relative">
+                    <div 
+                      className="absolute inset-0 rounded-lg blur-sm opacity-50"
+                      style={{
+                        backgroundColor: currentWorkspace?.colorTheme || '#9333ea'
+                      }}
+                    ></div>
+                    <div 
+                      className="relative w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-105 transition-transform"
+                      style={{
+                        backgroundColor: currentWorkspace?.colorTheme || '#9333ea'
+                      }}
+                    >
                       <Building2 className="w-4 h-4 text-white" />
                     </div>
                   </div>
@@ -362,7 +371,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           {currentWorkspace?.name || 'Workspace'}
                         </p>
                         <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>
-                          {currentWorkspace ? `${currentWorkspace.role} • ${currentWorkspace.memberCount} members` : 'Loading...'}
+                          {currentWorkspace ? `${(currentWorkspace.role || '').slice(0,1).toUpperCase()}${(currentWorkspace.role || '').slice(1).toLowerCase()} • ${currentWorkspace.memberCount} members` : 'Loading...'}
                         </p>
                       </div>
                       <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${
@@ -434,12 +443,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                             : isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'
                         }`}
                       >
-                        <div className={`w-8 h-8 bg-gradient-to-br ${workspace.color} rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg`}>
+                        <div 
+                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg"
+                          style={{
+                            backgroundColor: 'colorTheme' in workspace ? workspace.colorTheme : '#9333ea'
+                          }}
+                        >
                           <Building2 className="w-4 h-4 text-white" />
                         </div>
                         <div className="flex-1 text-left">
                           <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{workspace.name}</p>
-                          <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{workspace.memberCount} members • {workspace.role}</p>
+                          <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{workspace.memberCount} members • {`${(workspace.role || '').slice(0,1).toUpperCase()}${(workspace.role || '').slice(1).toLowerCase()}`}</p>
                         </div>
                         {currentWorkspace?.id === workspace.id && viewMode === 'workspace' && (
                           <Check className={`w-4 h-4 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
@@ -470,7 +484,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                   {invite.workspace.name}
                                 </p>
                                 <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>
-                                  Invited by {invite.inviter.name} • {invite.role}
+                                  Invited by {invite.inviter.name} • {`${(invite.role || '').slice(0,1).toUpperCase()}${(invite.role || '').slice(1).toLowerCase()}`}
                                 </p>
                               </div>
                             </div>

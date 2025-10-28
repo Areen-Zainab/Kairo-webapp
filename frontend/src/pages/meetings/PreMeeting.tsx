@@ -5,11 +5,13 @@ import { apiService } from '../../services/api';
 import { useToastContext } from '../../context/ToastContext';
 import UserAvatar from '../../components/ui/UserAvatar';
 import { Clock, Calendar, Users, MapPin, Video, PenTool, Save, X, Globe, MessageSquare, ChevronLeft, Sparkles, FolderOpen, Building } from 'lucide-react';
+import { useUser } from '../../context/UserContext';
 
 const PreMeeting = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { success: toastSuccess, error: toastError } = useToastContext();
+  const { user, currentWorkspace } = useUser();
   
   const [meeting, setMeeting] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,6 +76,17 @@ const PreMeeting = () => {
 
   const handleSave = async () => {
     if (!id) return;
+    // Permission guard
+    const role = (currentWorkspace?.role || (JSON.parse(localStorage.getItem('currentWorkspace') || 'null')?.role) || '').toLowerCase();
+    const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+    const isCreator = meeting?.createdById === user?.id;
+    const startTimeGuard = new Date(meeting?.startTime) > new Date();
+    const isScheduled = meeting?.status === 'scheduled';
+    const canEdit = startTimeGuard && isScheduled && (isOwnerOrAdmin || isCreator);
+    if (!canEdit) {
+      toastError('You do not have permission to edit this meeting', 'Permission Denied');
+      return;
+    }
     
     setIsSaving(true);
     try {
@@ -177,8 +190,13 @@ const PreMeeting = () => {
   }
 
   const startTime = new Date(meeting.startTime);
-  const endTime = new Date(meeting.endTime);
+  // const endTime = new Date(meeting.endTime);
   const isUpcoming = startTime > new Date();
+  const role = (currentWorkspace?.role || (JSON.parse(localStorage.getItem('currentWorkspace') || 'null')?.role) || '').toLowerCase();
+  const isOwnerOrAdmin = role === 'owner' || role === 'admin';
+  const isCreator = meeting.createdById === user?.id;
+  const isScheduled = meeting.status === 'scheduled';
+  const canEdit = isUpcoming && isScheduled && (isOwnerOrAdmin || isCreator);
   
   return (
     <Layout>
@@ -233,6 +251,30 @@ const PreMeeting = () => {
                         )}
                       </div>
                     )}
+
+                  {/* Scheduler and timestamps */}
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    {meeting.createdBy && (
+                      <div className="flex items-center gap-2 md:justify-start justify-center">
+                        <UserAvatar
+                          profilePictureUrl={meeting.createdBy.profilePictureUrl}
+                          name={meeting.createdBy.name || meeting.createdBy.email || 'User'}
+                        />
+                        <div className="leading-tight">
+                          <p className="text-gray-700 dark:text-gray-300 font-medium">Scheduled by</p>
+                          <p className="text-gray-600 dark:text-gray-400">{meeting.createdBy.email}</p>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400 justify-center">
+                      <span>Scheduled on:</span>
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{new Date(meeting.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400 justify-end md:justify-end">
+                      <span>Last edited:</span>
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{new Date(meeting.updatedAt).toLocaleString()}</span>
+                    </div>
+                  </div>
                   </div>
                   
                   <div className="flex items-center gap-3">
@@ -311,8 +353,9 @@ const PreMeeting = () => {
                   
                   {!isEditing ? (
                     <button
-                      onClick={() => setIsEditing(true)}
+                      onClick={() => { if (canEdit) setIsEditing(true); else toastError('You do not have permission to edit this meeting', 'Permission Denied'); }}
                       className="inline-flex items-center gap-2 px-6 py-3 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-xl border border-gray-300 dark:border-gray-600 transition-all"
+                      disabled={!canEdit}
                     >
                       <PenTool className="w-4 h-4" />
                       Edit Details

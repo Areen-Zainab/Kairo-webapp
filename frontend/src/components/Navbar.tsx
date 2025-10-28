@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Calendar, Bell, User, Settings, LogOut, Sun, Moon, Plus } from 'lucide-react';
 import { useUser } from '../context/UserContext';
@@ -28,6 +28,7 @@ const Navbar: React.FC<NavbarProps> = ({
   const navigate = useNavigate();
   const { logout: logoutUser, user: contextUser } = useUser();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('theme');
     return (saved as 'light' | 'dark') || 'dark';
@@ -63,6 +64,23 @@ const Navbar: React.FC<NavbarProps> = ({
     root.classList.toggle('dark', theme === 'dark');
     localStorage.setItem('theme', theme);
   }, [theme]);
+
+  // Handle clicks outside profile menu
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    };
+
+    if (showProfileMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showProfileMenu]);
 
   const isDark = theme === 'dark';
 
@@ -157,7 +175,7 @@ const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {/* Enhanced Profile Menu */}
-          <div className="relative">
+          <div className="relative" ref={profileMenuRef}>
             <button
               onClick={() => setShowProfileMenu(!showProfileMenu)}
               className="flex items-center gap-2 p-1 transition-all duration-300 group"
@@ -174,14 +192,6 @@ const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {showProfileMenu && (
-              <>
-                {/* Backdrop */}
-                <div 
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowProfileMenu(false)}
-                />
-                
-                {/* Menu */}
                 <div className={`absolute right-0 mt-2 w-64 md:w-72 rounded-xl shadow-2xl overflow-hidden z-50 border transition-all duration-300 ${
                   isDark
                     ? 'bg-slate-900/95 backdrop-blur-xl border-slate-700/60'
@@ -294,7 +304,6 @@ const Navbar: React.FC<NavbarProps> = ({
                     </button>
                   </div>
                 </div>
-              </>
             )}
           </div>
         </div>
