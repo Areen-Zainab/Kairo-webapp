@@ -1,17 +1,27 @@
 import React, { useState } from 'react';
 import { X, Upload, Plus, Trash2, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import apiService from '../services/api';
+import { useUser } from '../context/UserContext';
+import { useToastContext } from '../context/ToastContext';
 
 interface CreateWorkspaceModalProps {
   isOpen?: boolean;
   onClose?: () => void;
+  onWorkspaceCreated?: () => void;
 }
 
-export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateWorkspaceModalProps) {
+export default function CreateWorkspaceModal({ isOpen = true, onClose, onWorkspaceCreated }: CreateWorkspaceModalProps) {
+  const { refreshUser, refreshWorkspaces, setCurrentWorkspace } = useUser();
+  const toast = useToastContext();
+  const navigate = useNavigate();
   const [workspaceName, setWorkspaceName] = useState('');
   const [description, setDescription] = useState('');
   const [members, setMembers] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState('');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files && e.target.files[0];
@@ -37,16 +47,66 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
     setMembers(members.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!workspaceName) {
-      alert('Please enter a workspace name');
+      setError('Please enter a workspace name');
+      toast.warning('Please enter a workspace name to continue', 'Missing Information');
       return;
     }
-    console.log({ workspaceName, description, members, logo: logoPreview });
-    onClose?.();
+    
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await apiService.createWorkspace({
+        name: workspaceName,
+        description,
+        members,
+      });
+
+      if (response.error) {
+        setError(response.error);
+        toast.error(response.error, 'Workspace Creation Failed');
+      } else if (response.data) {
+        const workspace = response.data.workspace;
+        console.log('Workspace created:', workspace);
+        toast.success(`${workspaceName} has been created successfully!`, 'Workspace Created');
+        
+        // Refresh workspaces and user context
+        await refreshWorkspaces();
+        await refreshUser();
+        
+        // Set as current workspace
+        setCurrentWorkspace({
+          id: String(workspace.id),
+          name: workspace.name,
+          role: 'Owner',
+          color: 'from-purple-500 to-blue-500',
+          memberCount: 1,
+        });
+        
+        // Close modal and navigate to the new workspace
+        onWorkspaceCreated?.();
+        onClose?.();
+        navigate(`/workspace/${workspace.id}`);
+      }
+    } catch (error) {
+      console.error('Create workspace error:', error);
+      setError('Failed to create workspace. Please try again.');
+      toast.error('Failed to create workspace. Please try again.', 'Creation Failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleClose = () => {
+    setWorkspaceName('');
+    setDescription('');
+    setMembers([]);
+    setEmailInput('');
+    setLogoPreview(null);
+    setError(null);
+    setIsLoading(false);
     onClose?.();
   };
 
@@ -188,21 +248,35 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose }: CreateW
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-5 border-t flex-shrink-0 bg-gray-50 border-gray-200 dark:bg-gray-900/30 dark:border-gray-700/50">
+          <div className="px-6 py-5 border-t flex-shrink-0 bg-gray-50 border-gray-200 dark:bg-gray-900/30 dark:border-gray-700/50">
+          {error && (
+            <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-sm">
+              {error}
+            </div>
+          )}
           <div className="flex gap-3">
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-6 py-3 rounded-md transition-all duration-300 font-medium bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:border-gray-700/50 dark:hover:bg-gray-700/50"
+              disabled={isLoading}
+              className="flex-1 px-6 py-3 rounded-md transition-all duration-300 font-medium bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:border-gray-700/50 dark:hover:bg-gray-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleSubmit}
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-700 text-white rounded-md hover:from-purple-500 hover:via-purple-600 hover:to-indigo-600 transition-all duration-300 font-semibold shadow-lg hover:shadow-purple-500/40"
+              disabled={isLoading}
+              className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-700 text-white rounded-md hover:from-purple-500 hover:via-purple-600 hover:to-indigo-600 transition-all duration-300 font-semibold shadow-lg hover:shadow-purple-500/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Create Workspace
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                'Create Workspace'
+              )}
             </button>
           </div>
         </div>

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Calendar, Clock, Users, MapPin, Plus, Filter, X, Search, Edit, Trash } from 'lucide-react';
 import Layout from '../../components/Layout';
 import NewMeetingModal from '../../modals/NewMeetingModal';
+import { apiService } from '../../services/api';
 
 interface Meeting {
   id: string;
@@ -17,31 +18,10 @@ interface Meeting {
   priority: 'low' | 'medium' | 'high';
 }
 
-interface MeetingData {
-  title: string;
-  description: string;
-  meetingLink: string;
-  platform: 'zoom' | 'google-meet' | 'teams' | 'other';
-  duration: number;
-  participants: string[];
-  meetingType: 'instant' | 'scheduled';
-  scheduledDate?: string;
-  scheduledTime?: string;
-}
-
-const MyCalendar = () => {
-  const navigate = useNavigate();
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [hoveredMeeting, setHoveredMeeting] = useState<string | null>(null);
-  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
-
-  // Mock data - using October 2024 for better demo
-  const today = new Date(2024, 9, 15); // October 15, 2024
-  const meetings: Meeting[] = [
+// Mock meetings generated once outside component
+const getMockMeetings = (): Meeting[] => {
+  const today = new Date();
+  return [
     {
       id: '1',
       title: 'Sprint Planning',
@@ -99,9 +79,168 @@ const MyCalendar = () => {
       status: 'upcoming',
       priority: 'low',
     },
+    // Add some past meetings to show calendar history
+    {
+      id: '6',
+      title: 'Retrospective Meeting',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2, 15, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2, 16, 30),
+      workspace: 'Product Team Alpha',
+      participants: ['Team'],
+      location: 'Zoom',
+      type: 'meeting',
+      status: 'completed',
+      priority: 'medium',
+    },
+    {
+      id: '7',
+      title: 'Design Review',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5, 11, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5, 12, 0),
+      workspace: 'Design Sprint Team',
+      participants: ['Fatima Sheikh'],
+      location: 'Google Meet',
+      type: 'meeting',
+      status: 'completed',
+      priority: 'low',
+    },
+    // Add more upcoming meetings
+    {
+      id: '8',
+      title: 'Product Demo',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7, 14, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7, 15, 30),
+      workspace: 'Client Solutions',
+      participants: ['Ali Hassan', 'Javeria Butt', 'Sarah Ahmed'],
+      location: 'Zoom',
+      type: 'meeting',
+      status: 'upcoming',
+      priority: 'high',
+    },
+    {
+      id: '9',
+      title: 'Release Deadline',
+      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 10, 17, 0),
+      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 10, 17, 0),
+      workspace: 'Product Team Alpha',
+      participants: ['Muhammad Ali'],
+      type: 'deadline',
+      status: 'upcoming',
+      priority: 'high',
+    },
   ];
+};
 
-  const workspaces = ['Product Team Alpha', 'Design Sprint Team', 'Client Solutions'];
+const MyCalendar = () => {
+  const navigate = useNavigate();
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hoveredMeeting, setHoveredMeeting] = useState<string | null>(null);
+  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
+  const [realMeetings, setRealMeetings] = useState<any[]>([]);
+  const [workspacesList, setWorkspacesList] = useState<string[]>([]);
+
+  // Fetch real meetings from all workspaces
+  useEffect(() => {
+    const fetchAllMeetings = async () => {
+      try {
+        // First, get all workspaces the user is a member of
+        const workspacesResponse = await apiService.getUserWorkspaces();
+        
+        if (!workspacesResponse.data?.workspaces) {
+          console.error('No workspaces found');
+          return;
+        }
+
+        const allMeetings: any[] = [];
+        const uniqueWorkspacesSet = new Set<string>();
+
+        // Fetch meetings from each workspace
+        for (const workspace of workspacesResponse.data.workspaces) {
+          try {
+            const meetingsResponse = await apiService.getMeetingsByWorkspace(workspace.id);
+            
+            if (meetingsResponse.data?.meetings) {
+              // Add workspace info to each meeting
+              const meetingsWithWorkspace = meetingsResponse.data.meetings.map((m: any) => ({
+                ...m,
+                workspace: {
+                  id: workspace.id,
+                  name: workspace.name
+                }
+              }));
+              
+              allMeetings.push(...meetingsWithWorkspace);
+              uniqueWorkspacesSet.add(workspace.name);
+            }
+          } catch (error) {
+            console.error(`Error fetching meetings for workspace ${workspace.name}:`, error);
+          }
+        }
+
+        // Filter out meetings with invalid dates
+        const validMeetings = allMeetings.filter((m: any) => {
+          return m.startTime && m.endTime && !isNaN(new Date(m.startTime).getTime()) && !isNaN(new Date(m.endTime).getTime());
+        });
+        
+        console.log(`Fetched ${validMeetings.length} meetings from ${uniqueWorkspacesSet.size} workspaces`);
+        
+        setRealMeetings(validMeetings);
+        
+        // Extract unique workspace names
+        const uniqueWorkspaces = Array.from(uniqueWorkspacesSet);
+        setWorkspacesList(uniqueWorkspaces);
+      } catch (error) {
+        console.error('Error fetching meetings:', error);
+      }
+    };
+
+    fetchAllMeetings();
+  }, []);
+
+  // Use real meetings if available, otherwise use mock data
+  const useRealData = realMeetings.length > 0;
+  
+  // Get mock meetings (using useMemo to prevent regeneration on every render)
+  const mockMeetings = useMemo(() => getMockMeetings(), []);
+  
+  // Transform real meetings to match the Meeting interface
+  const realMeetingsTransformed = useMemo(() => {
+    const transformed: Meeting[] = [];
+    for (const m of realMeetings) {
+      if (!m.startTime || !m.endTime) continue;
+      
+      const startTime = new Date(m.startTime);
+      const endTime = new Date(m.endTime);
+      
+      // Validate dates
+      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+        continue;
+      }
+      
+      transformed.push({
+        id: String(m.id),
+        title: m.title || 'Untitled Meeting',
+        startTime,
+        endTime,
+        workspace: m.workspace?.name || 'Unknown',
+        participants: m.participants?.map((p: any) => p.user?.name || 'Unknown') || [],
+        location: m.location || undefined,
+        type: 'meeting' as const,
+        status: m.status === 'scheduled' || m.status === 'in-progress' ? 'upcoming' as const : 
+                m.status === 'completed' ? 'completed' as const : 
+                'upcoming' as const,
+        priority: 'medium' as const,
+      });
+    }
+    return transformed;
+  }, [realMeetings]);
+
+  const meetings = useRealData ? realMeetingsTransformed : mockMeetings;
+  const workspaces = useRealData ? workspacesList : ['Product Team Alpha', 'Design Sprint Team', 'Client Solutions'];
 
   // Helper functions
   const navigateDate = (direction: 'prev' | 'next') => {
@@ -222,16 +361,6 @@ const MyCalendar = () => {
     }
   };
 
-  const handleJoinInstantly = (meetingData: MeetingData) => {
-    console.log('Joining external meeting:', meetingData);
-    window.open(meetingData.meetingLink, '_blank');
-  };
-
-  const handleScheduleMeeting = (meetingData: MeetingData) => {
-    console.log('Scheduling external meeting join:', meetingData);
-    // TODO: Implement scheduled meeting join logic
-  };
-
   // Render Month View
   const renderMonthView = () => (
     <div className="grid grid-cols-7 gap-1 sm:gap-2">
@@ -244,7 +373,7 @@ const MyCalendar = () => {
       
       {getDaysInMonth(currentDate).map((day, index) => {
         if (day === null) {
-          return <div key={index} className="p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] rounded-lg bg-gray-50 dark:bg-gray-800/20" />;
+          return <div key={`empty-${index}`} className="p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] rounded-lg bg-gray-50 dark:bg-gray-800/20" />;
         }
 
         const dayDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
@@ -253,7 +382,7 @@ const MyCalendar = () => {
 
         return (
           <div
-            key={day}
+            key={`${currentDate.getFullYear()}-${currentDate.getMonth()}-${day}`}
             className={`p-2 sm:p-3 min-h-[80px] sm:min-h-[120px] border rounded-lg cursor-pointer transition-all ${
               todayFlag 
                 ? 'bg-gradient-to-br from-purple-100 to-indigo-100 border-purple-400 shadow-lg ring-2 ring-purple-300 dark:from-purple-600/20 dark:to-indigo-600/20 dark:border-purple-500/50 dark:ring-purple-500/20' 
@@ -385,63 +514,129 @@ const MyCalendar = () => {
 
     return (
       <div className="space-y-4">
-        <div className="bg-gradient-to-r from-purple-100 to-indigo-100 border border-purple-300 rounded-lg p-4 dark:from-purple-600/20 dark:to-indigo-600/20 dark:border-purple-500/40">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{formatDate(currentDate)}</div>
-          <div className="text-gray-700 dark:text-gray-300">{dayMeetings.length} events scheduled</div>
+        {/* Day Header */}
+        <div className="bg-gradient-to-r from-purple-100 via-indigo-100 to-pink-100 border border-purple-300 rounded-lg p-4 sm:p-6 dark:from-purple-600/20 dark:via-indigo-600/20 dark:to-pink-600/20 dark:border-purple-500/40">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                {currentDate.toLocaleDateString('en-US', { weekday: 'long' })}
+              </div>
+              <div className="text-base sm:text-lg text-gray-700 dark:text-gray-300">
+                {currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </div>
+            </div>
+            <div className="text-sm sm:text-base text-gray-600 dark:text-gray-400 font-medium px-3 py-2 bg-white/70 dark:bg-white/5 rounded-lg border border-purple-200 dark:border-purple-500/30">
+              {dayMeetings.length} {dayMeetings.length === 1 ? 'event' : 'events'} scheduled
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-12 gap-4">
-          <div className="col-span-3 space-y-2">
+        {/* Day Timeline */}
+        <div className="grid grid-cols-12 gap-2 sm:gap-4">
+          {/* Hour Labels */}
+          <div className="col-span-2 sm:col-span-1 space-y-2 pr-2">
             {hours.map((hour) => (
-              <div key={hour} className="h-14 text-xs text-gray-600 dark:text-gray-400 font-medium">
+              <div key={hour} className="h-14 text-xs text-gray-600 dark:text-gray-400 font-medium text-right pt-1">
                 {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
               </div>
             ))}
           </div>
 
-          <div className="col-span-9 relative">
-            {hours.map((hour) => (
-              <div key={hour} className="h-14 border-b border-gray-200 dark:border-gray-700/40"></div>
-            ))}
+          {/* Events Column */}
+          <div className="col-span-10 sm:col-span-11 relative border-l-2 border-gray-200 dark:border-gray-700/40">
+            {/* Hour Lines */}
+            <div className="relative">
+              {hours.map((hour) => (
+                <div key={hour} className="h-14 border-b border-gray-100 dark:border-gray-700/20"></div>
+              ))}
+            </div>
             
+            {/* Event Blocks */}
             {dayMeetings.map((meeting) => {
               const startHour = meeting.startTime.getHours();
               const startMinute = meeting.startTime.getMinutes();
-              const duration = (meeting.endTime.getTime() - meeting.startTime.getTime()) / (1000 * 60);
+              const endHour = meeting.endTime.getHours();
+              const endMinute = meeting.endTime.getMinutes();
               const top = (startHour * 56) + (startMinute / 60 * 56);
+              const duration = ((endHour * 60 + endMinute) - (startHour * 60 + startMinute));
               const height = Math.max((duration / 60) * 56, 56);
 
               return (
                 <div
                   key={meeting.id}
-                  className={`absolute left-0 right-0 rounded-lg border p-3 cursor-pointer transition-all ${getEventColor(meeting.type)}`}
-                  style={{ top: `${top}px`, height: `${height}px` }}
+                  className={`absolute left-2 right-2 rounded-lg border-2 shadow-lg hover:shadow-xl transition-all cursor-pointer ${getEventColor(meeting.type)} group`}
+                  style={{ top: `${top}px`, height: `${height}px`, minHeight: '56px' }}
                   onClick={() => handleEventClick(meeting)}
                 >
-                  <div className="flex items-start gap-2">
-                    {getTypeIcon(meeting.type)}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm truncate">{meeting.title}</div>
-                      <div className="text-xs opacity-75 mt-1">
-                        {meeting.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                        {' - '}
-                        {meeting.endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  <div className="p-2 sm:p-3 h-full flex flex-col">
+                    <div className="flex items-start gap-2 mb-1 sm:mb-2">
+                      <div className="flex-shrink-0 mt-0.5">
+                        {getTypeIcon(meeting.type)}
                       </div>
-                      <div className="text-xs opacity-75 mt-1 truncate">{meeting.workspace}</div>
-                      {meeting.location && (
-                        <div className="text-xs opacity-75 flex items-center gap-1 mt-1">
-                          <MapPin size={10} />
-                          {meeting.location}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-xs sm:text-sm truncate flex items-center gap-2">
+                          {meeting.title}
+                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getPriorityColor(meeting.priority)}`} />
                         </div>
-                      )}
+                      </div>
                     </div>
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getPriorityColor(meeting.priority)}`} />
+                    <div className="text-[10px] sm:text-xs opacity-90 mb-1">
+                      {meeting.startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      {' - '}
+                      {meeting.endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div className="text-[10px] sm:text-xs opacity-75 truncate mb-1">
+                      {meeting.workspace}
+                    </div>
+                    {meeting.location && (
+                      <div className="text-[10px] sm:text-xs opacity-75 flex items-center gap-1 truncate">
+                        <MapPin size={8} />
+                        <span className="truncate">{meeting.location}</span>
+                      </div>
+                    )}
+                    {meeting.participants && meeting.participants.length > 0 && (
+                      <div className="text-[10px] sm:text-xs opacity-75 flex items-center gap-1 truncate mt-auto">
+                        <Users size={8} />
+                        <span className="truncate">
+                          {meeting.participants.slice(0, 2).join(', ')}
+                          {meeting.participants.length > 2 && ` +${meeting.participants.length - 2}`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
+            
+            {/* Current Time Indicator */}
+            {isToday(currentDate) && (
+              <div 
+                className="absolute left-0 right-0 border-t-2 border-red-500 z-10 pointer-events-none"
+                style={{ top: `${(new Date().getHours() * 56) + (new Date().getMinutes() / 60 * 56)}px` }}
+              >
+                <div className="absolute -left-2 top-0 w-4 h-4 rounded-full bg-red-500 -translate-y-1/2"></div>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* No Events Message */}
+        {dayMeetings.length === 0 && (
+          <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/20 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700/40">
+            <Calendar size={56} className="mx-auto text-gray-400 dark:text-gray-600 mb-4" />
+            <p className="text-gray-600 dark:text-gray-400 text-lg font-medium mb-2">No events scheduled</p>
+            <p className="text-sm text-gray-500 dark:text-gray-500">Your day is free!</p>
+            <button
+              onClick={() => setShowNewMeetingModal(true)}
+              className="mt-4 px-4 py-2 rounded-lg transition-all border-2 bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200 dark:bg-purple-600/30 dark:text-purple-300 dark:hover:bg-purple-600/40 dark:border-purple-500/40 font-medium flex items-center justify-center gap-2"
+            >
+              {/* Show "+" on tablet and smaller */}
+              <Plus size={16} className="block md:hidden" />
+              {/* Show text on larger screens */}
+              <span className="hidden md:inline">Add Event</span>
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -470,10 +665,12 @@ const MyCalendar = () => {
                 <Filter size={16} />
                 <span className="hidden sm:inline">Filters</span>
               </button>
-              <button onClick={() => setShowNewMeetingModal(true)} className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all flex items-center gap-2 font-medium shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
-                <Plus size={16} />
-                <span className="hidden sm:inline">Add Event</span>
-                <span className="sm:hidden">Add</span>
+              <button onClick={() => setShowNewMeetingModal(true)}
+                className="px-3 sm:px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all flex items-center justify-center gap-2 font-medium shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50"
+              >
+                <Plus size={20} className="block md:hidden" />
+                <Plus size={20} className="hidden md:inline w-4 h-4" />
+                <span className="hidden md:inline">Add Event</span>
               </button>
             </div>
           </div>
@@ -560,21 +757,32 @@ const MyCalendar = () => {
           </div>
 
           {/* Quick Stats */}
-          <div className="flex items-center gap-6 text-sm bg-white border border-gray-200 rounded-lg px-4 py-2 dark:bg-gray-800/40 dark:border-gray-700/50">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-purple-500 shadow-lg shadow-purple-500/50"></div>
-              <span className="text-gray-600 dark:text-gray-400">Meetings</span>
-              <span className="text-gray-900 dark:text-white font-bold">3</span>
+          <div className="flex items-center justify-between gap-3 sm:gap-6 text-xs sm:text-sm bg-white border border-gray-200 rounded-lg px-2 sm:px-4 py-2 dark:bg-gray-800/40 dark:border-gray-700/50 flex-wrap">
+            {/* Meetings */}
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-[90px] sm:min-w-fit justify-center sm:justify-start">
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-purple-500 shadow-md shadow-purple-500/50"></div>
+              <span className="text-gray-600 dark:text-gray-400 hidden sm:inline">Meetings</span>
+              <span className="text-gray-900 dark:text-white font-semibold">
+                {meetings.filter(m => m.type === 'meeting').length}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500 shadow-lg shadow-blue-500/50"></div>
-              <span className="text-gray-600 dark:text-gray-400">Tasks</span>
-              <span className="text-gray-900 dark:text-white font-bold">1</span>
+
+            {/* Tasks */}
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-[90px] sm:min-w-fit justify-center sm:justify-start">
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-blue-500 shadow-md shadow-blue-500/50"></div>
+              <span className="text-gray-600 dark:text-gray-400 hidden sm:inline">Tasks</span>
+              <span className="text-gray-900 dark:text-white font-semibold">
+                {meetings.filter(m => m.type === 'task').length}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-rose-500 shadow-lg shadow-rose-500/50"></div>
-              <span className="text-gray-600 dark:text-gray-400">Deadlines</span>
-              <span className="text-gray-900 dark:text-white font-bold">1</span>
+
+            {/* Deadlines */}
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-[90px] sm:min-w-fit justify-center sm:justify-start">
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-rose-500 shadow-md shadow-rose-500/50"></div>
+              <span className="text-gray-600 dark:text-gray-400 hidden sm:inline">Deadlines</span>
+              <span className="text-gray-900 dark:text-white font-semibold">
+                {meetings.filter(m => m.type === 'deadline').length}
+              </span>
             </div>
           </div>
         </div>
@@ -640,8 +848,9 @@ const MyCalendar = () => {
                 <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200 dark:bg-gray-800/30 dark:border-gray-700/30">
                   <Calendar size={56} className="mx-auto text-gray-500 dark:text-gray-600 mb-4" />
                   <p className="text-gray-700 dark:text-gray-400 text-lg">No events scheduled for this day</p>
-                  <button className="mt-4 px-4 py-2 rounded-lg transition-all border bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200 dark:bg-purple-600/30 dark:text-purple-300 dark:hover:bg-purple-600/40 dark:border-purple-500/40">
-                    Add Event
+                  <button className="mt-4 px-4 py-2 rounded-lg transition-all border-2 bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200 dark:bg-purple-600/30 dark:text-purple-300 dark:hover:bg-purple-600/40 dark:border-purple-500/40 font-medium flex items-center gap-2">
+                    <Plus size={16} className="sm:hidden" />
+                    <span className="hidden sm:inline">Add Event</span>
                   </button>
                 </div>
               ) : (
@@ -753,7 +962,10 @@ const MyCalendar = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {meetings
-              .filter((m) => m.status === 'upcoming')
+              .filter((m) => {
+                // Show upcoming meetings (status is 'upcoming' OR start time is in the future)
+                return m.status === 'upcoming' || m.startTime > new Date();
+              })
               .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
               .slice(0, 6)
               .map((meeting) => (
@@ -829,8 +1041,6 @@ const MyCalendar = () => {
         <NewMeetingModal
           isOpen={showNewMeetingModal}
           onClose={() => setShowNewMeetingModal(false)}
-          onJoinInstantly={handleJoinInstantly}
-          onScheduleMeeting={handleScheduleMeeting}
         />
       </div>
     </Layout>

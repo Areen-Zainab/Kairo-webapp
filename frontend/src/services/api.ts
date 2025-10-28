@@ -19,17 +19,15 @@ interface SignupRequest {
 }
 
 interface User {
-  id: string;
+  id: number;
   name: string;
   email: string;
   profilePictureUrl?: string;
-  audioSampleUrl?: string;
   timezone: string;
   createdAt: string;
   lastLogin?: string;
   isActive: boolean;
   emailVerified: boolean;
-  twoFactorEnabled: boolean;
   preferences?: any;
   notificationSettings?: any;
 }
@@ -38,6 +36,71 @@ interface AuthResponse {
   user: User;
   token: string;
   message: string;
+}
+
+interface Workspace {
+  id: number;
+  name: string;
+  description?: string;
+  code: string;
+  role?: string;
+  ownerId: number;
+  memberCount: number;
+  createdAt: string;
+  joinedAt?: string;
+  members?: Array<{
+    id: number;
+    userId: number;
+    workspaceId: number;
+    user: {
+      id: number;
+      email: string;
+      name: string;
+      profilePictureUrl?: string;
+    };
+  }>;
+  owner?: {
+    id: number;
+    email: string;
+    name: string;
+    profilePictureUrl?: string;
+  };
+}
+
+interface CreateWorkspaceRequest {
+  name: string;
+  description?: string;
+  members?: string[];
+}
+
+interface UploadProfilePictureResponse {
+  message: string;
+  imageUrl: string;
+}
+
+interface UploadAudioResponse {
+  message: string;
+  audioUrl: string;
+}
+
+interface Notification {
+  id: number;
+  userId: number;
+  title: string;
+  message: string;
+  type: string;
+  priority: string;
+  workspace: string | null;
+  isRead: boolean;
+  actionRequired: boolean;
+  relatedId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface NotificationsResponse {
+  notifications: Notification[];
+  unreadCount: number;
 }
 
 class ApiService {
@@ -53,6 +116,13 @@ class ApiService {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
+    // Don't make API calls if this is a demo token
+    if (this.token && this.token.startsWith('demo_token_')) {
+      return {
+        error: 'Demo account - API not available',
+      };
+    }
+
     const url = `${this.baseURL}${endpoint}`;
     
     const config: RequestInit = {
@@ -85,6 +155,32 @@ class ApiService {
 
   // Authentication methods
   async login(credentials: LoginRequest): Promise<ApiResponse<AuthResponse>> {
+    // Demo account - skip backend call
+    if (credentials.email.toLowerCase() === 'areeba@kairo.com' && credentials.password === 'Kairo123') {
+      const demoToken = 'demo_token_' + Date.now();
+      this.setToken(demoToken);
+      
+      return {
+        data: {
+          user: {
+            id: 999,
+            name: 'Areeba Riaz',
+            email: 'areeba@kairo.com',
+            profilePictureUrl: undefined,
+            timezone: 'UTC',
+            isActive: true,
+            emailVerified: true,
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            preferences: {},
+            notificationSettings: {}
+          },
+          token: demoToken,
+          message: 'Login successful'
+        }
+      };
+    }
+
     const response = await this.request<AuthResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
@@ -120,6 +216,21 @@ class ApiService {
   }
 
   async getCurrentUser(): Promise<ApiResponse<{ user: User }>> {
+    // Check if this is a demo account
+    const demoUser = localStorage.getItem('demoUser');
+    const token = localStorage.getItem('authToken');
+    
+    if (demoUser && token && token.startsWith('demo_token_')) {
+      try {
+        const user = JSON.parse(demoUser);
+        return {
+          data: { user }
+        };
+      } catch (e) {
+        console.error('Failed to parse demo user:', e);
+      }
+    }
+
     return this.request<{ user: User }>('/auth/me');
   }
 
@@ -141,6 +252,13 @@ class ApiService {
     return this.request('/auth/me/notifications', {
       method: 'PUT',
       body: JSON.stringify(settings),
+    });
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<ApiResponse> {
+    return this.request('/auth/me/change-password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
     });
   }
 
@@ -166,7 +284,211 @@ class ApiService {
   isAuthenticated(): boolean {
     return !!this.token;
   }
+
+  // Workspace methods
+  async createWorkspace(workspaceData: CreateWorkspaceRequest): Promise<ApiResponse<{ workspace: Workspace }>> {
+    return this.request<{ workspace: Workspace }>('/workspaces', {
+      method: 'POST',
+      body: JSON.stringify(workspaceData),
+    });
+  }
+
+  async getUserWorkspaces(): Promise<ApiResponse<{ workspaces: Workspace[] }>> {
+    return this.request<{ workspaces: Workspace[] }>('/workspaces');
+  }
+
+  async getWorkspaceById(id: number): Promise<ApiResponse<{ workspace: Workspace }>> {
+    return this.request<{ workspace: Workspace }>(`/workspaces/${id}`);
+  }
+
+  async updateWorkspace(id: number, updates: Partial<Workspace>): Promise<ApiResponse<{ workspace: Workspace }>> {
+    return this.request<{ workspace: Workspace }>(`/workspaces/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteWorkspace(id: number): Promise<ApiResponse> {
+    return this.request(`/workspaces/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async joinWorkspace(code: string): Promise<ApiResponse<{ workspace: Workspace; alreadyMember?: boolean }>> {
+    return this.request<{ workspace: Workspace; alreadyMember?: boolean }>('/workspaces/join', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  // Workspace invitation methods
+  async inviteWorkspaceMembers(workspaceId: number, emails: string[], role: string = 'member'): Promise<ApiResponse<{ results: any[] }>> {
+    return this.request<{ results: any[] }>(`/workspaces/${workspaceId}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ emails, role }),
+    });
+  }
+
+  async getPendingInvites(): Promise<ApiResponse<{ invites: any[] }>> {
+    return this.request<{ invites: any[] }>('/workspaces/invites');
+  }
+
+  async acceptWorkspaceInvitation(inviteId: number): Promise<ApiResponse<{ workspace: any; member: any }>> {
+    return this.request<{ workspace: any; member: any }>(`/workspaces/invites/${inviteId}/accept`, {
+      method: 'POST',
+    });
+  }
+
+  async rejectWorkspaceInvitation(inviteId: number): Promise<ApiResponse> {
+    return this.request(`/workspaces/invites/${inviteId}/reject`, {
+      method: 'POST',
+    });
+  }
+
+  async getWorkspaceInvites(workspaceId: number, status?: string): Promise<ApiResponse<{ invites: any[] }>> {
+    const params = status ? `?status=${status}` : '';
+    return this.request<{ invites: any[] }>(`/workspaces/${workspaceId}/invites${params}`);
+  }
+
+  async getWorkspaceLogs(workspaceId: number, limit?: number, offset?: number): Promise<ApiResponse<{ logs: any[]; pagination: any }>> {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+    if (offset) params.append('offset', offset.toString());
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ logs: any[]; pagination: any }>(`/workspaces/${workspaceId}/logs${queryString}`);
+  }
+
+  // Meeting methods
+  async createMeeting(meetingData: any): Promise<ApiResponse<{ meeting: any }>> {
+    return this.request<{ meeting: any }>('/meetings', {
+      method: 'POST',
+      body: JSON.stringify(meetingData),
+    });
+  }
+
+  async getMeetingsByWorkspace(workspaceId: number, filters?: any): Promise<ApiResponse<{ meetings: any[] }>> {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    if (filters?.upcoming) params.append('upcoming', 'true');
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ meetings: any[] }>(`/meetings/workspace/${workspaceId}${queryString}`);
+  }
+
+  async getUpcomingMeetings(workspaceId: number, limit?: number): Promise<ApiResponse<{ meetings: any[] }>> {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ meetings: any[] }>(`/meetings/workspace/${workspaceId}/upcoming${queryString}`);
+  }
+
+  async getTodaysMeetings(workspaceId: number): Promise<ApiResponse<{ meetings: any[] }>> {
+    return this.request<{ meetings: any[] }>(`/meetings/workspace/${workspaceId}/today`);
+  }
+
+  async getMyMeetings(filters?: any): Promise<ApiResponse<{ meetings: any[] }>> {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.upcoming) params.append('upcoming', 'true');
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ meetings: any[] }>(`/meetings/my-meetings${queryString}`);
+  }
+
+  async getMeetingById(meetingId: number): Promise<ApiResponse<{ meeting: any }>> {
+    return this.request<{ meeting: any }>(`/meetings/${meetingId}`);
+  }
+
+  async updateMeeting(meetingId: number, updates: any): Promise<ApiResponse<{ meeting: any }>> {
+    return this.request<{ meeting: any }>(`/meetings/${meetingId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteMeeting(meetingId: number): Promise<ApiResponse> {
+    return this.request(`/meetings/${meetingId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateMeetingStatus(meetingId: number, status: string): Promise<ApiResponse<{ meeting: any }>> {
+    return this.request<{ meeting: any }>(`/meetings/${meetingId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async updateParticipantStatus(meetingId: number, userId: number, status: string): Promise<ApiResponse<{ participant: any }>> {
+    return this.request<{ participant: any }>(`/meetings/${meetingId}/participants/${userId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async getMeetingStatistics(workspaceId: number, startDate?: string, endDate?: string): Promise<ApiResponse<{ statistics: any }>> {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ statistics: any }>(`/meetings/workspace/${workspaceId}/statistics${queryString}`);
+  }
+
+  // Upload methods
+  async uploadProfilePicture(imageData: string, fileExtension?: string): Promise<ApiResponse<UploadProfilePictureResponse>> {
+    return this.request<UploadProfilePictureResponse>('/upload/profile-picture', {
+      method: 'POST',
+      body: JSON.stringify({ imageData, fileExtension }),
+    });
+  }
+
+  async uploadAudioRecording(audioData: string, fileExtension?: string): Promise<ApiResponse<UploadAudioResponse>> {
+    return this.request<UploadAudioResponse>('/upload/audio-recording', {
+      method: 'POST',
+      body: JSON.stringify({ audioData, fileExtension }),
+    });
+  }
+
+  // Notification methods
+  async getNotifications(filters?: { isRead?: boolean; type?: string }): Promise<ApiResponse<NotificationsResponse>> {
+    const params = new URLSearchParams();
+    if (filters?.isRead !== undefined) {
+      params.append('isRead', filters.isRead.toString());
+    }
+    if (filters?.type) {
+      params.append('type', filters.type);
+    }
+    
+    const queryString = params.toString();
+    const endpoint = queryString ? `/notifications?${queryString}` : '/notifications';
+    
+    return this.request<NotificationsResponse>(endpoint);
+  }
+
+  async getUnreadNotificationCount(): Promise<ApiResponse<{ unreadCount: number }>> {
+    return this.request<{ unreadCount: number }>('/notifications/unread-count');
+  }
+
+  async markNotificationAsRead(id: number): Promise<ApiResponse<{ notification: Notification }>> {
+    return this.request<{ notification: Notification }>(`/notifications/${id}/read`, {
+      method: 'PUT',
+    });
+  }
+
+  async markAllNotificationsAsRead(): Promise<ApiResponse<{ count: number }>> {
+    return this.request<{ count: number }>('/notifications/read-all', {
+      method: 'PUT',
+    });
+  }
+
+  async deleteNotification(id: number): Promise<ApiResponse> {
+    return this.request(`/notifications/${id}`, {
+      method: 'DELETE',
+    });
+  }
 }
+
+export type { Notification, NotificationsResponse };
 
 // Create and export a singleton instance
 export const apiService = new ApiService();

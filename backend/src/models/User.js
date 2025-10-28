@@ -30,37 +30,51 @@ class User {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Create user
+    // Create user with user preferences and notification settings in one transaction
     const user = await prisma.user.create({
       data: {
         name,
         email,
         passwordHash,
-        timezone
+        timezone,
+        userPreferences: {
+          create: {
+            timezone,
+            autoJoin: false,
+            autoRecord: false,
+            defaultDuration: 30,
+            themeMode: 'light',
+            accentColor: '#007bff'
+          }
+        },
+        notificationSettings: {
+          create: {
+            emailMeetingReminders: true,
+            emailMeetingSummaries: true,
+            emailActionItems: true,
+            emailWeeklyDigest: false,
+            pushMeetingStarting: true,
+            pushMeetingJoined: false,
+            pushMentionsAndReplies: true,
+            pushActionItemsDue: true,
+            inAppMeetingUpdates: true,
+            inAppTranscriptionReady: true,
+            inAppSharedWithYou: true
+          }
+        }
       },
       select: {
         id: true,
         name: true,
         email: true,
+        profilePictureUrl: true,
+        audioSampleUrl: true,
         timezone: true,
         createdAt: true,
         isActive: true,
-        emailVerified: true
-      }
-    });
-
-    // Create default user preferences
-    await prisma.userPreferences.create({
-      data: {
-        userId: user.id,
-        timezone
-      }
-    });
-
-    // Create default notification settings
-    await prisma.notificationSettings.create({
-      data: {
-        userId: user.id
+        emailVerified: true,
+        userPreferences: true,
+        notificationSettings: true
       }
     });
 
@@ -91,7 +105,6 @@ class User {
         lastLogin: true,
         isActive: true,
         emailVerified: true,
-        twoFactorEnabled: true,
         userPreferences: true,
         notificationSettings: true
       }
@@ -149,6 +162,45 @@ class User {
         ...settings
       }
     });
+  }
+
+  static async changePassword(id, currentPassword, newPassword) {
+    // Get the user with their password hash
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        passwordHash: true
+      }
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isCurrentPasswordValid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    // Validate new password
+    if (newPassword.length < 6) {
+      throw new Error('Password must be at least 6 characters long');
+    }
+
+    // Hash new password
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    await prisma.user.update({
+      where: { id },
+      data: {
+        passwordHash: newPasswordHash
+      }
+    });
+
+    return { message: 'Password updated successfully' };
   }
 
   static async verifyPassword(plainPassword, hashedPassword) {

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Mail, Lock, Eye, EyeOff, ArrowRight, Chrome, Github, AlertCircle, Zap, Shield, Globe } from 'lucide-react';
 import { useNavigate } from "react-router-dom";
+import apiService from '../services/api';
+import { useUser } from '../context/UserContext';
+import { useToastContext } from '../context/ToastContext';
 
 export default function KairoLoginPage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -11,6 +14,8 @@ export default function KairoLoginPage() {
   const [error, setError] = useState('');
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { refreshUser } = useUser();
+  const toast = useToastContext();
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -29,20 +34,74 @@ export default function KairoLoginPage() {
     // Basic validation
     if (!email || !password) {
       setError('Please fill in all fields');
+      toast.warning('Please fill in all fields to continue', 'Missing Information');
       setIsLoading(false);
       return;
     }
 
-    // Simulate login process
-    setTimeout(() => {
-      // Navigate to dashboard without authentication
-      navigate('/dashboard');
+    try {
+      const response = await apiService.login({
+        email: email.trim(),
+        password: password
+      });
+
+      if (response.error) {
+        setError(response.error);
+        toast.error(response.error, 'Login Failed');
+      } else if (response.data) {
+        // Store demo user data if this is a demo account
+        if (response.data.token && response.data.token.startsWith('demo_token_')) {
+          const demoUser = {
+            id: 999,
+            name: 'Areeba Riaz',
+            email: 'areeba@kairo.com',
+            profilePictureUrl: null,
+            timezone: 'UTC',
+            isActive: true,
+            emailVerified: true,
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            preferences: {
+              timezone: 'UTC',
+              autoJoin: false,
+              autoRecord: false,
+              defaultDuration: 30,
+              themeMode: 'light',
+              accentColor: '#007bff'
+            },
+            notificationSettings: {
+              emailMeetingReminders: true,
+              emailMeetingSummaries: true,
+              emailActionItems: true,
+              emailWeeklyDigest: false,
+              pushMeetingStarting: true,
+              pushMeetingJoined: false,
+              pushMentionsAndReplies: true,
+              pushActionItemsDue: true,
+              inAppMeetingUpdates: true,
+              inAppTranscriptionReady: true,
+              inAppSharedWithYou: true
+            }
+          };
+          localStorage.setItem('demoUser', JSON.stringify(demoUser));
+        }
+
+        // Success - refresh user context and navigate to dashboard
+        await refreshUser();
+        toast.success('Welcome back! You have successfully logged in.', 'Login Successful');
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      setError('Failed to sign in. Please try again.');
+      toast.error('Failed to sign in. Please check your credentials and try again.', 'Login Failed');
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const handleSocialLogin = (provider: string) => {
-    alert(`Login with ${provider} - Coming soon!`);
+    toast.info(`${provider} login will be available soon!`, 'Coming Soon');
   };
 
   return (

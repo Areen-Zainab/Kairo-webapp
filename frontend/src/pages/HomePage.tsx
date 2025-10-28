@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Brain, Calendar, Target, Users, BarChart3, MessageSquare, Sparkles, ArrowRight, CheckCircle2, Play, Mic, Video, Shield, Rocket, Globe, Bot, Activity, ChevronDown, X, Menu, Star, Award, Layers } from 'lucide-react';
 import { useNavigate } from "react-router-dom";
+import { useToastContext } from '../context/ToastContext';
 
 export default function KairoHomePage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -15,6 +16,7 @@ export default function KairoHomePage() {
   const fullText = "understand & execute";
   const heroRef = useRef(null);
   const navigate = useNavigate();
+  const toast = useToastContext();
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -216,7 +218,7 @@ export default function KairoHomePage() {
   const handleEmailSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (email) {
-      alert(`Thanks! We'll send updates to ${email}`);
+      toast.success(`Thanks! We'll send updates to ${email}`, 'Subscribed');
       setEmail('');
     }
   };

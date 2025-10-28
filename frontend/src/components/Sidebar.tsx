@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Home, 
@@ -19,8 +19,10 @@ import {
   LayoutGrid,
 } from 'lucide-react';
 import CreateWorkspaceModal from '../modals/CreateWorkspace';
+import { useUser } from '../context/UserContext';
+import { apiService } from '../services/api';
 
-interface Workspace {
+interface CurrentWorkspace {
   id: string;
   name: string;
   role: string;
@@ -41,8 +43,8 @@ interface SidebarProps {
   onToggle?: () => void;
   viewMode: 'general' | 'workspace';
   onSetViewMode: (mode: 'general' | 'workspace') => void;
-  currentWorkspace?: Workspace;
-  onWorkspaceChange: (workspace: Workspace) => void;
+  currentWorkspace?: CurrentWorkspace | null;
+  onWorkspaceChange: (workspace: CurrentWorkspace) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
@@ -55,12 +57,15 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite } = useUser();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showCreateWorkspaceModal, setShowCreateWorkspaceModal] = useState(false);
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('theme');
     return (saved as 'light' | 'dark') || 'dark';
   });
+  const [upcomingMeetingsCount, setUpcomingMeetingsCount] = useState<number>(0);
 
   // Listen for theme changes
   useEffect(() => {
@@ -74,7 +79,31 @@ const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  // Close workspace menu when clicking outside
+  useEffect(() => {
+    if (!showWorkspaceMenu) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(event.target as Node)) {
+        setShowWorkspaceMenu(false);
+      }
+    };
+
+    // Add listener on next tick to avoid immediate closure
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showWorkspaceMenu]);
+
   const isDark = theme === 'dark';
+  
+  // Show dummy workspaces for demo account (areeba@kairo.com)
+  const shouldShowDummyData = user?.email?.toLowerCase() === 'areeba@kairo.com';
 
   // Auto-detect view mode based on URL path
   useEffect(() => {
@@ -89,12 +118,47 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [location.pathname, viewMode, onSetViewMode]);
 
-  const workspaces: Workspace[] = [
-    { id: '1', name: 'Product Team Alpha', role: 'Manager', color: 'from-purple-500 to-blue-500', memberCount: 12 },
-    { id: '2', name: 'Design Squad', role: 'Member', color: 'from-blue-500 to-cyan-500', memberCount: 8 },
-    { id: '3', name: 'Engineering Core', role: 'Lead', color: 'from-green-500 to-emerald-500', memberCount: 15 },
-    { id: '4', name: 'Marketing Team', role: 'Member', color: 'from-orange-500 to-pink-500', memberCount: 10 },
-  ];
+  // Fetch upcoming meetings count when workspace changes
+  useEffect(() => {
+    const fetchUpcomingMeetingsCount = async () => {
+      if (!currentWorkspace || shouldShowDummyData) {
+        setUpcomingMeetingsCount(shouldShowDummyData ? 3 : 0);
+        return;
+      }
+
+      try {
+        const response = await apiService.getUpcomingMeetings(parseInt(currentWorkspace.id));
+        if (response.data?.meetings) {
+          setUpcomingMeetingsCount(response.data.meetings.length);
+        } else {
+          setUpcomingMeetingsCount(0);
+        }
+      } catch (error) {
+        console.error('Error fetching upcoming meetings count:', error);
+        setUpcomingMeetingsCount(0);
+      }
+    };
+
+    fetchUpcomingMeetingsCount();
+  }, [currentWorkspace, shouldShowDummyData]);
+
+  // Convert workspaces to Sidebar format
+  const colors = ['from-purple-500 to-blue-500', 'from-blue-500 to-cyan-500', 'from-green-500 to-emerald-500', 'from-orange-500 to-pink-500'];
+  
+  const demoWorkspaces = shouldShowDummyData ? [
+    { id: 1, name: 'Product Team Alpha', role: 'Manager', color: 'from-purple-500 to-blue-500', memberCount: 12 },
+    { id: 2, name: 'Design Squad', role: 'Member', color: 'from-blue-500 to-cyan-500', memberCount: 8 },
+    { id: 3, name: 'Engineering Core', role: 'Lead', color: 'from-green-500 to-emerald-500', memberCount: 15 },
+    { id: 4, name: 'Marketing Team', role: 'Member', color: 'from-orange-500 to-pink-500', memberCount: 10 },
+  ] : [];
+
+  const sidebarWorkspaces = shouldShowDummyData ? demoWorkspaces : workspaces.map((ws, index) => ({
+    id: ws.id.toString(),
+    name: ws.name,
+    role: ws.role || 'Member',
+    color: colors[index % colors.length],
+    memberCount: ws.memberCount,
+  }));
   
   const generalMenuItems: MenuItem[] = [
     { id: 'dashboard', icon: LayoutGrid, label: 'Dashboard', badge: null, path: '/dashboard' },
@@ -104,7 +168,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const workspaceMenuItems: MenuItem[] = [
     { id: 'workspace-home', icon: Home, label: 'Overview', badge: null, path: '/workspace' },
-    { id: 'meetings', icon: Video, label: 'Meetings', badge: '3', path: '/workspace/meetings' },
+    { id: 'meetings', icon: Video, label: 'Meetings', badge: upcomingMeetingsCount > 0 ? String(upcomingMeetingsCount) : null, path: '/workspace/meetings' },
     { id: 'tasks', icon: CheckSquare, label: 'Task Boards', badge: '12', path: '/workspace/tasks' },
     { id: 'memory', icon: Brain, label: 'Meeting Memory', badge: null, path: '/workspace/memory' },
     { id: 'transcripts', icon: FileText, label: 'Transcripts', badge: null, path: '/workspace/transcripts' },
@@ -124,23 +188,51 @@ const Sidebar: React.FC<SidebarProps> = ({
   const bottomItems = viewMode === 'workspace' ? workspaceBottomItems : generalBottomItems;
 
   const isActiveItem = (path: string) => {
-    if (path === '/workspace' || path === '/dashboard') {
-      return location.pathname === path;
+    // Handle workspace routes with dynamic ID
+    if (path.startsWith('/workspace')) {
+      if (!currentWorkspace) return false;
+      
+      const workspaceId = typeof currentWorkspace.id === 'string' ? currentWorkspace.id : String(currentWorkspace.id);
+      
+      // For workspace home/overview (/workspace)
+      if (path === '/workspace') {
+        // Only highlight if exactly on the workspace main page
+        return location.pathname === `/workspace/${workspaceId}` || location.pathname === `/workspace/${workspaceId}/`;
+      }
+      
+      // For other workspace routes, construct full path
+      const fullPath = path.replace('/workspace', `/workspace/${workspaceId}`);
+      return location.pathname === fullPath || location.pathname.startsWith(fullPath + '/');
     }
+    
+    // Handle general routes
+    if (path === '/dashboard') {
+      return location.pathname === path || location.pathname === path + '/';
+    }
+    
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
-  const handleWorkspaceChange = (workspace: Workspace) => {
+  const handleWorkspaceChange = (workspace: CurrentWorkspace) => {
     setShowWorkspaceMenu(false);
     onWorkspaceChange(workspace);
     if (viewMode !== 'workspace') {
       onSetViewMode('workspace');
     }
-    navigate('/workspace');
+    // Navigate to workspace with ID
+    const workspaceId = typeof workspace.id === 'string' ? workspace.id : String(workspace.id);
+    navigate(`/workspace/${workspaceId}`);
   };
 
   const handleMenuClick = (item: MenuItem) => {
-    navigate(item.path);
+    // If there's a current workspace, include it in the path
+    if (currentWorkspace && item.path.startsWith('/workspace')) {
+      const workspaceId = typeof currentWorkspace.id === 'string' ? currentWorkspace.id : String(currentWorkspace.id);
+      const newPath = item.path.replace('/workspace', `/workspace/${workspaceId}`);
+      navigate(newPath);
+    } else {
+      navigate(item.path);
+    }
   };
 
   return (
@@ -217,9 +309,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Workspace Selector */}
         <div className="px-4 pb-4 pt-4">
-          <div className="relative">
+          <div className="relative" ref={workspaceMenuRef}>
             <button
-              onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
+              onClick={(e) => {
+                e.preventDefault();
+                setShowWorkspaceMenu(!showWorkspaceMenu);
+              }}
               className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 border group ${
                 collapsed ? 'justify-center' : ''
               } ${
@@ -252,19 +347,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </>
                   )}
                 </>
-              ) : currentWorkspace ? (
+              ) : (currentWorkspace || viewMode === 'workspace') ? (
                 <>
                   <div className="relative">
-                    <div className={`absolute inset-0 bg-gradient-to-br ${currentWorkspace.color} rounded-lg blur-sm opacity-50`}></div>
-                    <div className={`relative w-8 h-8 bg-gradient-to-br ${currentWorkspace.color} rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-105 transition-transform`}>
+                    <div className={`absolute inset-0 bg-gradient-to-br ${currentWorkspace?.color || 'from-gray-400 to-gray-600'} rounded-lg blur-sm opacity-50`}></div>
+                    <div className={`relative w-8 h-8 bg-gradient-to-br ${currentWorkspace?.color || 'from-gray-400 to-gray-600'} rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-105 transition-transform`}>
                       <Building2 className="w-4 h-4 text-white" />
                     </div>
                   </div>
                   {!collapsed && (
                     <>
                       <div className="flex-1 text-left">
-                        <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{currentWorkspace.name}</p>
-                        <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{currentWorkspace.role} • {currentWorkspace.memberCount} members</p>
+                        <p className={`text-sm font-semibold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          {currentWorkspace?.name || 'Workspace'}
+                        </p>
+                        <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>
+                          {currentWorkspace ? `${currentWorkspace.role} • ${currentWorkspace.memberCount} members` : 'Loading...'}
+                        </p>
                       </div>
                       <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${
                         showWorkspaceMenu ? 'rotate-90' : ''
@@ -277,12 +376,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             {showWorkspaceMenu && !collapsed && (
               <>
-                {/* Backdrop */}
-                <div 
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowWorkspaceMenu(false)}
-                />
-                
                 {/* Menu */}
                 <div className={`absolute top-full left-0 right-0 mt-2 rounded-xl shadow-2xl overflow-hidden z-50 border ${
                   isDark 
@@ -291,7 +384,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 }`}>
                   <div className="p-2 max-h-80 overflow-y-auto space-y-1 scrollbar-hide">
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         onSetViewMode('general');
                         setShowWorkspaceMenu(false);
                         navigate('/dashboard');
@@ -322,12 +416,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                       isDark ? 'text-slate-500' : 'text-gray-500'
                     }`}>Workspaces</p>
                     
-                    {workspaces.map((workspace) => (
+                    {sidebarWorkspaces.map((workspace) => (
                       <button
                         key={workspace.id}
-                        onClick={() => handleWorkspaceChange(workspace)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWorkspaceChange({ 
+                            ...workspace, 
+                            id: String(workspace.id) // Ensure id is string for Workspace type
+                          });
+                        }}
                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 ${
-                          currentWorkspace?.id === workspace.id && viewMode === 'workspace'
+                          currentWorkspace?.id === String(workspace.id) && viewMode === 'workspace'
                             ? isDark
                               ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30'
                               : 'bg-gradient-to-r from-purple-100 to-blue-100 border border-purple-300'
@@ -346,10 +446,83 @@ const Sidebar: React.FC<SidebarProps> = ({
                         )}
                       </button>
                     ))}
+                    
+                    {/* Pending Invitations */}
+                    {pendingInvites.length > 0 && (
+                      <>
+                        <div className={`h-px my-2 ${isDark ? 'bg-white/10' : 'bg-gray-200'}`}></div>
+                        <p className={`text-xs font-semibold uppercase tracking-wider px-3 py-2 ${
+                          isDark ? 'text-slate-500' : 'text-gray-500'
+                        }`}>Pending Invitations</p>
+                        {pendingInvites.map((invite) => (
+                          <div
+                            key={invite.id}
+                            className={`w-full flex flex-col gap-2 px-3 py-3 rounded-lg transition-all duration-200 opacity-60 ${
+                              isDark ? 'bg-white/5 border border-white/10' : 'bg-gray-100 border border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 bg-gradient-to-br ${colors[0]} rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg opacity-70`}>
+                                <Building2 className="w-4 h-4 text-white" />
+                              </div>
+                              <div className="flex-1 text-left">
+                                <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                  {invite.workspace.name}
+                                </p>
+                                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>
+                                  Invited by {invite.inviter.name} • {invite.role}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 ml-11">
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await acceptInvite(invite.id);
+                                    setShowWorkspaceMenu(false);
+                                  } catch (error) {
+                                    console.error('Failed to accept invite:', error);
+                                  }
+                                }}
+                                className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                                  isDark
+                                    ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30'
+                                    : 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-300'
+                                }`}
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await rejectInvite(invite.id);
+                                  } catch (error) {
+                                    console.error('Failed to reject invite:', error);
+                                  }
+                                }}
+                                className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                                  isDark
+                                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30'
+                                    : 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                                }`}
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
                   <div className={`p-2 border-t ${isDark ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-gray-50'}`}>
                     <button 
-                      onClick={() => setShowCreateWorkspaceModal(true)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowWorkspaceMenu(false);
+                        setShowCreateWorkspaceModal(true);
+                      }}
                       className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors group ${
                         isDark ? 'text-purple-400 hover:bg-white/5' : 'text-purple-600 hover:bg-purple-50'
                       }`}

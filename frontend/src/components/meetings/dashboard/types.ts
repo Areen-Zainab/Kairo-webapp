@@ -1,7 +1,11 @@
 export type TabType = 'all' | 'upcoming' | 'live' | 'history';
 export type ViewType = 'list' | 'grid' | 'calendar' | 'kanban';
 
-export interface MeetingParticipant { name: string; avatar: string }
+export interface MeetingParticipant { 
+  name: string; 
+  avatar: string;
+  profilePictureUrl?: string;
+}
 
 export interface Meeting {
   id: string;
@@ -17,5 +21,7 @@ export interface Meeting {
   tasks?: number;
   transcriptReady?: boolean;
   memoryLinks?: number;
+  meetingLink?: string;
+  backendId?: number;
 }
 

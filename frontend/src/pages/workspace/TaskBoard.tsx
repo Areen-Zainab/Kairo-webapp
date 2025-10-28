@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Globe, User, Columns, List as ListIcon, Calendar } from 'lucide-react';
 import type { Task, TaskView, TaskScope, TaskFilter, TaskSort, TaskStatus, TaskPriority } from '../../components/workspace/taskboard/types';
 import KanbanBoard from '../../components/workspace/taskboard/KanbanBoard';
 import ListView from '../../components/workspace/taskboard/ListView';
@@ -309,134 +310,143 @@ const TaskBoard: React.FC = () => {
     <Layout>
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">TB</span>
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Task Board</h1>
-                <p className="text-gray-600 dark:text-slate-400 text-sm">Manage and track all your workspace tasks</p>
-              </div>
+        <div className="mb-6 sm:mb-8">
+          {/* Title Section */}
+          <div className="flex items-center gap-3 min-w-0 mb-4">
+            <div className="w-10 h-10 flex-shrink-0 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-sm">TB</span>
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Task Board</h1>
+              <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400">Manage and track all your workspace tasks</p>
+            </div>
+          </div>
+
+          {/* View and scope controls */}
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap mb-6">
+            {/* Scope toggle */}
+            <div className="flex rounded-lg p-1 bg-white border border-gray-300 dark:bg-slate-800/50 dark:border-slate-700/50">
+              <button
+                onClick={() => setScope('global')}
+                className={`px-2 sm:px-3 md:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-1.5 ${
+                  scope === 'global'
+                    ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Global View"
+              >
+                <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden md:inline">Global View</span>
+              </button>
+              <button
+                onClick={() => setScope('personal')}
+                className={`px-2 sm:px-3 md:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-1.5 ${
+                  scope === 'personal'
+                    ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Personal View"
+              >
+                <User className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden md:inline">Personal View</span>
+              </button>
             </div>
 
-            {/* View and scope controls */}
-            <div className="flex items-center gap-4">
-              {/* Scope toggle */}
-              <div className="flex rounded-lg p-1 bg-white border border-gray-300 dark:bg-slate-800/50 dark:border-slate-700/50">
-                <button
-                  onClick={() => setScope('global')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 ${
-                    scope === 'global'
-                      ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Global View
-                </button>
-                <button
-                  onClick={() => setScope('personal')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 ${
-                    scope === 'personal'
-                      ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Personal View
-                </button>
-              </div>
-
-              {/* View toggle */}
-              <div className="flex rounded-lg p-1 bg-white border border-gray-300 dark:bg-slate-800/50 dark:border-slate-700/50">
-                <button
-                  onClick={() => setView('kanban')}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 ${
-                    view === 'kanban'
-                      ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Kanban
-                </button>
-                <button
-                  onClick={() => setView('list')}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 ${
-                    view === 'list'
-                      ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  List
-                </button>
-                <button
-                  onClick={() => setView('calendar')}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 ${
-                    view === 'calendar'
-                      ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Calendar
-                </button>
-              </div>
+            {/* View toggle */}
+            <div className="flex rounded-lg p-1 bg-white border border-gray-300 dark:bg-slate-800/50 dark:border-slate-700/50">
+              <button
+                onClick={() => setView('kanban')}
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-1.5 ${
+                  view === 'kanban'
+                    ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Kanban View"
+              >
+                <Columns className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Kanban</span>
+              </button>
+              <button
+                onClick={() => setView('list')}
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-1.5 ${
+                  view === 'list'
+                    ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="List View"
+              >
+                <ListIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">List</span>
+              </button>
+              <button
+                onClick={() => setView('calendar')}
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-1.5 ${
+                  view === 'calendar'
+                    ? 'bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Calendar View"
+              >
+                <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Calendar</span>
+              </button>
             </div>
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="rounded-lg p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
               <div className="flex items-center">
-                <div className="p-2.5 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="p-2 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600 dark:text-slate-400">Total Tasks</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">Total Tasks</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
               <div className="flex items-center">
-                <div className="p-2.5 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="p-2 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600 dark:text-slate-400">Completed</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.completed}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">Completed</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.completed}</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
               <div className="flex items-center">
-                <div className="p-2.5 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-lg">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="p-2 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-lg">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600 dark:text-slate-400">In Progress</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.inProgress}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">In Progress</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.inProgress}</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
               <div className="flex items-center">
-                <div className="p-2.5 bg-gradient-to-br from-rose-500 to-red-500 rounded-lg">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="p-2 bg-gradient-to-br from-rose-500 to-red-500 rounded-lg">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                   </svg>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600 dark:text-slate-400">Overdue</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.overdue}</p>
+                <div className="ml-3 sm:ml-4">
+                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">Overdue</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.overdue}</p>
                 </div>
               </div>
             </div>

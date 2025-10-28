@@ -5,18 +5,18 @@ const prisma = new PrismaClient();
 
 async function setup() {
   try {
-    console.log('🔄 Setting up database...');
+    console.log('Setting up database...');
     
     // Test database connection
     await prisma.$connect();
-    console.log('✅ Database connected successfully');
+    console.log('Database connected successfully');
     
     // Check if any users exist
     const userCount = await prisma.user.count();
-    console.log(`📊 Found ${userCount} existing users`);
+    console.log(`Found ${userCount} existing users`);
     
     if (userCount === 0) {
-      console.log('👤 Creating sample user...');
+      console.log('Creating sample user...');
       
       // Create a sample user
       const hashedPassword = await bcrypt.hash('password123', 12);

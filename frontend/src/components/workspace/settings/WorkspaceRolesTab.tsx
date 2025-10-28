@@ -1,7 +1,19 @@
 import { useState } from 'react';
-import { Save } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { Save, AlertCircle } from 'lucide-react';
+import { useUser } from '../../../context/UserContext';
 
 export default function WorkspaceRolesTab() {
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
+  const { workspaces } = useUser();
+  
+  // Get user's role in the workspace
+  const workspaceRole = workspaceId 
+    ? workspaces.find((ws: any) => String(ws.id) === workspaceId)?.role 
+    : null;
+  
+  const canEdit = workspaceRole === 'owner' || workspaceRole === 'admin';
+
   const [permissions, setPermissions] = useState({
     deleteMeetings: 'Admin',
     inviteMembers: 'Member',
@@ -14,6 +26,15 @@ export default function WorkspaceRolesTab() {
 
   return (
     <div className="space-y-6">
+      {!canEdit && (
+        <div className="rounded-lg border p-4 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/30">
+          <p className="text-sm text-amber-800 dark:text-amber-400 flex items-center gap-2">
+            <AlertCircle size={16} />
+            You have view-only access. Only workspace owners and admins can modify settings.
+          </p>
+        </div>
+      )}
+      
       <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Access Control</h3>
         <div className="space-y-4">
@@ -26,7 +47,12 @@ export default function WorkspaceRolesTab() {
               <select
                 value={value}
                 onChange={(e) => setPermissions({ ...permissions, [key]: e.target.value })}
-                className="px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500/40 bg-white border border-gray-300 text-gray-900 dark:bg-gray-700/50 dark:border-gray-600/50 dark:text-white"
+                disabled={!canEdit}
+                className={`px-4 py-2 rounded-md border ${
+                  canEdit 
+                    ? 'bg-white border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500/40 dark:bg-gray-700/50 dark:border-gray-600/50' 
+                    : 'bg-gray-50 border-gray-200 cursor-not-allowed dark:bg-gray-900 dark:border-gray-800'
+                } text-gray-900 dark:text-white`}
               >
                 {roleOptions.map((role) => (
                   <option key={role} value={role}>{role}</option>
@@ -37,12 +63,14 @@ export default function WorkspaceRolesTab() {
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <button className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-700 text-white rounded-md hover:from-purple-500 hover:to-indigo-600 transition-all font-medium shadow-lg hover:shadow-purple-500/30 flex items-center gap-2">
-          <Save size={18} />
-          Save Permissions
-        </button>
-      </div>
+      {canEdit && (
+        <div className="flex justify-end">
+          <button className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-700 text-white rounded-md hover:from-purple-500 hover:to-indigo-600 transition-all font-medium shadow-lg hover:shadow-purple-500/30 flex items-center gap-2">
+            <Save size={18} />
+            Save Permissions
+          </button>
+        </div>
+      )}
     </div>
   );
 }

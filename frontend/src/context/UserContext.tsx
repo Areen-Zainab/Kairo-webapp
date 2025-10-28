@@ -1,42 +1,174 @@
-import  { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import apiService from '../services/api';
+
+export interface NotificationSettings {
+  emailMeetingReminders?: boolean;
+  emailMeetingSummaries?: boolean;
+  emailActionItems?: boolean;
+  emailWeeklyDigest?: boolean;
+  pushMeetingStarting?: boolean;
+  pushMeetingJoined?: boolean;
+  pushMentionsAndReplies?: boolean;
+  pushActionItemsDue?: boolean;
+  inAppMeetingUpdates?: boolean;
+  inAppTranscriptionReady?: boolean;
+  inAppSharedWithYou?: boolean;
+}
+
+export interface UserPreferences {
+  autoJoin?: boolean;
+  autoRecord?: boolean;
+  defaultDuration?: number;
+  timezone?: string;
+  themeMode?: string;
+  accentColor?: string;
+}
 
 export interface UserProfile {
-  id: string;
+  id: number;
   name: string;
   email: string;
-  profilePicture: string | null;
-  audioSample: File | null;
+  profilePictureUrl?: string;
+  audioSampleUrl?: string;
+  timezone: string;
+  isActive: boolean;
+  emailVerified: boolean;
+  createdAt: string;
+  lastLogin?: string;
+  preferences?: UserPreferences;
+  notificationSettings?: NotificationSettings;
+}
+
+export interface Workspace {
+  id: number;
+  name: string;
+  description?: string;
+  code: string;
+  role?: string;
+  ownerId: number;
+  memberCount: number;
+  createdAt: string;
+  joinedAt?: string;
+}
+
+export interface WorkspaceInvite {
+  id: number;
+  workspaceId: number;
+  invitedEmail: string;
+  invitedUserId: number;
+  invitedBy: number;
+  role: string;
+  status: string;
+  sentAt: string;
+  workspace: {
+    id: number;
+    name: string;
+    description?: string;
+    colorTheme?: string;
+  };
+  inviter: {
+    id: number;
+    name: string;
+    email: string;
+  };
+}
+
+interface CurrentWorkspace {
+  id: string;
+  name: string;
+  role: string;
+  color: string;
+  memberCount: number;
 }
 
 interface UserContextType {
-  profile: UserProfile | null;
+  user: UserProfile | null;
+  workspaces: Workspace[];
+  pendingInvites: WorkspaceInvite[];
+  currentWorkspace: CurrentWorkspace | null;
   loading: boolean;
-  updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  isAuthenticated: boolean;
+  setCurrentWorkspace: (workspace: CurrentWorkspace | null) => void;
+  updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
+  updatePreferences: (preferences: any) => Promise<void>;
+  updateNotificationSettings: (settings: any) => Promise<void>;
+  refreshUser: () => Promise<void>;
+  refreshWorkspaces: () => Promise<void>;
+  refreshInvites: () => Promise<void>;
+  acceptInvite: (inviteId: number) => Promise<void>;
+  rejectInvite: (inviteId: number) => Promise<void>;
+  logout: () => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider = ({ children }: { children: ReactNode }) => {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<WorkspaceInvite[]>([]);
+  const [currentWorkspace, setCurrentWorkspace] = useState<CurrentWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch user profile on mount
+  // Load current workspace from localStorage on mount
   useEffect(() => {
-    fetchProfile();
+    const savedWorkspace = localStorage.getItem('currentWorkspace');
+    if (savedWorkspace) {
+      try {
+        const parsed = JSON.parse(savedWorkspace);
+        setCurrentWorkspace(parsed);
+      } catch (error) {
+        console.error('Failed to parse saved workspace:', error);
+      }
+    }
   }, []);
 
-  const fetchProfile = async () => {
+  // Check if user is authenticated on mount
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  // Load workspaces and invites when user is authenticated
+  useEffect(() => {
+    if (user) {
+      loadWorkspaces();
+      loadPendingInvites();
+    }
+  }, [user]);
+
+  const checkAuth = async () => {
     try {
-      const response = await fetch('/api/user/profile', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      const data = await response.json();
-      setProfile(data);
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      // Check if this is a demo account
+      const demoUser = localStorage.getItem('demoUser');
+      
+      if (demoUser && token.startsWith('demo_token_')) {
+        try {
+          const user = JSON.parse(demoUser);
+          setUser(user);
+          setLoading(false);
+          return;
+        } catch (e) {
+          console.error('Failed to parse demo user:', e);
+        }
+      }
+
+      // Regular user authentication
+      const response = await apiService.getCurrentUser();
+      if (response.data?.user) {
+        setUser(response.data.user);
+      } else {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('demoUser');
+      }
     } catch (error) {
-      console.error('Failed to fetch profile:', error);
+      console.error('Failed to check auth:', error);
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('demoUser');
     } finally {
       setLoading(false);
     }
@@ -44,29 +176,184 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     try {
-      const response = await fetch('/api/user/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify(updates),
-      });
-      
-      const updatedProfile = await response.json();
-      setProfile(updatedProfile);
+      const response = await apiService.updateProfile(updates);
+      if (response.data?.user) {
+        setUser(response.data.user);
+      }
     } catch (error) {
       console.error('Failed to update profile:', error);
       throw error;
     }
   };
 
-  const refreshProfile = async () => {
-    await fetchProfile();
+  const updatePreferences = async (preferences: any) => {
+    try {
+      const response = await apiService.updatePreferences(preferences);
+      // Update user state with the response if provided
+      if (response.data?.user) {
+        setUser(response.data.user);
+      } else {
+        await refreshUser();
+      }
+    } catch (error) {
+      console.error('Failed to update preferences:', error);
+      throw error;
+    }
+  };
+
+  const updateNotificationSettings = async (settings: any) => {
+    try {
+      const response = await apiService.updateNotificationSettings(settings);
+      // Update user state with the response if provided
+      if (response.data?.user) {
+        setUser(response.data.user);
+      } else {
+        await refreshUser();
+      }
+    } catch (error) {
+      console.error('Failed to update notification settings:', error);
+      throw error;
+    }
+  };
+
+  const refreshUser = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    try {
+      const response = await apiService.getCurrentUser();
+      if (response.data?.user) {
+        setUser(response.data.user);
+      }
+    } catch (error) {
+      console.error('Failed to refresh user:', error);
+    }
+  };
+
+  const refreshWorkspaces = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    try {
+      const response = await apiService.getUserWorkspaces();
+      if (response.data?.workspaces) {
+        setWorkspaces(response.data.workspaces);
+      }
+    } catch (error) {
+      console.error('Failed to load workspaces:', error);
+    }
+  };
+
+  const loadWorkspaces = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    // Check if this is a demo account
+    const demoUser = localStorage.getItem('demoUser');
+    if (demoUser && token.startsWith('demo_token_')) {
+      // Don't load workspaces for demo account - dummy data is handled in Dashboard
+      setWorkspaces([]);
+      return;
+    }
+
+    try {
+      const response = await apiService.getUserWorkspaces();
+      if (response.data?.workspaces) {
+        setWorkspaces(response.data.workspaces);
+      }
+    } catch (error) {
+      console.error('Failed to load workspaces:', error);
+    }
+  };
+
+  const loadPendingInvites = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    // Check if this is a demo account
+    const demoUser = localStorage.getItem('demoUser');
+    if (demoUser && token.startsWith('demo_token_')) {
+      setPendingInvites([]);
+      return;
+    }
+
+    try {
+      const response = await apiService.getPendingInvites();
+      if (response.data?.invites) {
+        setPendingInvites(response.data.invites);
+      } else {
+        setPendingInvites([]);
+      }
+    } catch (error) {
+      console.error('Failed to load pending invites:', error);
+    }
+  };
+
+  const refreshInvites = async () => {
+    await loadPendingInvites();
+  };
+
+  const acceptInvite = async (inviteId: number) => {
+    try {
+      await apiService.acceptWorkspaceInvitation(inviteId);
+      // Refresh both workspaces and invites
+      await Promise.all([loadWorkspaces(), loadPendingInvites()]);
+    } catch (error) {
+      console.error('Failed to accept invite:', error);
+      throw error;
+    }
+  };
+
+  const rejectInvite = async (inviteId: number) => {
+    try {
+      await apiService.rejectWorkspaceInvitation(inviteId);
+      // Refresh invites
+      await loadPendingInvites();
+    } catch (error) {
+      console.error('Failed to reject invite:', error);
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      // Only call backend logout if not a demo account
+      const token = localStorage.getItem('authToken');
+      if (token && !token.startsWith('demo_token_')) {
+        await apiService.logout(); // Call backend logout API
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Continue with local logout even if API call fails
+    } finally {
+      setUser(null); // Clear user context
+      setWorkspaces([]); // Clear workspaces
+      setCurrentWorkspace(null); // Clear current workspace
+      localStorage.removeItem('authToken'); // Ensure token is removed
+      localStorage.removeItem('demoUser'); // Remove demo user data
+      localStorage.removeItem('currentWorkspace'); // Remove saved workspace
+    }
   };
 
   return (
-    <UserContext.Provider value={{ profile, loading, updateProfile, refreshProfile }}>
+    <UserContext.Provider value={{ 
+      user, 
+      workspaces,
+      pendingInvites,
+      currentWorkspace,
+      setCurrentWorkspace,
+      loading, 
+      isAuthenticated: !!user,
+      updateProfile, 
+      updatePreferences,
+      updateNotificationSettings,
+      refreshUser,
+      refreshWorkspaces,
+      refreshInvites,
+      acceptInvite,
+      rejectInvite,
+      logout
+    }}>
       {children}
     </UserContext.Provider>
   );

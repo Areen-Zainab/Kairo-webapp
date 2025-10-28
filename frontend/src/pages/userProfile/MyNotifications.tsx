@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Bell, Filter, Search, Check, X, Clock, Users, Calendar, AlertCircle, CheckCircle } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { useTheme } from '../../theme/ThemeProvider';
+import apiService, { type Notification as ApiNotification } from '../../services/api';
+import { useToast } from '../../hooks/useToast';
 
 interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'meeting' | 'task' | 'deadline' | 'system' | 'workspace';
+  type: 'meeting' | 'task' | 'deadline' | 'system' | 'workspace' | 'account';
   priority: 'low' | 'medium' | 'high';
   workspace: string;
   isRead: boolean;
@@ -19,66 +21,9 @@ interface Notification {
 const MyNotifications = () => {
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      title: 'Meeting Reminder',
-      message: 'Sprint Planning meeting starts in 15 minutes',
-      type: 'meeting',
-      priority: 'high',
-      workspace: 'Product Team Alpha',
-      isRead: false,
-      timestamp: new Date(Date.now() - 1000 * 60 * 15),
-      actionRequired: true,
-      relatedId: 'meeting-123',
-    },
-    {
-      id: '2',
-      title: 'Task Completed',
-      message: 'Mike Chen completed the code review task',
-      type: 'task',
-      priority: 'medium',
-      workspace: 'Design Sprint Team',
-      isRead: true,
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-      actionRequired: false,
-      relatedId: 'task-456',
-    },
-    {
-      id: '3',
-      title: 'Deadline Approaching',
-      message: 'Client presentation deadline is tomorrow',
-      type: 'deadline',
-      priority: 'high',
-      workspace: 'Client Solutions',
-      isRead: false,
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 4),
-      actionRequired: true,
-      relatedId: 'deadline-789',
-    },
-    {
-      id: '4',
-      title: 'New Team Member',
-      message: 'Sana Khan joined the Product Team Alpha workspace',
-      type: 'workspace',
-      priority: 'low',
-      workspace: 'Product Team Alpha',
-      isRead: true,
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24),
-      actionRequired: false,
-    },
-    {
-      id: '5',
-      title: 'System Update',
-      message: 'Kairo has been updated with new features',
-      type: 'system',
-      priority: 'low',
-      workspace: 'System',
-      isRead: false,
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48),
-      actionRequired: false,
-    },
-  ]);
+  const { showToast } = useToast();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -90,8 +35,48 @@ const MyNotifications = () => {
   });
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'priority'>('newest');
 
-  const workspaces = ['Product Team Alpha', 'Design Sprint Team', 'Client Solutions', 'System'];
-  const types = ['meeting', 'task', 'deadline', 'system', 'workspace'];
+  // Fetch notifications on component mount
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      setLoading(true);
+      const response = await apiService.getNotifications();
+      
+      if (response.error) {
+        showToast({ message: response.error, type: 'error' });
+        return;
+      }
+
+      if (response.data) {
+        // Transform API notifications to component format
+        const transformedNotifications: Notification[] = response.data.notifications.map((notif: ApiNotification) => ({
+          id: notif.id.toString(),
+          title: notif.title,
+          message: notif.message,
+          type: notif.type as any,
+          priority: notif.priority as any,
+          workspace: notif.workspace || 'System',
+          isRead: notif.isRead,
+          timestamp: new Date(notif.createdAt),
+          actionRequired: notif.actionRequired,
+          relatedId: notif.relatedId || undefined,
+        }));
+        
+        setNotifications(transformedNotifications);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      showToast({ message: 'Failed to load notifications', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const workspaces = [...new Set(notifications.map(n => n.workspace))];
+  const types = ['meeting', 'task', 'deadline', 'system', 'workspace', 'account'];
   const priorities = ['low', 'medium', 'high'];
 
   const getTypeIcon = (type: string) => {
@@ -101,6 +86,7 @@ const MyNotifications = () => {
       case 'deadline': return <AlertCircle size={16} className="text-red-600" />;
       case 'system': return <Bell size={16} className="text-purple-600" />;
       case 'workspace': return <Users size={16} className="text-cyan-600" />;
+      case 'account': return <Bell size={16} className="text-orange-600" />;
       default: return <Bell size={16} className="text-gray-600" />;
     }
   };
@@ -123,22 +109,61 @@ const MyNotifications = () => {
     }
   };
 
-  const markAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === id ? { ...notif, isRead: true } : notif
-      )
-    );
+  const markAsRead = async (id: string) => {
+    try {
+      const response = await apiService.markNotificationAsRead(parseInt(id));
+      
+      if (response.error) {
+        showToast({ message: response.error, type: 'error' });
+        return;
+      }
+
+      setNotifications(prev => 
+        prev.map(notif => 
+          notif.id === id ? { ...notif, isRead: true } : notif
+        )
+      );
+      showToast({ message: 'Notification marked as read', type: 'success' });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      showToast({ message: 'Failed to mark notification as read', type: 'error' });
+    }
   };
 
-  const markAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(notif => ({ ...notif, isRead: true }))
-    );
+  const markAllAsRead = async () => {
+    try {
+      const response = await apiService.markAllNotificationsAsRead();
+      
+      if (response.error) {
+        showToast({ message: response.error, type: 'error' });
+        return;
+      }
+
+      setNotifications(prev => 
+        prev.map(notif => ({ ...notif, isRead: true }))
+      );
+      showToast({ message: 'All notifications marked as read', type: 'success' });
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+      showToast({ message: 'Failed to mark all notifications as read', type: 'error' });
+    }
   };
 
-  const deleteNotification = (id: string) => {
-    setNotifications(prev => prev.filter(notif => notif.id !== id));
+  const deleteNotification = async (id: string) => {
+    try {
+      const response = await apiService.deleteNotification(parseInt(id));
+      
+      if (response.error) {
+        showToast({ message: response.error, type: 'error' });
+        return;
+      }
+
+      setNotifications(prev => prev.filter(notif => notif.id !== id));
+      showToast({ message: 'Notification deleted', type: 'success' });
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      showToast({ message: 'Failed to delete notification', type: 'error' });
+    }
   };
 
   const filteredNotifications = notifications
@@ -410,7 +435,12 @@ const MyNotifications = () => {
 
         {/* Notifications List */}
         <div className="space-y-3">
-          {filteredNotifications.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-16 rounded-lg bg-white border border-gray-200 shadow-sm dark:bg-gray-900/50 dark:backdrop-blur-sm dark:border-gray-700/50">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
+              <p className="text-gray-700 dark:text-gray-400">Loading notifications...</p>
+            </div>
+          ) : filteredNotifications.length === 0 ? (
             <div className="text-center py-16 rounded-lg bg-white border border-gray-200 shadow-sm dark:bg-gray-900/50 dark:backdrop-blur-sm dark:border-gray-700/50">
               <Bell size={56} className={`mx-auto mb-4 ${
                 isDarkMode ? 'text-gray-600' : 'text-gray-400'
@@ -426,7 +456,8 @@ const MyNotifications = () => {
             filteredNotifications.map((notification) => (
               <div
                 key={notification.id}
-                className={`rounded-lg border p-5 transition-all bg-blue-50 border-blue-200 hover:shadow-xl dark:bg-gray-800 dark:backdrop-blur-sm dark:border-gray-700 dark:hover:bg-gray-750 dark:hover:border-gray-600 ${!notification.isRead ? 'border-l-4 border-l-cyan-600 dark:border-l-cyan-500 shadow-sm dark:shadow-lg dark:shadow-cyan-500/10' : 'shadow-sm'}`}
+                onClick={() => !notification.isRead && markAsRead(notification.id)}
+                className={`rounded-lg border p-5 transition-all bg-blue-50 border-blue-200 hover:shadow-xl dark:bg-gray-800 dark:backdrop-blur-sm dark:border-gray-700 dark:hover:bg-gray-750 dark:hover:border-gray-600 ${!notification.isRead ? 'border-l-4 border-l-cyan-600 dark:border-l-cyan-500 shadow-sm dark:shadow-lg dark:shadow-cyan-500/10 cursor-pointer' : 'shadow-sm'}`}
               >
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0 mt-1 p-2.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
@@ -469,7 +500,10 @@ const MyNotifications = () => {
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {!notification.isRead && (
                           <button
-                            onClick={() => markAsRead(notification.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markAsRead(notification.id);
+                            }}
                             className="p-2 rounded-lg transition-all hover:bg-blue-100 text-gray-600 hover:text-cyan-700 dark:hover:bg-gray-700/50 dark:text-gray-400 dark:hover:text-cyan-400"
                             title="Mark as read"
                           >
@@ -477,7 +511,10 @@ const MyNotifications = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => deleteNotification(notification.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteNotification(notification.id);
+                          }}
                           className="p-2 rounded-lg transition-all hover:bg-red-100 text-gray-600 hover:text-red-600 dark:hover:bg-red-500/20 dark:text-gray-400 dark:hover:text-red-400"
                           title="Delete notification"
                         >

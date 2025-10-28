@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Calendar, Clock, Users, Video, Plus, X, Zap, CalendarDays, UserPlus, Settings, Link, ExternalLink } from 'lucide-react';
+import { Video, X, Zap, CalendarDays, UserPlus, Link, ExternalLink, Loader2 } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import apiService from '../services/api';
+import { useToastContext } from '../context/ToastContext';
 
 interface NewMeetingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onJoinInstantly: (meetingData: MeetingData) => void;
-  onScheduleMeeting: (meetingData: MeetingData) => void;
+  workspaceId?: number;
+  onMeetingCreated?: () => void;
 }
 
 interface MeetingData {
@@ -18,14 +21,21 @@ interface MeetingData {
   meetingType: 'instant' | 'scheduled';
   scheduledDate?: string;
   scheduledTime?: string;
+  scheduledHour?: number;
+  scheduledMinute?: number;
+  scheduledPeriod?: 'AM' | 'PM';
 }
 
 const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   isOpen,
   onClose,
-  onJoinInstantly,
-  onScheduleMeeting
+  workspaceId,
+  onMeetingCreated
 }) => {
+  const navigate = useNavigate();
+  const { workspaceId: urlWorkspaceId } = useParams();
+  const { success: toastSuccess, error: toastError } = useToastContext();
+  
   const [meetingType, setMeetingType] = useState<'instant' | 'scheduled'>('instant');
   const [formData, setFormData] = useState<MeetingData>({
     title: '',
@@ -34,14 +44,27 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     platform: 'zoom',
     duration: 60,
     participants: [],
-    meetingType: 'instant'
+    meetingType: 'instant',
+    scheduledHour: new Date().getHours() % 12 || 12,
+    scheduledMinute: Math.ceil(new Date().getMinutes() / 15) * 15,
+    scheduledPeriod: new Date().getHours() >= 12 ? 'PM' : 'AM'
   });
   const [newParticipant, setNewParticipant] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleInputChange = (field: keyof MeetingData, value: any) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
+    }));
+  };
+
+  // Sync meeting type when it changes
+  const handleMeetingTypeChange = (type: 'instant' | 'scheduled') => {
+    setMeetingType(type);
+    setFormData(prev => ({
+      ...prev,
+      meetingType: type
     }));
   };
 
@@ -62,22 +85,135 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     }));
   };
 
-  const handleSubmit = () => {
-    const meetingData = {
-      ...formData,
-      meetingType
-    };
-
-    if (meetingType === 'instant') {
-      onJoinInstantly(meetingData);
-    } else {
-      onScheduleMeeting(meetingData);
-    }
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
     
-    onClose();
+    try {
+      // Validate form
+      if (!formData.title || !formData.meetingLink) {
+        toastError('Please fill in all required fields', 'Validation Error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (meetingType === 'scheduled' && (!formData.scheduledDate || formData.scheduledHour === undefined || formData.scheduledMinute === undefined)) {
+        toastError('Please select a date and time for the meeting', 'Validation Error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Get the actual workspace ID
+      const wsId = workspaceId || (urlWorkspaceId ? parseInt(urlWorkspaceId) : undefined);
+      if (!wsId) {
+        toastError('No workspace selected', 'Error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Calculate start and end times
+      const now = new Date();
+      let startTime: Date;
+      let endTime: Date;
+
+      if (meetingType === 'instant') {
+        // For instant meetings, start now and end based on duration
+        startTime = now;
+        endTime = new Date(now.getTime() + formData.duration * 60 * 1000);
+      } else {
+        // For scheduled meetings, parse date and time
+        const dateStr = formData.scheduledDate;
+        const hour = formData.scheduledHour || 12;
+        const minute = formData.scheduledMinute || 0;
+        const period = formData.scheduledPeriod || 'AM';
+        
+        if (!dateStr) {
+          toastError('Please select a date and time', 'Validation Error');
+          setIsSubmitting(false);
+          return;
+        }
+        
+        // Convert 12-hour to 24-hour format
+        let hours24 = hour;
+        if (period === 'PM' && hour !== 12) {
+          hours24 = hour + 12;
+        } else if (period === 'AM' && hour === 12) {
+          hours24 = 0;
+        }
+        
+        startTime = new Date(`${dateStr}T${hours24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`);
+        endTime = new Date(startTime.getTime() + formData.duration * 60 * 1000);
+
+        // Validate that scheduled time is in the future
+        if (startTime <= now) {
+          toastError('Please select a future date and time', 'Validation Error');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // Prepare meeting data
+      const meetingData = {
+        workspaceId: wsId,
+        title: formData.title,
+        description: formData.description || '',
+        meetingLink: formData.meetingLink,
+        platform: formData.platform,
+        duration: formData.duration,
+        meetingType: meetingType,
+        status: meetingType === 'instant' ? 'in-progress' : 'scheduled',
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        participantIds: [], // TODO: Add participant support
+      };
+
+      // Create meeting
+      const response = await apiService.createMeeting(meetingData);
+
+      if (response.error) {
+        toastError(response.error, 'Failed to Create Meeting');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const createdMeeting = response.data?.meeting;
+      if (!createdMeeting) {
+        toastError('Meeting created but no data returned', 'Error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      toastSuccess('Meeting created successfully!', 'Meeting Created');
+
+      // Handle instant meeting flow
+      if (meetingType === 'instant') {
+        // Open meeting link in a new tab
+        if (formData.meetingLink) {
+          window.open(formData.meetingLink, '_blank');
+        }
+
+        // Navigate to live meeting page
+        const meetingId = createdMeeting.id;
+        const navigatePath = urlWorkspaceId 
+          ? `/workspace/${urlWorkspaceId}/meetings/live/${meetingId}`
+          : `/workspace/meetings/live/${meetingId}`;
+        navigate(navigatePath);
+      }
+
+      // Refresh meetings list
+      if (onMeetingCreated) {
+        onMeetingCreated();
+      }
+
+      handleClose();
+    } catch (error) {
+      console.error('Error creating meeting:', error);
+      toastError('Failed to create meeting', 'Error');
+      setIsSubmitting(false);
+    }
   };
 
   const resetForm = () => {
+    const now = new Date();
     setFormData({
       title: '',
       description: '',
@@ -85,7 +221,10 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       platform: 'zoom',
       duration: 60,
       participants: [],
-      meetingType: 'instant'
+      meetingType: 'instant',
+      scheduledHour: now.getHours() % 12 || 12,
+      scheduledMinute: Math.ceil(now.getMinutes() / 15) * 15,
+      scheduledPeriod: now.getHours() >= 12 ? 'PM' : 'AM'
     });
     setNewParticipant('');
     setMeetingType('instant');
@@ -98,11 +237,12 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
 
   if (!isOpen) return null;
 
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-4 rounded-t-2xl">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[90vh]">
+        {/* Fixed Header */}
+        <div className="flex-shrink-0 border-b border-slate-200 dark:border-slate-700 px-6 py-4 rounded-t-2xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
@@ -126,8 +266,8 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
           </div>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
           {/* Meeting Type Selection */}
           <div>
             <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-3">
@@ -135,7 +275,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => setMeetingType('instant')}
+                onClick={() => handleMeetingTypeChange('instant')}
                 className={`p-4 rounded-xl border-2 transition-all ${
                   meetingType === 'instant'
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
@@ -166,7 +306,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
               </button>
 
               <button
-                onClick={() => setMeetingType('scheduled')}
+                onClick={() => handleMeetingTypeChange('scheduled')}
                 className={`p-4 rounded-xl border-2 transition-all ${
                   meetingType === 'scheduled'
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
@@ -286,7 +426,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
 
             {/* Scheduled Date & Time (only for scheduled meetings) */}
             {meetingType === 'scheduled' && (
-              <div className="grid grid-cols-2 gap-4">
+              <>
                 <div>
                   <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">
                     Date *
@@ -303,14 +443,53 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
                   <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">
                     Time *
                   </label>
-                  <input
-                    type="time"
-                    value={formData.scheduledTime || ''}
-                    onChange={(e) => handleInputChange('scheduledTime', e.target.value)}
-                    className="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="flex items-center gap-2">
+                    {/* Hour */}
+                    <select
+                      value={formData.scheduledHour || 12}
+                      onChange={(e) => handleInputChange('scheduledHour', parseInt(e.target.value))}
+                      className="flex-1 px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => {
+                        const hour = i + 1;
+                        return (
+                          <option key={hour} value={hour}>
+                            {hour}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    
+                    <span className="text-slate-600 dark:text-slate-400 font-semibold">:</span>
+                    
+                    {/* Minute */}
+                    <select
+                      value={formData.scheduledMinute || 0}
+                      onChange={(e) => handleInputChange('scheduledMinute', parseInt(e.target.value))}
+                      className="flex-1 px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {Array.from({ length: 4 }, (_, i) => {
+                        const minute = i * 15;
+                        return (
+                          <option key={minute} value={minute}>
+                            {minute.toString().padStart(2, '0')}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    
+                    {/* AM/PM */}
+                    <select
+                      value={formData.scheduledPeriod || 'AM'}
+                      onChange={(e) => handleInputChange('scheduledPeriod', e.target.value as 'AM' | 'PM')}
+                      className="px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* Participants */}
@@ -375,9 +554,11 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+        {/* Fixed Footer */}
+        <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 px-6 py-4 rounded-b-2xl">
+          <div className="flex items-center justify-end space-x-3">
             <button
               onClick={handleClose}
               className="px-6 py-3 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
@@ -386,10 +567,15 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={!formData.title || !formData.meetingLink || (meetingType === 'scheduled' && (!formData.scheduledDate || !formData.scheduledTime))}
+              disabled={isSubmitting || !formData.title || !formData.meetingLink || (meetingType === 'scheduled' && (!formData.scheduledDate || formData.scheduledHour === undefined))}
               className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex items-center space-x-2"
             >
-              {meetingType === 'instant' ? (
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Creating...</span>
+                </>
+              ) : meetingType === 'instant' ? (
                 <>
                   <ExternalLink className="w-4 h-4" />
                   <span>Join Meeting</span>
@@ -397,7 +583,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
               ) : (
                 <>
                   <CalendarDays className="w-4 h-4" />
-                  <span>Schedule Join</span>
+                  <span>Schedule Meeting</span>
                 </>
               )}
             </button>

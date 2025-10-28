@@ -66,11 +66,11 @@ DO with backend:
 **To-Do:**
 * [DONE] Create `/meetings/live` page
 * [ ] Create `/meetings/history` page (list of past meetings with filters)
-* [ ] Build components:
+* [DONE] Build components:
   * [DONE] `MeetingSidebar` (Recall Memory, Action Items, Notes tabs)
   * [DONE] `TranscriptionPanel` (real-time transcript UI)
   * [DONE] `ActionItemList` (editable list with completion state)
-  * [ ] `MeetingSummaryCard` (post-meeting summary view)
+  * [DONE] `MeetingSummaryCard` (post-meeting summary view)
 * [DONE] Add mock data and placeholder states for testing
 
 ---
@@ -137,10 +137,10 @@ DO with backend:
 
 ## **📘 Best Practices Recap**
 
-* [x] Use functional components + React hooks
-* [x] Modularize UI with Atomic Design principles
-* [x] Centralize API logic under `/services`
-* [x] Keep reusable styles under `/components/ui`
-* [x] Use Tailwind for consistent design tokens
-* [ ] Add Framer Motion for smooth transitions
-* [ ] Document all major components with JSDoc
+* [DONE] Use functional components + React hooks
+* [DONE] Modularize UI with Atomic Design principles
+* [DONE] Centralize API logic under `/services`
+* [DONE] Keep reusable styles under `/components/ui`
+* [DONE] Use Tailwind for consistent design tokens
+* [DONE] Add Framer Motion for smooth transitions
+* [DONE] Document all major components with JSDoc

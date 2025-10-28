@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, Mail, ArrowLeft, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useToastContext } from '../context/ToastContext';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -8,6 +9,7 @@ export default function ForgotPassword() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [emailError, setEmailError] = useState('');
   const navigate = useNavigate();
+  const toast = useToastContext();
 
   // Email validation
   const validateEmail = (email: string): boolean => {
@@ -235,7 +237,7 @@ export default function ForgotPassword() {
             Still having trouble? Contact:{' '}
             <button 
               className="text-blue-400 bg-transparent hover:text-blue-300 underline"
-              onClick={() => alert('Kairo Support is on leave.')}
+              onClick={() => toast.info('Our support team will get back to you soon!', 'Contact Support')}
             >
               support
             </button>

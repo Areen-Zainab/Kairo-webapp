@@ -1,37 +1,66 @@
 import { useState } from 'react';
-import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail, ChevronLeft, ChevronRight, Building2, Check, X } from 'lucide-react';
 import Layout from '../../components/Layout';
 import CreateWorkspaceModal from '../../modals/CreateWorkspace';
 import JoinWorkspaceModal from '../../modals/JoinWorkspace';
-import NewMeetingModal from '../../modals/NewMeetingModal';
-
-interface MeetingData {
-  title: string;
-  description: string;
-  meetingLink: string;
-  platform: 'zoom' | 'google-meet' | 'teams' | 'other';
-  duration: number;
-  participants: string[];
-  meetingType: 'instant' | 'scheduled';
-  scheduledDate?: string;
-  scheduledTime?: string;
-}
+import { useUser } from '../../context/UserContext';
+import { useToastContext } from '../../context/ToastContext';
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   
-  const user = {
-    name: 'Areeba Riaz',
-    email: 'areebariaz@company.com',
-    avatar: 'AR'
+  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite } = useUser();
+  const { success: toastSuccess, error: toastError } = useToastContext();
+  
+  // Use context user or fallback
+  const displayUser = user ? {
+    name: user.name,
+    email: user.email,
+    avatar: user.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U'
+  } : {
+    name: 'Guest',
+    email: 'guest@example.com',
+    avatar: 'G'
   };
 
-  const workspaces = [
+  // Check if user is areeba@kairo.com to show dummy data
+  const shouldShowDummyData = user?.email?.toLowerCase() === 'areeba@kairo.com';
+
+  // Use actual user workspaces (only for real users, not demo)
+  const userWorkspaces = shouldShowDummyData ? [] : workspaces.map(ws => ({
+    id: ws.id,
+    name: ws.name,
+    role: ws.role || 'Member',
+    members: ws.memberCount,
+    meetings: 0, // TODO: Fetch actual meetings count
+    pendingTasks: 0, // TODO: Fetch actual tasks count
+    gradient: 'from-blue-500 to-cyan-500',
+    lastActive: new Date(ws.createdAt).toLocaleDateString(),
+    isPending: false,
+  }));
+
+  // Add pending invites as workspace cards
+  const pendingWorkspaces = shouldShowDummyData ? [] : pendingInvites.map(invite => ({
+    id: `invite-${invite.id}`,
+    inviteId: invite.id,
+    name: invite.workspace.name,
+    role: invite.role,
+    members: 0,
+    meetings: 0,
+    pendingTasks: 0,
+    gradient: 'from-yellow-500 to-orange-500',
+    lastActive: `Invited by ${invite.inviter.name}`,
+    isPending: true,
+    inviter: invite.inviter,
+  }));
+
+  const dummyWorkspaces = shouldShowDummyData ? [
     {
-      id: 1,
+      id: 999,
       name: 'Product Team Alpha',
       role: 'Manager',
       members: 12,
@@ -41,7 +70,7 @@ const Dashboard = () => {
       lastActive: '2 hours ago',
     },
     {
-      id: 2,
+      id: 998,
       name: 'Design Sprint Team',
       role: 'Developer',
       members: 6,
@@ -51,7 +80,7 @@ const Dashboard = () => {
       lastActive: '1 day ago',
     },
     {
-      id: 3,
+      id: 997,
       name: 'Client Solutions',
       role: 'QA Engineer',
       members: 8,
@@ -60,13 +89,36 @@ const Dashboard = () => {
       gradient: 'from-green-500 to-teal-500',
       lastActive: '3 days ago',
     }
-  ];
+  ] : [];
 
-  const notifications = [
+  // Combine pending invites, user workspaces, and dummy workspaces
+  const allWorkspaces = [...pendingWorkspaces, ...userWorkspaces, ...dummyWorkspaces];
+
+  const handleAcceptInvite = async (inviteId: number) => {
+    try {
+      await acceptInvite(inviteId);
+      toastSuccess('Workspace invitation accepted!', '✓ Invitation Accepted');
+    } catch (error) {
+      console.error('Failed to accept invite:', error);
+      toastError('Failed to accept invitation. Please try again.', 'Accept Failed');
+    }
+  };
+
+  const handleRejectInvite = async (inviteId: number) => {
+    try {
+      await rejectInvite(inviteId);
+      toastSuccess('Workspace invitation rejected', 'Invitation Rejected');
+    } catch (error) {
+      console.error('Failed to reject invite:', error);
+      toastError('Failed to reject invitation. Please try again.', 'Reject Failed');
+    }
+  };
+
+  const notifications = shouldShowDummyData ? [
     { id: 1, text: 'New task assigned in Product Team', time: '5m ago', unread: true },
     { id: 2, text: 'Meeting starts in 30 minutes', time: '10m ago', unread: true },
     { id: 3, text: 'Sprint retrospective completed', time: '2h ago', unread: false }
-  ];
+  ] : [];
 
   // Calendar helper functions
   const navigateMonth = (direction: 'prev' | 'next') => {
@@ -115,23 +167,13 @@ const Dashboard = () => {
 
   const hasMeetings = (day: number) => {
     // Mock data - in real app, this would check actual meetings
+    if (!shouldShowDummyData) return false;
     const meetingDays = [5, 12, 18, 25, 28];
     return meetingDays.includes(day);
   };
 
   const formatMonthYear = (date: Date) => {
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  };
-
-  const handleJoinInstantly = (meetingData: MeetingData) => {
-    console.log('Joining external meeting:', meetingData);
-    // TODO: Implement external meeting join logic
-    window.open(meetingData.meetingLink, '_blank');
-  };
-
-  const handleScheduleMeeting = (meetingData: MeetingData) => {
-    console.log('Scheduling external meeting join:', meetingData);
-    // TODO: Implement scheduled meeting join logic
   };
 
   return (
@@ -142,7 +184,7 @@ const Dashboard = () => {
           {/* Hero Section */}
           <div className="mb-6">
             <h1 className="text-3xl font-bold mb-1 text-gray-900 dark:text-white">
-              Welcome back, {user.name.split(' ')[0]} 👋
+              Welcome back, {displayUser.name.split(' ')[0]} 👋
             </h1>
             <p className="text-gray-600 dark:text-slate-400">Manage your workspaces and stay on top of your meetings</p>
           </div>
@@ -195,23 +237,52 @@ const Dashboard = () => {
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
               <span>Your Workspaces</span>
               <span className="px-2 py-0.5 bg-gray-100 rounded text-sm text-gray-600 dark:bg-slate-800 dark:text-slate-400">
-                {workspaces.length}
+                {allWorkspaces.length}
               </span>
             </h2>
 
             <div className="grid grid-cols-1 gap-3">
-              {workspaces.map((workspace) => (
+              {allWorkspaces.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-slate-400">
+                  <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">No workspaces yet</p>
+                  <p className="text-xs mt-1">Create or join a workspace to get started</p>
+                </div>
+              ) : (
+                allWorkspaces.map((workspace) => (
                 <div
                   key={workspace.id}
-                  className="group rounded-lg p-4 border transition-all duration-300 bg-white border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/50 dark:backdrop-blur-sm dark:border-slate-700/50 dark:hover:border-slate-600"
+                  className={`group rounded-lg p-4 border transition-all duration-300 shadow-sm ${
+                    'isPending' in workspace && workspace.isPending
+                      ? 'bg-gradient-to-br from-yellow-50/50 to-orange-50/50 border-yellow-300 animate-pulse-subtle opacity-70 hover:opacity-90 dark:from-yellow-900/10 dark:to-orange-900/10 dark:border-yellow-600/50'
+                      : 'bg-white border-gray-200 hover:border-gray-300 dark:bg-slate-800/50 dark:backdrop-blur-sm dark:border-slate-700/50 dark:hover:border-slate-600'
+                  }`}
+                  style={'isPending' in workspace && workspace.isPending ? {
+                    animation: 'pulse-glow 2s ease-in-out infinite',
+                  } : undefined}
                 >
+                  {'isPending' in workspace && workspace.isPending && (
+                    <div className="absolute top-2 right-2 px-2 py-1 bg-yellow-500 text-white text-xs font-semibold rounded-full animate-bounce-subtle">
+                      Pending Invitation
+                    </div>
+                  )}
+                  
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 bg-gradient-to-br ${workspace.gradient} rounded-lg flex items-center justify-center text-lg font-bold shadow-lg`}>
+                      <div className={`w-12 h-12 bg-gradient-to-br ${workspace.gradient} rounded-lg flex items-center justify-center text-lg font-bold shadow-lg ${
+                        'isPending' in workspace && workspace.isPending ? 'opacity-60 animate-pulse-subtle' : ''
+                      }`}>
                         {workspace.name.charAt(0)}
                       </div>
                       <div>
-                        <h3 className="text-lg font-semibold mb-0.5 text-gray-900 dark:text-white">{workspace.name}</h3>
+                        <h3 className="text-lg font-semibold mb-0.5 text-gray-900 dark:text-white flex items-center gap-2">
+                          {workspace.name}
+                          {'isPending' in workspace && workspace.isPending && (
+                            <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-600">
+                              Invitation
+                            </span>
+                          )}
+                        </h3>
                         <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
                           <span className="flex items-center gap-1">
                             <Clock size={12} />
@@ -223,8 +294,14 @@ const Dashboard = () => {
                       </div>
                     </div>
 
-                    <div className="flex gap-1.5">
-                      <button className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded text-sm font-medium hover:shadow-lg hover:shadow-cyan-500/30 transition-all text-white">
+                    {'isPending' in workspace && !workspace.isPending && (
+                      <div className="flex gap-1.5">
+                      <button 
+                        onClick={() => {
+                          const workspaceId = typeof workspace.id === 'string' ? workspace.id : String(workspace.id);
+                          navigate(`/workspace/${workspaceId}`);
+                        }}
+                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded text-sm font-medium hover:shadow-lg hover:shadow-cyan-500/30 transition-all text-white">
                         Open
                       </button>
                       <button className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-sm font-medium transition-colors text-gray-900 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white">
@@ -234,9 +311,37 @@ const Dashboard = () => {
                         Leave
                       </button>
                     </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-4 gap-2">
+                  {"isPending" in workspace && workspace.isPending ? (
+                    // Pending invitation action buttons
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={() => {
+                          if ("inviteId" in workspace && typeof workspace.inviteId === "number") {
+                            handleAcceptInvite(workspace.inviteId);
+                          }
+                        }}
+                        className="flex-1 px-4 py-2.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-all font-medium shadow-md hover:shadow-lg flex items-center justify-center gap-2 group"
+                      >
+                        <Check size={18} className="group-hover:scale-110 transition-transform" />
+                        Accept Invitation
+                      </button>
+                      <button
+                        onClick={() => {
+                          if ("inviteId" in workspace && typeof workspace.inviteId === "number") {
+                            handleRejectInvite(workspace.inviteId);
+                          }
+                        }}
+                        className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-md hover:bg-red-100 hover:text-red-700 transition-all font-medium flex items-center justify-center gap-2 group dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                      >
+                        <X size={18} className="group-hover:scale-110 transition-transform" />
+                        Decline
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-2">
                     <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <Users size={14} className="text-cyan-400" />
@@ -266,8 +371,10 @@ const Dashboard = () => {
                       <p className="text-lg font-bold text-gray-900 dark:text-white">→</p>
                     </div>
                   </div>
+                )}
                 </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -343,10 +450,6 @@ const Dashboard = () => {
         <div>
           <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 dark:text-slate-400">Quick Actions</h3>
           <div className="space-y-1.5">
-            <button onClick={() => setShowNewMeetingModal(true)} className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
-              <Calendar size={16} className="text-cyan-600 dark:text-cyan-400" />
-              <span className="text-sm text-gray-900 dark:text-white">Schedule Meeting</span>
-            </button>
             <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
               <CheckSquare size={16} className="text-green-600 dark:text-green-400" />
               <span className="text-sm text-gray-900 dark:text-white">Create Task</span>
@@ -363,18 +466,15 @@ const Dashboard = () => {
       <CreateWorkspaceModal 
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onWorkspaceCreated={() => {
+          console.log('Workspace created successfully!');
+          // Refresh the page or update workspaces list
+          window.location.reload();
+        }}
       />
 
       {/* Join Workspace Modal */}
       <JoinWorkspaceModal isOpen={showJoinModal} onClose={() => setShowJoinModal(false)} />
-
-      {/* New Meeting Modal */}
-      <NewMeetingModal
-        isOpen={showNewMeetingModal}
-        onClose={() => setShowNewMeetingModal(false)}
-        onJoinInstantly={handleJoinInstantly}
-        onScheduleMeeting={handleScheduleMeeting}
-      />
 
       <style>{`
         .no-scrollbar::-webkit-scrollbar {
@@ -383,6 +483,44 @@ const Dashboard = () => {
         .no-scrollbar {
           -ms-overflow-style: none;
           scrollbar-width: none;
+        }
+
+        /* Flickering animation for pending workspaces */
+        @keyframes pulse-glow {
+          0%, 100% {
+            opacity: 0.7;
+            box-shadow: 0 0 0 0 rgba(234, 179, 8, 0);
+          }
+          50% {
+            opacity: 0.9;
+            box-shadow: 0 0 20px 5px rgba(234, 179, 8, 0.2);
+          }
+        }
+
+        @keyframes pulse-subtle {
+          0%, 100% {
+            opacity: 0.6;
+          }
+          50% {
+            opacity: 0.8;
+          }
+        }
+
+        @keyframes bounce-subtle {
+          0%, 100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-4px);
+          }
+        }
+
+        .animate-pulse-subtle {
+          animation: pulse-subtle 2s ease-in-out infinite;
+        }
+
+        .animate-bounce-subtle {
+          animation: bounce-subtle 2s ease-in-out infinite;
         }
       `}</style>
     </Layout>

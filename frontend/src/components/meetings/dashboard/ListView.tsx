@@ -1,13 +1,18 @@
 import React from 'react';
-import { Calendar, Clock, CheckSquare, FileText, Brain, Sparkles, Video, Play, ChevronRight, Circle, Download, MoreVertical } from 'lucide-react';
+import { Calendar, Clock, CheckSquare, FileText, Brain, Sparkles, Video, Play, ChevronRight, Circle, MoreVertical } from 'lucide-react';
 import type { Meeting } from './types';
+import UserAvatar from '../../ui/UserAvatar';
 
 interface ListViewProps {
   meetings: Meeting[];
   onMeetingClick: (meetingId: string) => void;
+  onJoinMeeting?: (meetingLink: string) => void;
+  onDeleteMeeting?: (backendId: number) => void;
+  onCompleteMeeting?: (backendId: number) => void;
 }
 
-const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick }) => {
+const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick, onJoinMeeting, onDeleteMeeting, onCompleteMeeting }) => {
+  const [showMenuFor, setShowMenuFor] = React.useState<string | null>(null);
   return (
     <div className="space-y-3">
       {meetings.map((meeting) => (
@@ -47,7 +52,9 @@ const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick }) => {
                 <div className="flex items-center gap-2">
                   <div className="flex -space-x-1.5">
                     {meeting.participants.slice(0, 3).map((p, idx) => (
-                      <div key={idx} className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-xs font-medium text-white border-2 border-white dark:border-slate-800">{p.avatar}</div>
+                      <div key={idx} className="border-2 border-white dark:border-slate-800">
+                        <UserAvatar name={p.name} profilePictureUrl={p.profilePictureUrl} size="sm" />
+                      </div>
                     ))}
                     {meeting.participants.length > 3 && <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-medium border-2 border-white dark:bg-slate-700/80 dark:text-slate-300 dark:border-slate-800">+{meeting.participants.length - 3}</div>}
                   </div>
@@ -62,7 +69,12 @@ const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick }) => {
             <div className="flex items-center gap-2 ml-4">
               {meeting.status === 'live' && (
                 <button 
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onJoinMeeting && meeting.meetingLink) {
+                      onJoinMeeting(meeting.meetingLink);
+                    }
+                  }}
                   className="flex items-center justify-center space-x-1.5 px-5 py-2.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 rounded-md text-white text-sm font-medium transition-all"
                 >
                   <Play className="w-3.5 h-3.5" />
@@ -71,7 +83,12 @@ const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick }) => {
               )}
               {meeting.status === 'upcoming' && (
                 <button 
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onJoinMeeting && meeting.meetingLink) {
+                      onJoinMeeting(meeting.meetingLink);
+                    }
+                  }}
                   className="flex items-center justify-center space-x-1.5 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-md text-white text-sm font-medium transition-all"
                 >
                   <Video className="w-3.5 h-3.5" />
@@ -80,13 +97,6 @@ const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick }) => {
               )}
               {meeting.status === 'completed' && (
                 <>
-                  <button 
-                    onClick={(e) => e.stopPropagation()}
-                    className="p-2.5 rounded-md transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-300" 
-                    title="Download"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
@@ -99,12 +109,47 @@ const ListView: React.FC<ListViewProps> = ({ meetings, onMeetingClick }) => {
                   </button>
                 </>
               )}
-              <button 
-                onClick={(e) => e.stopPropagation()}
-                className="p-2.5 rounded-md transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-600 hover:text-gray-900 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-400 dark:hover:text-white"
-              >
-                <MoreVertical className="w-3.5 h-3.5" />
-              </button>
+              <div className="relative">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMenuFor(showMenuFor === meeting.id ? null : meeting.id);
+                  }}
+                  className="p-2.5 rounded-md transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-600 hover:text-gray-900 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-400 dark:hover:text-white"
+                >
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
+                {showMenuFor === meeting.id && (
+                  <div className="absolute right-0 mt-1 w-40 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 z-50">
+                    <div className="py-1">
+                      {meeting.status !== 'completed' && onCompleteMeeting && meeting.backendId && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCompleteMeeting(meeting.backendId!);
+                            setShowMenuFor(null);
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+                        >
+                          Mark Complete
+                        </button>
+                      )}
+                      {onDeleteMeeting && meeting.backendId && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteMeeting(meeting.backendId!);
+                            setShowMenuFor(null);
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                        >
+                          Delete Meeting
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Check } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { Check, AlertCircle } from 'lucide-react';
+import { useUser } from '../../../context/UserContext';
 
 interface ThemeSettings {
   mode: 'light' | 'dark';
@@ -12,6 +14,16 @@ interface ThemeTabProps {
 }
 
 const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
+  const { workspaces } = useUser();
+  
+  // Get user's role in the workspace
+  const workspaceRole = workspaceId 
+    ? workspaces.find((ws: any) => String(ws.id) === workspaceId)?.role 
+    : null;
+  
+  const canEdit = workspaceRole === 'owner' || workspaceRole === 'admin';
+
   const [formData, setFormData] = useState<ThemeSettings>(theme);
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -43,7 +55,14 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
 
   return (
     <div className="space-y-6 animate-fadeIn transition-colors duration-300 text-gray-900 dark:text-white">
-      {/* Theme Mode removed */}
+      {!canEdit && (
+        <div className="rounded-lg border p-4 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/30">
+          <p className="text-sm text-amber-800 dark:text-amber-400 flex items-center gap-2">
+            <AlertCircle size={16} />
+            You have view-only access. Only workspace owners and admins can modify settings.
+          </p>
+        </div>
+      )}
 
       {/* Accent Color */}
       <div className="space-y-3">
@@ -55,11 +74,12 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
             <button
               key={color.value}
               type="button"
-              onClick={() => handleChange('accentColor', color.value)}
-              className="group relative"
+              onClick={() => canEdit && handleChange('accentColor', color.value)}
+              disabled={!canEdit}
+              className={`group relative ${!canEdit ? 'cursor-not-allowed opacity-50' : ''}`}
             >
               <div
-                className={`w-full aspect-square rounded-lg bg-gradient-to-br ${color.gradient} hover:scale-105 transition-transform`}
+                className={`w-full aspect-square rounded-lg bg-gradient-to-br ${color.gradient} ${canEdit ? 'hover:scale-105 transition-transform' : ''}`}
               />
               {formData.accentColor === color.value && (
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -124,7 +144,7 @@ const ThemeTab: React.FC<ThemeTabProps> = ({ theme, onSave }) => {
       </div>
 
       {/* Action Buttons */}
-      {hasChanges && (
+      {canEdit && hasChanges && (
         <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-white/10">
           <button
             type="button"

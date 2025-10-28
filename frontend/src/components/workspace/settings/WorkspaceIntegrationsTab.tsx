@@ -1,6 +1,19 @@
 import { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { AlertCircle } from 'lucide-react';
+import { useUser } from '../../../context/UserContext';
 
 export default function WorkspaceIntegrationsTab() {
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
+  const { workspaces } = useUser();
+  
+  // Get user's role in the workspace
+  const workspaceRole = workspaceId 
+    ? workspaces.find((ws: any) => String(ws.id) === workspaceId)?.role 
+    : null;
+  
+  const canEdit = workspaceRole === 'owner' || workspaceRole === 'admin';
+
   const [integrations, setIntegrations] = useState([
     { id: 1, name: 'Google Meet', icon: '📹', connected: true, desc: 'Video conferencing integration' },
     { id: 2, name: 'Zoom', icon: '🎥', connected: false, desc: 'Video meetings platform' },
@@ -11,6 +24,7 @@ export default function WorkspaceIntegrationsTab() {
   ]);
 
   const toggleIntegration = (id: number) => {
+    if (!canEdit) return;
     setIntegrations(integrations.map(i => 
       i.id === id ? { ...i, connected: !i.connected } : i
     ));
@@ -18,6 +32,15 @@ export default function WorkspaceIntegrationsTab() {
 
   return (
     <div className="space-y-6">
+      {!canEdit && (
+        <div className="rounded-lg border p-4 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/30">
+          <p className="text-sm text-amber-800 dark:text-amber-400 flex items-center gap-2">
+            <AlertCircle size={16} />
+            You have view-only access. Only workspace owners and admins can modify settings.
+          </p>
+        </div>
+      )}
+      
       <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Connected Services</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -33,6 +56,7 @@ export default function WorkspaceIntegrationsTab() {
                 </div>
                 <button
                   onClick={() => toggleIntegration(integration.id)}
+                  disabled={!canEdit}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                     integration.connected
                       ? 'bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 dark:bg-green-600/20 dark:text-green-400 dark:border-green-500/30'

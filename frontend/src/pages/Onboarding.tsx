@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
 import { Sparkles, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useToastContext } from '../context/ToastContext';
+import { useUser } from '../context/UserContext';
+import apiService from '../services/api';
 import ProfileStep from '../components/onboarding/ProfileStep';
 import VoiceStep from '../components/onboarding/VoiceStep';
 import WorkspaceStep from '../components/onboarding/WorkspaceStep';
@@ -25,7 +29,11 @@ interface OnboardingData {
 }
 
 export default function KairoOnboarding() {
+  const toast = useToastContext();
+  const navigate = useNavigate();
+  const { refreshUser } = useUser();
   const [currentStep, setCurrentStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<OnboardingData>({
     displayName: '',
     timezone: '',
@@ -81,9 +89,120 @@ export default function KairoOnboarding() {
     if (currentStep > 1) setCurrentStep(currentStep - 1);
   };
 
-  const handleFinish = () => {
-    console.log('Onboarding completed with data:', formData);
-    alert('Redirecting to dashboard...');
+  const handleFinish = async () => {
+    if (isSubmitting) return;
+    
+    setIsSubmitting(true);
+    
+    try {
+      // 1. Update user profile
+      console.log('Updating profile...');
+      const profileUpdate = await apiService.updateProfile({
+        name: formData.displayName,
+        timezone: formData.timezone,
+      });
+
+      if (profileUpdate.error) {
+        throw new Error(profileUpdate.error);
+      }
+
+      // 2. Upload profile picture if provided
+      if (formData.profilePicture) {
+        console.log('Uploading profile picture...');
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(formData.profilePicture!);
+        });
+        
+        const response = await apiService.uploadProfilePicture(base64Data);
+        if (response.error) {
+          console.error('Profile picture upload failed:', response.error);
+          toast.error('Failed to upload profile picture');
+        } else if (response.data?.imageUrl) {
+          console.log('Profile picture uploaded successfully!', response.data.imageUrl);
+          
+          // Update user profile with the new image URL
+          const updateResponse = await apiService.updateProfile({
+            profilePictureUrl: response.data.imageUrl,
+          });
+          
+          if (updateResponse.error) {
+            console.error('Failed to update profile with image URL:', updateResponse.error);
+          } else {
+            console.log('Profile updated with image URL!');
+          }
+        }
+      }
+
+      // 3. Upload voice sample if provided
+      if (formData.audioSample) {
+        console.log('Uploading voice sample...');
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(formData.audioSample!);
+        });
+        
+        const response = await apiService.uploadAudioRecording(base64Data);
+        if (response.error) {
+          console.error('Audio upload failed:', response.error);
+          toast.error('Failed to upload audio recording');
+        } else {
+          console.log('Audio recording uploaded successfully!');
+        }
+      }
+
+      // 4. Update user preferences
+      console.log('Updating preferences...');
+      await apiService.updatePreferences({
+        autoJoin: formData.autoJoinEnabled,
+        timezone: formData.timezone,
+      });
+
+      // 5. Handle workspace action
+      if (formData.workspaceAction === 'create' && formData.workspaceName) {
+        console.log('Creating workspace...');
+        const workspaceResponse = await apiService.createWorkspace({
+          name: formData.workspaceName,
+        });
+        
+        if (workspaceResponse.error) {
+          console.error('Workspace creation failed:', workspaceResponse.error);
+        } else {
+          toast.success('Workspace created successfully!');
+        }
+      } else if (formData.workspaceAction === 'join' && formData.workspaceCode) {
+        console.log('Joining workspace...');
+        const joinResponse = await apiService.joinWorkspace(formData.workspaceCode);
+        
+        if (joinResponse.error) {
+          console.error('Failed to join workspace:', joinResponse.error);
+          toast.error(joinResponse.error);
+        } else {
+          toast.success('Joined workspace successfully!');
+        }
+      }
+
+      console.log('Onboarding completed successfully!');
+      
+      // Refresh user data to get the updated profile picture and other info
+      await refreshUser();
+      
+      toast.success('Welcome to Kairo! Your setup is complete.', 'Onboarding Complete');
+      
+      // Navigate to dashboard after a brief delay
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Onboarding error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to complete onboarding');
+      setIsSubmitting(false);
+    }
   };
 
   // Add this function to update formData from child steps
@@ -102,7 +221,7 @@ export default function KairoOnboarding() {
       case 4:
         return <WorkspaceStep data={formData} onChange={updateFormData} />;
       case 5:
-        return <FinishStep onFinish={handleFinish} />;
+        return <FinishStep onFinish={handleFinish} isSubmitting={isSubmitting} />;
       default:
         return null;
     }

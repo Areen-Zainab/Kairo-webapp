@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Mail, Lock, Eye, EyeOff, User, ArrowRight, Chrome, Github, CheckCircle2, Shield, Zap, Globe, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import apiService from '../services/api';
+import { useUser } from '../context/UserContext';
+import { useToastContext } from '../context/ToastContext';
 
 export default function KairoSignUpPage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -18,6 +21,8 @@ export default function KairoSignUpPage() {
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | null>(null);
   const navigate = useNavigate();
+  const { refreshUser } = useUser();
+  const toast = useToastContext();
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -105,16 +110,35 @@ export default function KairoSignUpPage() {
 
     setIsLoading(true);
     
-    // Simulate signup process
-    setTimeout(() => {
-      // Navigate to onboarding without authentication
-      navigate('/onboarding');
+    try {
+      const response = await apiService.signup({
+        name: formData.fullName,
+        email: formData.email,
+        password: formData.password,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      });
+
+      if (response.error) {
+        setErrors({ general: response.error });
+        toast.error(response.error, 'Signup Failed');
+      } else if (response.data) {
+        // Success - refresh user context and navigate to onboarding
+        console.log('Signup successful:', response.data.user);
+        await refreshUser();
+        toast.success('Account created successfully! Welcome to Kairo.', 'Signup Successful');
+        navigate('/onboarding');
+      }
+    } catch (error) {
+      console.error('Signup error:', error);
+      setErrors({ general: 'Failed to create account. Please try again.' });
+      toast.error('Failed to create account. Please try again.', 'Signup Failed');
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const handleSocialSignUp = (provider: string) => {
-    alert(`Sign up with ${provider} - Coming soon!`);
+    toast.info(`${provider} signup will be available soon!`, 'Coming Soon');
   };
 
   const getPasswordStrengthColor = () => {
@@ -304,7 +328,7 @@ export default function KairoSignUpPage() {
                           onChange={(e) => handleInputChange('fullName', e.target.value)}
                           onFocus={() => setFocusedInput('fullName')}
                           onBlur={() => setFocusedInput(null)}
-                          placeholder="Areeba Riaz"
+                          placeholder="Full Name"
                           className={`w-full pl-10 pr-3 py-2.5 text-sm bg-white/5 border rounded-xl focus:outline-none transition-all ${
                             errors.fullName
                               ? 'border-red-500 focus:ring-1 focus:ring-red-500/50'

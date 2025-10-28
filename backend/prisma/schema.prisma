@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,40 +8,35 @@ datasource db {
 }
 
 model User {
-  id                String    @id @default(cuid())
-  email             String    @unique
-  passwordHash      String    @map("password_hash")
-  name              String
-  profilePictureUrl String?   @map("profile_picture_url")
-  audioSampleUrl    String?   @map("audio_sample_url")
-  timezone          String    @default("UTC")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-  lastLogin         DateTime? @map("last_login")
-  isActive          Boolean   @default(true) @map("is_active")
-  emailVerified     Boolean   @default(false) @map("email_verified")
-  twoFactorEnabled  Boolean   @default(false) @map("two_factor_enabled")
-  twoFactorSecret   String?   @map("two_factor_secret")
-
-  // Relations
-  sessions          UserSession[]
-  notifications     Notification[]
-  createdWorkspaces Workspace[] @relation("WorkspaceOwner")
-  workspaceMembers  WorkspaceMember[]
-  createdTasks      Task[] @relation("TaskCreator")
-  taskAssignments   TaskAssignee[]
-  meetingOrganizer  Meeting[] @relation("MeetingOrganizer")
-  meetingParticipants MeetingParticipant[]
-  uploadedFiles     FileStorage[] @relation("FileUploader")
-  userPreferences   UserPreferences?
+  id                   Int                   @id @default(autoincrement())
+  email                String                @unique
+  passwordHash         String                @map("password_hash")
+  name                 String
+  profilePictureUrl    String?               @map("profile_picture_url")
+  audioSampleUrl       String?               @map("audio_sample_url")
+  timezone             String                @default("UTC")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  lastLogin            DateTime?             @map("last_login")
+  isActive             Boolean               @default(true) @map("is_active")
+  emailVerified        Boolean               @default(false) @map("email_verified")
   notificationSettings NotificationSettings?
+  notifications        Notification[]
+  userPreferences      UserPreferences?
+  sessions             UserSession[]
+  workspaceMembers     WorkspaceMember[]
+  createdWorkspaces    Workspace[]           @relation("WorkspaceOwner")
+  sentInvites          WorkspaceInvite[]     @relation("InvitedBy")
+  receivedInvites      WorkspaceInvite[]     @relation("InvitedUser")
+  createdMeetings      Meeting[]             @relation("MeetingCreator")
+  meetingParticipants  MeetingParticipant[]  @relation("MeetingParticipants")
 
   @@map("users")
 }
 
 model UserSession {
-  id           String   @id @default(cuid())
-  userId       String   @map("user_id")
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
   sessionToken String   @unique @map("session_token")
   deviceInfo   String?  @map("device_info")
   ipAddress    String?  @map("ip_address")
@@ -52,193 +44,182 @@ model UserSession {
   lastActivity DateTime @default(now()) @updatedAt @map("last_activity")
   expiresAt    DateTime @map("expires_at")
   isActive     Boolean  @default(true) @map("is_active")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_sessions")
 }
 
 model UserPreferences {
-  id              String  @id @default(cuid())
-  userId          String  @unique @map("user_id")
-  autoJoin        Boolean @default(true) @map("auto_join")
-  autoRecord      Boolean @default(false) @map("auto_record")
-  defaultDuration Int     @default(60) @map("default_duration")
-  timezone        String  @default("UTC")
-  themeMode       String  @default("dark") @map("theme_mode")
-  accentColor     String  @default("#9333ea") @map("accent_color")
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique @map("user_id")
+  autoJoin        Boolean  @default(false) @map("auto_join")
+  autoRecord      Boolean  @default(false) @map("auto_record")
+  defaultDuration Int      @default(30) @map("default_duration")
+  timezone        String   @default("UTC")
+  themeMode       String   @default("light") @map("theme_mode")
+  accentColor     String   @default("#007bff") @map("accent_color")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_preferences")
 }
 
 model NotificationSettings {
-  id                        String  @id @default(cuid())
-  userId                    String  @unique @map("user_id")
-  emailMeetingReminders     Boolean @default(true) @map("email_meeting_reminders")
-  emailMeetingSummaries     Boolean @default(true) @map("email_meeting_summaries")
-  emailActionItems          Boolean @default(true) @map("email_action_items")
-  emailWeeklyDigest         Boolean @default(false) @map("email_weekly_digest")
-  pushMeetingStarting       Boolean @default(true) @map("push_meeting_starting")
-  pushMeetingJoined         Boolean @default(false) @map("push_meeting_joined")
-  pushMentionsAndReplies    Boolean @default(true) @map("push_mentions_and_replies")
-  pushActionItemsDue        Boolean @default(true) @map("push_action_items_due")
-  inAppMeetingUpdates       Boolean @default(true) @map("in_app_meeting_updates")
-  inAppTranscriptionReady   Boolean @default(true) @map("in_app_transcription_ready")
-  inAppSharedWithYou        Boolean @default(true) @map("in_app_shared_with_you")
-  createdAt                 DateTime @default(now()) @map("created_at")
-  updatedAt                 DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                      Int      @id @default(autoincrement())
+  userId                  Int      @unique @map("user_id")
+  emailMeetingReminders   Boolean  @default(true) @map("email_meeting_reminders")
+  emailMeetingSummaries   Boolean  @default(true) @map("email_meeting_summaries")
+  emailActionItems        Boolean  @default(true) @map("email_action_items")
+  emailWeeklyDigest       Boolean  @default(false) @map("email_weekly_digest")
+  pushMeetingStarting     Boolean  @default(true) @map("push_meeting_starting")
+  pushMeetingJoined       Boolean  @default(false) @map("push_meeting_joined")
+  pushMentionsAndReplies  Boolean  @default(true) @map("push_mentions_and_replies")
+  pushActionItemsDue      Boolean  @default(true) @map("push_action_items_due")
+  inAppMeetingUpdates     Boolean  @default(true) @map("in_app_meeting_updates")
+  inAppTranscriptionReady Boolean  @default(true) @map("in_app_transcription_ready")
+  inAppSharedWithYou      Boolean  @default(true) @map("in_app_shared_with_you")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_settings")
 }
 
-model Notification {
-  id                String   @id @default(cuid())
-  userId            String   @map("user_id")
-  type              String   // meeting_reminder, meeting_starting, task_assigned, etc.
-  title             String
-  message           String
-  isRead            Boolean  @default(false) @map("is_read")
-  relatedEntityType String?  @map("related_entity_type")
-  relatedEntityId   String?  @map("related_entity_id")
-  createdAt         DateTime @default(now()) @map("created_at")
-  readAt            DateTime? @map("read_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("notifications")
-}
-
-// Placeholder models for future implementation
 model Workspace {
-  id          String   @id @default(cuid())
+  id          Int                @id @default(autoincrement())
   name        String
   description String?
-  code        String   @unique
-  ownerId     String   @map("owner_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  isActive    Boolean  @default(true) @map("is_active")
+  code        String             @unique
+  ownerId     Int                @map("owner_id")
+  colorTheme  String?            @default("#9333ea") @map("color_theme")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  isActive    Boolean            @default(true) @map("is_active")
   settings    Json?
-
-  owner   User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members WorkspaceMember[]
+  members     WorkspaceMember[]
+  invites     WorkspaceInvite[]
+  logs        WorkspaceLog[]
+  meetings    Meeting[]
+  owner       User               @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@map("workspaces")
 }
 
-model WorkspaceMember {
-  id          String   @id @default(cuid())
-  workspaceId String   @map("workspace_id")
-  userId      String   @map("user_id")
-  role        String   @default("member")
-  joinedAt    DateTime @default(now()) @map("joined_at")
-  invitedBy   String?  @map("invited_by")
-  isActive    Boolean  @default(true) @map("is_active")
-  permissions Json?
-
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([workspaceId, userId])
-  @@map("workspace_members")
-}
-
-model Task {
-  id              String    @id @default(cuid())
-  workspaceId     String    @map("workspace_id")
-  projectId       String?   @map("project_id")
+model Meeting {
+  id              Int                 @id @default(autoincrement())
+  workspaceId     Int                 @map("workspace_id")
   title           String
   description     String?
-  status          String    @default("todo")
-  priority        String    @default("medium")
-  dueDate         DateTime? @map("due_date")
-  createdBy       String    @map("created_by")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  estimatedHours  Float?    @map("estimated_hours")
-  actualHours     Float?    @map("actual_hours")
-  parentTaskId    String?   @map("parent_task_id")
-  meetingContext  Json?     @map("meeting_context")
+  meetingLink     String?             @map("meeting_link")
+  platform        String?             // 'zoom', 'google-meet', 'teams', 'other'
+  location        String?             // Physical location or additional details
+  startTime       DateTime            @map("start_time")
+  endTime         DateTime            @map("end_time")
+  duration        Int                 // Duration in minutes
+  meetingType     String              @default("scheduled") @map("meeting_type") // 'instant', 'scheduled', 'recurring'
+  status          String              @default("scheduled") // 'scheduled', 'in-progress', 'completed', 'cancelled'
+  isRecurring     Boolean             @default(false) @map("is_recurring")
+  recurrenceRule  String?             @map("recurrence_rule") // iCal RRULE format
+  createdById     Int                 @map("created_by_id")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  reminderSent    Boolean             @default(false) @map("reminder_sent")
+  transcriptUrl   String?             @map("transcript_url")
+  recordingUrl    String?             @map("recording_url")
+  notes           String?
+  agenda          String?
+  meetingSource   String?             @default("kairo") @map("meeting_source") // 'kairo', 'google-calendar', 'outlook', 'zoom', etc.
+  metadata        Json?               // Additional flexible data
+  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy       User                @relation("MeetingCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  participants    MeetingParticipant[]
 
-  creator     User           @relation("TaskCreator", fields: [createdBy], references: [id], onDelete: Cascade)
-  assignees   TaskAssignee[]
-  parentTask  Task?          @relation("TaskParent", fields: [parentTaskId], references: [id])
-  subtasks    Task[]         @relation("TaskParent")
-
-  @@map("tasks")
-}
-
-model TaskAssignee {
-  id        String   @id @default(cuid())
-  taskId    String   @map("task_id")
-  userId    String   @map("user_id")
-  assignedAt DateTime @default(now()) @map("assigned_at")
-  assignedBy String  @map("assigned_by")
-
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([taskId, userId])
-  @@map("task_assignees")
-}
-
-model Meeting {
-  id                String   @id @default(cuid())
-  workspaceId       String   @map("workspace_id")
-  title             String
-  description       String?
-  meetingType       String   @default("other") @map("meeting_type")
-  status            String   @default("scheduled")
-  scheduledDate     DateTime @map("scheduled_date")
-  scheduledTime     String   @map("scheduled_time")
-  durationMinutes   Int      @default(60) @map("duration_minutes")
-  organizerId       String   @map("organizer_id")
-  location          String?
-  meetingUrl        String?  @map("meeting_url")
-  recordingUrl      String?  @map("recording_url")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  organizer    User                @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
-  participants MeetingParticipant[]
-
+  @@index([workspaceId, startTime])
+  @@index([status, startTime])
   @@map("meetings")
 }
 
 model MeetingParticipant {
-  id        String   @id @default(cuid())
-  meetingId String   @map("meeting_id")
-  userId    String   @map("user_id")
-  status    String   @default("invited")
-  joinedAt  DateTime? @map("joined_at")
-  leftAt    DateTime? @map("left_at")
-
-  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              Int      @id @default(autoincrement())
+  meetingId       Int      @map("meeting_id")
+  userId          Int      @map("user_id")
+  role            String   @default("participant") // 'host', 'co-host', 'participant', 'optional'
+  status          String   @default("invited") // 'invited', 'accepted', 'declined', 'tentative', 'attended'
+  joinedAt        DateTime? @map("joined_at")
+  leftAt          DateTime? @map("left_at")
+  responseTime    DateTime? @map("response_time")
+  meeting         Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user            User     @relation("MeetingParticipants", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([meetingId, userId])
   @@map("meeting_participants")
 }
 
-model FileStorage {
-  id               String   @id @default(cuid())
-  workspaceId      String   @map("workspace_id")
-  filename         String
-  originalFilename String   @map("original_filename")
-  filePath         String   @map("file_path")
-  fileType         String   @map("file_type")
-  fileSize         BigInt   @map("file_size")
-  mimeType         String?  @map("mime_type")
-  uploadedBy       String   @map("uploaded_by")
-  createdAt        DateTime @default(now()) @map("created_at")
+model WorkspaceLog {
+  id          Int       @id @default(autoincrement())
+  workspaceId Int       @map("workspace_id")
+  userId      Int?      @map("user_id")
+  action      String    // Type of action: 'created', 'updated', 'member_invited', 'member_joined', 'member_removed', 'settings_changed', etc.
+  title       String    // Human-readable title
+  description String    // Detailed description of the action
+  metadata    Json?     // Additional data (e.g., what changed, who was affected)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  uploader User @relation("FileUploader", fields: [uploadedBy], references: [id], onDelete: Cascade)
+  @@index([workspaceId, createdAt])
+  @@map("workspace_logs")
+}
 
-  @@map("file_storage")
+model WorkspaceMember {
+  id          Int       @id @default(autoincrement())
+  workspaceId Int       @map("workspace_id")
+  userId      Int       @map("user_id")
+  role        String    @default("member")
+  joinedAt    DateTime  @default(now()) @map("joined_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  permissions Json?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+model WorkspaceInvite {
+  id            Int       @id @default(autoincrement())
+  workspaceId   Int       @map("workspace_id")
+  invitedEmail  String    @map("invited_email")
+  invitedUserId Int?      @map("invited_user_id")
+  invitedBy     Int       @map("invited_by")
+  role          String    @default("member")
+  status        String    @default("pending") // 'pending', 'accepted', 'rejected', 'expired'
+  sentAt        DateTime  @default(now()) @map("sent_at")
+  respondedAt   DateTime? @map("responded_at")
+  expiresAt     DateTime? @map("expires_at")
+  token         String    @unique
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter       User      @relation("InvitedBy", fields: [invitedBy], references: [id], onDelete: Cascade)
+  invitedUser   User?     @relation("InvitedUser", fields: [invitedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, invitedEmail])
+  @@map("workspace_invites")
+}
+
+model Notification {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  title          String
+  message        String
+  type           String
+  priority       String   @default("medium")
+  workspace      String?
+  isRead         Boolean  @default(false) @map("is_read")
+  actionRequired Boolean  @default(false) @map("action_required")
+  relatedId      String?  @map("related_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
 }

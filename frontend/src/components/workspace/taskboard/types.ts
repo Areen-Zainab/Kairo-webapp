@@ -8,6 +8,7 @@ export interface TaskAssignee {
   name: string;
   email: string;
   avatar: string;
+  profilePictureUrl?: string;
   role: 'admin' | 'manager' | 'member';
 }
 

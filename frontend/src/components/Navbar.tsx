@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Calendar, Bell, User, Settings, LogOut, Sun, Moon, Plus } from 'lucide-react';
+import { useUser } from '../context/UserContext';
 
 interface User {
   name: string;
   email: string;
   avatar: string;
+  profilePictureUrl: string;
 }
 
 interface NavbarProps {
@@ -24,19 +26,29 @@ const Navbar: React.FC<NavbarProps> = ({
   onNewMeetingClick
 }) => {
   const navigate = useNavigate();
+  const { logout: logoutUser, user: contextUser } = useUser();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('theme');
     return (saved as 'light' | 'dark') || 'dark';
   });
 
-  const avatarSrc = user.avatar && user.avatar.trim() !== ''
-    ? user.avatar
-    : `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.name || 'User')}`;
+  // Use context user if available, otherwise use passed user prop
+  const actualUser = contextUser ? {
+    name: contextUser.name,
+    email: contextUser.email,
+    profilePictureUrl: contextUser.profilePictureUrl,
+    avatar: contextUser.name ? contextUser.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U'
+  } : user;
 
-  const handleLogout = () => {
-    // Simple logout without authentication
-    navigate('/');
+  // Use profile picture URL from Supabase if available, otherwise use initials
+  const avatarSrc = actualUser.profilePictureUrl 
+    ? actualUser.profilePictureUrl
+    : `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(actualUser.name || 'User')}`;
+
+  const handleLogout = async () => {
+    await logoutUser(); // Clear user context and call backend logout
+    navigate('/login'); // Navigate to login page
   };
 
   const toggleTheme = () => {
@@ -152,8 +164,8 @@ const Navbar: React.FC<NavbarProps> = ({
             >
               <img 
                 src={avatarSrc} 
-                alt={user.name} 
-                className={`w-7 h-7 md:w-8 md:h-8 rounded-full ring-2 transition-all duration-300 ${
+                alt={actualUser.name} 
+                className={`w-7 h-7 md:w-8 md:h-8 rounded-full ring-2 transition-all duration-300 object-cover ${
                   isDark
                     ? 'ring-slate-700/60 group-hover:ring-slate-600'
                     : 'ring-gray-200 group-hover:ring-gray-300'
@@ -181,8 +193,8 @@ const Navbar: React.FC<NavbarProps> = ({
                   }`}>
                     <img 
                       src={avatarSrc} 
-                      alt={user.name} 
-                      className={`w-8 h-8 md:w-9 md:h-9 rounded-full ring-2 ${
+                      alt={actualUser.name} 
+                      className={`w-8 h-8 md:w-9 md:h-9 rounded-full ring-2 object-cover ${
                         isDark ? 'ring-slate-700/60' : 'ring-gray-200'
                       }`}
                     />
@@ -190,12 +202,12 @@ const Navbar: React.FC<NavbarProps> = ({
                       <p className={`font-semibold text-sm truncate ${
                         isDark ? 'text-white' : 'text-gray-900'
                       }`}>
-                        {user.name}
+                        {actualUser.name}
                       </p>
                       <p className={`text-xs mt-0.5 truncate ${
                         isDark ? 'text-slate-400' : 'text-gray-500'
                       }`}>
-                        {user.email}
+                        {actualUser.email}
                       </p>
                     </div>
                   </div>

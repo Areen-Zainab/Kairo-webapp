@@ -1,17 +1,14 @@
 import React from 'react';
-import { Check } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Check, Loader2 } from 'lucide-react';
 
 interface FinishStepProps {
   onFinish: () => void;
+  isSubmitting?: boolean;
 }
 
-const FinishStep: React.FC<FinishStepProps> = ({ onFinish }) => {
-  const navigate = useNavigate();
-
+const FinishStep: React.FC<FinishStepProps> = ({ onFinish, isSubmitting = false }) => {
   const handleFinish = () => {
     onFinish();
-    navigate('/dashboard');
   };
 
   return (
@@ -54,9 +51,19 @@ const FinishStep: React.FC<FinishStepProps> = ({ onFinish }) => {
 
       <button
         onClick={handleFinish}
-        className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl font-semibold text-white hover:shadow-2xl hover:shadow-purple-500/50 transition-all hover:scale-105"
+        disabled={isSubmitting}
+        className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl font-semibold text-white hover:shadow-2xl hover:shadow-purple-500/50 transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2 mx-auto"
       >
-        Go to Dashboard →
+        {isSubmitting ? (
+          <>
+            <Loader2 className="w-5 h-5 animate-spin" />
+            Setting up your account...
+          </>
+        ) : (
+          <>
+            Go to Dashboard →
+          </>
+        )}
       </button>
     </div>
   );

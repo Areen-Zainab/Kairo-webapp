@@ -21,7 +21,8 @@ import Analytics from "./pages/workspace/Analytics";
 
 import MeetingsDashboard from "./pages/meetings/MeetingsMain";
 import LiveMeetingView from "./pages/meetings/MeetingLive";
-import MeetingDetailsPage from "./pages/meetings/MeetingDetails"; 
+import MeetingDetailsPage from "./pages/meetings/MeetingDetails";
+import PreMeetingPage from "./pages/meetings/PreMeeting"; 
 
 function App() {
   return (
@@ -41,18 +42,35 @@ function App() {
         <Route path="/notifications" element={<MyNotifications />} />
         <Route path="/tasks" element={<MyTasks />} />
 
-        {/* Workspace Routes */}
-        <Route path="/workspace" element={<WorkspaceMainPage />} />
-        <Route path="/workspace/team-members" element={<TeamMemberPage />} />
-        <Route path="/workspace/settings" element={<WorkspaceSettings />} />
-        <Route path="/workspace/tasks" element={<TaskBoard />} />
-        <Route path="/workspace/memory" element={<MemoryView />} />
-        <Route path="/workspace/analytics" element={<Analytics />} />
+        {/* Workspace Routes - Support workspace ID in URL */}
+        <Route path="/workspace/:workspaceId" element={<WorkspaceMainPage key="workspace" />} />
+        <Route path="/workspace/:workspaceId/team-members" element={<TeamMemberPage key="team-members" />} />
+        <Route path="/workspace/:workspaceId/settings" element={<WorkspaceSettings key="settings" />} />
+        <Route path="/workspace/:workspaceId/tasks" element={<TaskBoard key="tasks" />} />
+        <Route path="/workspace/:workspaceId/memory" element={<MemoryView key="memory" />} />
+        <Route path="/workspace/:workspaceId/analytics" element={<Analytics key="analytics" />} />
+        
+        {/* Legacy workspace routes (without ID) */}
+        <Route path="/workspace" element={<WorkspaceMainPage key="workspace-legacy" />} />
+        <Route path="/workspace/team-members" element={<TeamMemberPage key="team-members-legacy" />} />
+        <Route path="/workspace/settings" element={<WorkspaceSettings key="settings-legacy" />} />
+        <Route path="/workspace/tasks" element={<TaskBoard key="tasks-legacy" />} />
+        <Route path="/workspace/memory" element={<MemoryView key="memory-legacy" />} />
+        <Route path="/workspace/analytics" element={<Analytics key="analytics-legacy" />} />
 
-        {/* Meetings Routes */}
-        <Route path="/workspace/meetings" element={<MeetingsDashboard />} />
-        <Route path="/workspace/meetings/live" element={<LiveMeetingView />} />
-        <Route path="/workspace/meetings/:id" element={<MeetingDetailsPage />} />
+        {/* Meetings Routes - Support workspace ID in URL */}
+        <Route path="/workspace/:workspaceId/meetings" element={<MeetingsDashboard key="meetings" />} />
+        <Route path="/workspace/:workspaceId/meetings/live/:id" element={<LiveMeetingView key="live" />} />
+        <Route path="/workspace/:workspaceId/meetings/live" element={<LiveMeetingView key="live-empty" />} />
+        <Route path="/workspace/:workspaceId/meetings/pre/:id" element={<PreMeetingPage key="pre-meeting" />} />
+        <Route path="/workspace/:workspaceId/meetings/:id" element={<MeetingDetailsPage key="meeting-details" />} />
+        
+        {/* Legacy meetings routes (without workspace ID) */}
+        <Route path="/workspace/meetings" element={<MeetingsDashboard key="meetings-legacy" />} />
+        <Route path="/workspace/meetings/live/:id" element={<LiveMeetingView key="live-legacy" />} />
+        <Route path="/workspace/meetings/live" element={<LiveMeetingView key="live-empty-legacy" />} />
+        <Route path="/workspace/meetings/pre/:id" element={<PreMeetingPage key="pre-meeting-legacy" />} />
+        <Route path="/workspace/meetings/:id" element={<MeetingDetailsPage key="meeting-details-legacy" />} />
       </Routes>
     </>
   );

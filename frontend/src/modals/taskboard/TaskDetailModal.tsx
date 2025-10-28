@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Task, TaskStatus, TaskPriority } from '../../components/workspace/taskboard/types';
+import UserAvatar from '../../components/ui/UserAvatar';
 
 interface TaskDetailModalProps {
   task: Task | null;
@@ -324,9 +325,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   <div className="space-y-2">
                     {task.assignees.map((assignee) => (
                       <div key={assignee.id} className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 flex items-center justify-center text-white text-sm font-medium">
-                          {assignee.avatar}
-                        </div>
+                        <UserAvatar name={assignee.name} profilePictureUrl={assignee.profilePictureUrl} size="sm" />
                         <div>
                           <p className="text-sm font-medium text-slate-900 dark:text-white">
                             {assignee.name}

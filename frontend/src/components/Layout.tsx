@@ -1,54 +1,38 @@
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import NewMeetingModal from '../modals/NewMeetingModal';
+import { useUser } from '../context/UserContext';
+import { useMeetingNotifications } from '../hooks/useMeetingNotifications';
 
 interface LayoutProps {
   children: React.ReactNode;
   forceSidebarCollapsed?: boolean;
 }
 
-interface MeetingData {
-  title: string;
-  description: string;
-  meetingLink: string;
-  platform: 'zoom' | 'google-meet' | 'teams' | 'other';
-  duration: number;
-  participants: string[];
-  meetingType: 'instant' | 'scheduled';
-  scheduledDate?: string;
-  scheduledTime?: string;
-}
-
 const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false }) => {
+  const location = useLocation();
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  
-  // Initialize sidebar state - will be updated from localStorage in useEffect
+  const { user, currentWorkspace, setCurrentWorkspace } = useUser();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState<'general' | 'workspace'>('general');
-
-    // Initialize workspace from localStorage or default
-  const getInitialWorkspace = () => {
-    const savedWorkspace = localStorage.getItem('currentWorkspace');
-    if (savedWorkspace) {
-      try {
-        return JSON.parse(savedWorkspace);
-      } catch (e) {
-        console.error('Failed to parse saved workspace:', e);
-      }
-    }
-    return {
-      id: '1',
-      name: 'Product Team Alpha',
-      role: 'Manager',
-      color: 'from-purple-500 to-blue-500',
-      memberCount: 12,
-    };
-  };
-
-  const [currentWorkspace, setCurrentWorkspace] = useState(getInitialWorkspace());
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
+  
+  // Extract workspace ID from URL
+  const workspaceIdFromUrl = location.pathname.match(/\/workspace\/(\d+)/)?.[1];
+  
+  // Enable meeting notifications for current workspace
+  const activeWorkspaceId = workspaceIdFromUrl
+    ? Number.isNaN(Number(workspaceIdFromUrl))
+      ? undefined
+      : Number(workspaceIdFromUrl)
+    : typeof currentWorkspace?.id === 'number'
+    ? currentWorkspace.id
+    : undefined;
+
+  useMeetingNotifications({ workspaceId: activeWorkspaceId });
 
   // Automatically set view mode based on URL path
   useEffect(() => {
@@ -82,11 +66,17 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
     }
   }, [forceSidebarCollapsed]);
 
-  // Default user data for guest mode
-  const displayUser = {
+  // Get user data from context or use default guest data
+  const displayUser = user ? {
+    name: user.name,
+    email: user.email,
+    avatar: user.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U',
+    profilePictureUrl: user.profilePictureUrl || ''
+  } : {
     name: 'Guest',
     email: 'guest@example.com',
-    avatar: 'G'
+    avatar: 'G',
+    profilePictureUrl: ''
   };
 
   React.useEffect(() => {
@@ -110,24 +100,16 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
 
   const handleWorkspaceChange = (workspace: any) => {
     setCurrentWorkspace(workspace);
+    localStorage.setItem('currentWorkspace', JSON.stringify(workspace));
   };
 
   const handleNewMeetingClick = () => {
     setShowNewMeetingModal(true);
   };
 
-  const handleJoinInstantly = (meetingData: MeetingData) => {
-    console.log('Joining external meeting:', meetingData);
-    // TODO: Implement external meeting join logic
-    // This could open the meeting link and add Kairo as a participant
-    // or trigger a bot to join the meeting automatically
-  };
-
-  const handleScheduleMeeting = (meetingData: MeetingData) => {
-    console.log('Scheduling external meeting join:', meetingData);
-    // TODO: Implement scheduled meeting join logic
-    // This could create a calendar event with the meeting link
-    // and schedule Kairo to join at the specified time
+  const handleMeetingCreated = () => {
+    // Meeting created successfully, modal will close automatically
+    // Could trigger a refresh here if needed
   };
 
   return (
@@ -210,12 +192,14 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
       </div>
 
       {/* New Meeting Modal - Rendered at page level */}
-      <NewMeetingModal
-        isOpen={showNewMeetingModal}
-        onClose={() => setShowNewMeetingModal(false)}
-        onJoinInstantly={handleJoinInstantly}
-        onScheduleMeeting={handleScheduleMeeting}
-      />
+      {(workspaceIdFromUrl || currentWorkspace?.id) && (
+        <NewMeetingModal
+          isOpen={showNewMeetingModal}
+          onClose={() => setShowNewMeetingModal(false)}
+          workspaceId={activeWorkspaceId}
+          onMeetingCreated={handleMeetingCreated}
+        />
+      )}
 
       <style>{`
         @keyframes float {

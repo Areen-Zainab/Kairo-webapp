@@ -10,8 +10,28 @@ interface LiveMeetingBannerProps {
 
 const LiveMeetingBanner: React.FC<LiveMeetingBannerProps> = ({ liveMeeting, onJoin, onDismiss }) => {
   if (!liveMeeting) return null;
+
+  const handleJoinNow = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the parent click
+    if (liveMeeting.meetingLink) {
+      // Open the meeting link in the same tab/window
+      window.location.href = liveMeeting.meetingLink;
+    } else {
+      // If no meeting link, navigate to the live meeting page
+      onJoin();
+    }
+  };
+
+  const handleBannerClick = () => {
+    // Navigate to the live meeting page
+    onJoin();
+  };
+
   return (
-    <div className="relative rounded-lg p-5 mb-8 overflow-hidden bg-red-50 border border-red-200 dark:bg-gradient-to-r dark:from-red-900/20 dark:via-pink-900/20 dark:to-red-900/20 dark:border-red-500/30">
+    <div 
+      onClick={handleBannerClick}
+      className="relative rounded-lg p-5 mb-8 overflow-hidden bg-red-50 border border-red-200 dark:bg-gradient-to-r dark:from-red-900/20 dark:via-pink-900/20 dark:to-red-900/20 dark:border-red-500/30 cursor-pointer hover:shadow-lg transition-shadow"
+    >
       <div className="absolute inset-0 hidden dark:block bg-gradient-to-r from-red-600/5 to-pink-600/5 animate-pulse" />
       <div className="relative flex items-center justify-between">
         <div className="flex items-center space-x-4">
@@ -26,8 +46,21 @@ const LiveMeetingBanner: React.FC<LiveMeetingBannerProps> = ({ liveMeeting, onJo
           </div>
         </div>
         <div className="flex items-center space-x-3">
-          <button onClick={onJoin} className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 rounded-md text-white text-sm font-semibold transition-all">Join Now</button>
-          <button onClick={onDismiss} className="px-4 py-2.5 rounded-md text-sm transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-300">Dismiss</button>
+          <button 
+            onClick={handleJoinNow} 
+            className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 rounded-md text-white text-sm font-semibold transition-all"
+          >
+            Join Now
+          </button>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent triggering the parent click
+              onDismiss();
+            }} 
+            className="px-4 py-2.5 rounded-md text-sm transition-all bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 dark:bg-slate-700/30 dark:hover:bg-slate-700/50 dark:border-slate-600/50 dark:text-slate-300"
+          >
+            Dismiss
+          </button>
         </div>
       </div>
     </div>

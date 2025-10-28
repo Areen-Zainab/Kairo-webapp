@@ -1,6 +1,7 @@
 import React from 'react';
 import { Calendar, Circle, CheckSquare, Sparkles } from 'lucide-react';
 import type { Meeting } from './types';
+import UserAvatar from '../../ui/UserAvatar';
 
 interface KanbanViewProps { meetings: Meeting[] }
 
@@ -30,7 +31,9 @@ const KanbanView: React.FC<KanbanViewProps> = ({ meetings }) => {
       </div>
       <div className="flex -space-x-1.5 mb-2.5">
         {meeting.participants.slice(0, 3).map((p, idx) => (
-          <div key={idx} className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-xs font-medium text-white border-2 border-white dark:border-slate-900">{p.avatar}</div>
+          <div key={idx} className="border-2 border-white dark:border-slate-900">
+            <UserAvatar name={p.name} profilePictureUrl={p.profilePictureUrl} size="xs" />
+          </div>
         ))}
       </div>
       {meeting.aiInsights && (
