@@ -18,7 +18,7 @@ console.log('📁 Recordings folder:', path.resolve(RECORDINGS_DIR));
 
 // Convert waitForTimeout to sleep helper
 function sleep(ms) {
-  return globalPage.waitForTimeout(ms);
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -45,7 +45,7 @@ function convertToMp3(inputPath, outputPath) {
 /**
  * Save recording to file
  */
-async function saveRecording(page) {
+async function saveRecording(page, baseName) {
   try {
     if (!page || page.isClosed()) {
       console.log('❌ Page is closed');
@@ -82,7 +82,7 @@ async function saveRecording(page) {
     console.log('✅ Audio retrieved:', (audioData.size / 1024).toFixed(1), 'KB');
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
-    const webmFilename = `recording_${timestamp}.webm`;
+    const webmFilename = baseName ? `${baseName}.webm` : `recording_${timestamp}.webm`;
     const webmFilepath = path.join(RECORDINGS_DIR, webmFilename);
     
     console.log('⏳ Saving WebM file...');
@@ -93,7 +93,7 @@ async function saveRecording(page) {
     
     // Convert to MP3
     console.log('⏳ Converting to MP3...');
-    const mp3Filename = `recording_${timestamp}.mp3`;
+    const mp3Filename = baseName ? `${baseName}.mp3` : `recording_${timestamp}.mp3`;
     const mp3Filepath = path.join(RECORDINGS_DIR, mp3Filename);
     
     await convertToMp3(webmFilepath, mp3Filepath);
@@ -132,7 +132,7 @@ async function saveRecording(page) {
  * @param {string} [options.meetingId] - Meeting ID for tracking
  * @returns {Promise<Object>} Meeting session information
  */
-async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId }) {
+async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meetingTitle }) {
   const MEET_URL = meetUrl; // Use provided meetUrl parameter
   const BOT_NAME = botName || process.env.BOT_NAME || 'Kairo Bot';
   const SHOW_BROWSER = process.env.SHOW_BROWSER === 'true';
@@ -142,6 +142,18 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId }) {
   let globalBrowser = null;
   let monitorInterval = null;
   let autoExitTimeout = null;
+  const slugify = (str) => (str || '').toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  const baseName = (() => {
+    const titleSlug = slugify(meetingTitle);
+    const idPart = meetingId ? String(meetingId) : null;
+    if (titleSlug && idPart) return `${titleSlug}_${idPart}`;
+    if (idPart) return `meeting_${idPart}`;
+    return null;
+  })();
 
   console.log('\n🚀 Kairo Bot Starting...');
   console.log('📍 URL:', MEET_URL);
@@ -457,7 +469,7 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId }) {
       console.log(`\n⏰ Auto mode: Will record for ${DURATION_MINUTES} minutes`);
       autoExitTimeout = setTimeout(async () => {
         console.log('\n\n⏰ Duration reached, stopping recording...');
-        await saveRecording(globalPage);
+        await saveRecording(globalPage, baseName);
         if (globalBrowser) await globalBrowser.close();
       }, DURATION_MINUTES * 60 * 1000);
     } else {
@@ -504,7 +516,7 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId }) {
         if (autoExitTimeout) {
           clearTimeout(autoExitTimeout);
         }
-        await saveRecording(globalPage);
+        await saveRecording(globalPage, baseName);
         if (globalBrowser) {
           await globalBrowser.close();
         }
@@ -520,6 +532,8 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId }) {
     if (autoExitTimeout) {
       clearTimeout(autoExitTimeout);
     }
+    // Try to save before closing if possible
+    try { await saveRecording(globalPage, baseName); } catch (_) {}
     if (globalBrowser) {
       await globalBrowser.close();
     }

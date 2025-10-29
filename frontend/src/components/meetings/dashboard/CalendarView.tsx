@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Circle } from 'lucide-react';
+import UserAvatar from '../../ui/UserAvatar';
 import type { Meeting } from './types';
 
 type CalendarMode = 'month' | 'year' | 'week';
@@ -179,12 +180,21 @@ const CalendarView: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
                   <h5 className="font-medium text-gray-900 dark:text-white text-sm mb-1">{meeting.title}</h5>
                   <p className="text-xs text-gray-600 dark:text-slate-400">{meeting.time}</p>
                 </div>
-                {meeting.status === 'live' && (
-                  <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-red-100 text-red-700 border border-red-300 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/30">
-                    <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500 animate-pulse" />
-                    <span className="text-xs font-medium">LIVE</span>
+                <div className="flex items-center gap-3">
+                  <div className="flex -space-x-1.5">
+                    {meeting.participants.map((p, idx) => (
+                      <div key={idx} className="border-2 border-white dark:border-slate-800">
+                        <UserAvatar name={p.name} profilePictureUrl={(p as any).profilePictureUrl} size="xs" />
+                      </div>
+                    ))}
                   </div>
-                )}
+                  {meeting.status === 'live' && (
+                    <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-red-100 text-red-700 border border-red-300 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/30">
+                      <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500 animate-pulse" />
+                      <span className="text-xs font-medium">LIVE</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ))}

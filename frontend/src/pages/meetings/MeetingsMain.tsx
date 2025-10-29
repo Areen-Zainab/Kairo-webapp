@@ -305,10 +305,11 @@ const MeetingsDashboard = () => {
       time: timeStr,
       duration: `${meeting.duration}m`,
       status,
-      participants: meeting.participants?.slice(0, 3).map((p: any) => ({
+      participants: (meeting.participants || []).map((p: any) => ({
         name: p.user?.name || 'Unknown',
-        avatar: p.user?.profilePictureUrl || (p.user?.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'U')
-      })) || [],
+        avatar: p.user?.profilePictureUrl || '',
+        profilePictureUrl: p.user?.profilePictureUrl || undefined
+      })),
       summary: meeting.description || undefined,
       transcriptReady: !!meeting.transcriptUrl,
       meetingLink: meeting.meetingLink,

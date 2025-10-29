@@ -86,8 +86,11 @@ const LiveMeetingView = () => {
   const [memoryChat, setMemoryChat] = useState<{id:string; role:'user'|'bot'; text:string}[]>([]);
   const [meeting, setMeeting] = useState<any>(null);
   const [isBotJoining, setIsBotJoining] = useState(false);
+  const [isBotJoined, setIsBotJoined] = useState(false);
+  const [isWaitingForBot, setIsWaitingForBot] = useState(true);
   
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const pollingActiveRef = useRef(false);
 
   const participants: Participant[] = [
     { id: '1', name: 'Kairo Bot', avatar: 'KB', isMuted: false, isVideoOn: false, isSpeaking: false },
@@ -223,41 +226,176 @@ const LiveMeetingView = () => {
           return;
         }
         if (response.data?.meeting) {
-          setMeeting(response.data.meeting);
+          const fetchedMeeting = response.data.meeting;
+          setMeeting(fetchedMeeting);
+          
+          // Check if bot has already joined - only consider 'in-progress' as confirmed join
+          const botHasJoined = fetchedMeeting.metadata?.botJoinTriggeredAt && 
+                              fetchedMeeting.status === 'in-progress';
+          
+          if (botHasJoined) {
+            setIsBotJoined(true);
+            setIsWaitingForBot(false);
+          } else {
+            // Keep waiting if bot hasn't joined yet
+            setIsWaitingForBot(true);
+          }
         }
       } catch (e: any) {
-        toastError(e?.message || 'Failed to load meeting', 'Error');
+        // Only show error for critical failures, not auth errors during polling
+        if (!e?.message?.includes('token') && !e?.message?.includes('Access')) {
+          toastError(e?.message || 'Failed to load meeting', 'Error');
+        }
       }
     };
     fetchMeeting();
   }, [id, navigate, toastError]);
 
-  // Auto-trigger bot join on live page if not yet triggered
+  // Auto-trigger bot join on live page if not yet triggered, and poll for join status
   useEffect(() => {
+    if (!meeting || isBotJoined || pollingActiveRef.current) return;
+    
+    pollingActiveRef.current = true;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const meetingId = meeting.id;
+    const meetingLink = meeting.meetingLink;
+    const meetingStatus = meeting.status;
+    const startTime = meeting.startTime;
+    const alreadyTriggeredAtStart = !!meeting.metadata?.botJoinTriggeredAt;
+    
     const triggerJoinIfNeeded = async () => {
-      if (!meeting) return;
-      const hasValidLink = !!meeting.meetingLink && typeof meeting.meetingLink === 'string';
-      const isLive = meeting.status === 'in-progress' || new Date(meeting.startTime).getTime() <= Date.now();
-      const alreadyTriggered = !!meeting.metadata?.botJoinTriggeredAt;
-      if (!hasValidLink || !isLive || alreadyTriggered) return;
-      try {
-        setIsBotJoining(true);
-        const result = await meetService.joinMeeting(meeting.id, meeting.meetingLink);
-        if (result.success) {
-          toastSuccess('Bot is joining the meeting', 'Bot Join Started');
-          // Optimistically mark as triggered locally to avoid duplicate calls
-          setMeeting((m: any) => ({ ...(m || {}), metadata: { ...(m?.metadata || {}), botJoinTriggeredAt: new Date().toISOString() } }));
-        } else {
-          toastError(result.message || 'Failed to join meeting with bot', 'Bot Join Failed');
+      const hasValidLink = !!meetingLink && typeof meetingLink === 'string';
+      const isLive = meetingStatus === 'in-progress' || meetingStatus === 'upcoming' || new Date(startTime).getTime() <= Date.now();
+      let alreadyTriggered = alreadyTriggeredAtStart;
+      
+      // Only stop waiting if meeting is invalid - otherwise keep waiting for bot
+      if (!hasValidLink || !isLive) {
+        // If no valid link or not live, we can't join, so stop waiting
+        setIsWaitingForBot(false);
+        return;
+      }
+      
+      // Ensure we're waiting if meeting is live and bot hasn't joined
+      setIsWaitingForBot(true);
+      
+      // If bot already joined (status is in-progress), stop waiting
+      if (alreadyTriggered && meetingStatus === 'in-progress') {
+        setIsBotJoined(true);
+        setIsWaitingForBot(false);
+        toastSuccess('Bot has successfully joined the meeting', 'Bot Joined');
+        return;
+      }
+      
+      // Start polling to check bot join status - this will run whether we trigger join or not
+      pollInterval = setInterval(async () => {
+        try {
+          const response = await apiService.getMeetingById(meetingId);
+          if (response.data?.meeting) {
+            const updatedMeeting = response.data.meeting;
+            // Update meeting state, but don't let it trigger effect re-run
+            setMeeting((prev: any) => {
+              // Only update if meeting ID matches
+              if (prev?.id === meetingId) {
+                return updatedMeeting;
+              }
+              return prev;
+            });
+            
+            // Only consider 'in-progress' status as confirmed join
+            const botHasJoined = updatedMeeting.metadata?.botJoinTriggeredAt && 
+                                updatedMeeting.status === 'in-progress';
+            
+            if (botHasJoined) {
+              setIsBotJoined(true);
+              setIsWaitingForBot(false);
+              setIsBotJoining(false);
+              pollingActiveRef.current = false;
+              toastSuccess('Bot has successfully joined the meeting', 'Bot Joined');
+              if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+              }
+              if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+              }
+              return;
+            }
+            
+            // Only show error if backend explicitly set botJoinError in metadata
+            if (updatedMeeting.metadata?.botJoinError) {
+              setIsWaitingForBot(false);
+              setIsBotJoining(false);
+              pollingActiveRef.current = false;
+              toastError(updatedMeeting.metadata.botJoinError || 'Bot failed to join the meeting', 'Bot Join Failed');
+              if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+              }
+              if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+              }
+              return;
+            }
+          }
+        } catch (e: any) {
+          // Suppress auth/token errors during polling - they're transient
+          if (!e?.message?.includes('token') && !e?.message?.includes('Access') && !e?.message?.includes('Unauthorized')) {
+            console.error('Error polling meeting status:', e);
+          }
         }
-      } catch (e: any) {
-        toastError(e?.message || 'Failed to trigger bot join', 'Bot Join Error');
-      } finally {
-        setIsBotJoining(false);
+      }, 2000); // Poll every 2 seconds
+      
+      // Trigger bot join if not already triggered
+      if (!alreadyTriggered) {
+        try {
+          setIsBotJoining(true);
+          const result = await meetService.joinMeeting(meetingId, meetingLink);
+          if (!result.success) {
+            // Only show error for explicit failures, not auth errors
+            if (result.message && !result.message.includes('token') && !result.message.includes('Access')) {
+              toastError(result.message, 'Bot Join Failed');
+            }
+            // Keep polling even if trigger failed - backend might still join via cron
+          }
+        } catch (e: any) {
+          // Suppress auth/token errors - they're transient
+          if (!e?.message?.includes('token') && !e?.message?.includes('Access') && !e?.message?.includes('Unauthorized')) {
+            console.error('Error triggering bot join:', e);
+          }
+          // Keep polling even if trigger failed - backend might still join via cron
+        }
+      }
+      
+      // Stop polling after 120 seconds max (give more time for bot to join)
+      timeoutId = setTimeout(() => {
+        pollingActiveRef.current = false;
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+        if (!isBotJoined) {
+          setIsWaitingForBot(false);
+          setIsBotJoining(false);
+          toastError('Bot join is taking longer than expected. Please check the meeting status.', 'Warning');
+        }
+      }, 120000); // 2 minutes
+    };
+    
+    triggerJoinIfNeeded();
+    
+    return () => {
+      pollingActiveRef.current = false;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     };
-    triggerJoinIfNeeded();
-  }, [meeting, toastSuccess, toastError]);
+  }, [meeting?.id, isBotJoined, toastSuccess, toastError]); // Only depend on meeting ID to prevent re-runs on meeting updates
 
   const addNote = () => {
     if (newNote.trim()) {
@@ -321,6 +459,25 @@ const LiveMeetingView = () => {
     { id: 'transcript' as SidebarTab, label: 'Transcript', icon: MessageSquare, count: transcript.length },
     { id: 'insights' as SidebarTab, label: 'Insights', icon: Sparkles, count: insights.length },
   ];
+
+  // Show loading screen while waiting for bot to join
+  if (isWaitingForBot && !isBotJoined) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mb-4"></div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+              {isBotJoining ? 'Joining Meeting...' : 'Waiting for Bot to Join...'}
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400">
+              Please wait while the bot joins the meeting.
+            </p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

@@ -30,7 +30,7 @@ const KanbanView: React.FC<KanbanViewProps> = ({ meetings }) => {
         <span>{meeting.time}</span>
       </div>
       <div className="flex -space-x-1.5 mb-2.5">
-        {meeting.participants.slice(0, 3).map((p, idx) => (
+        {meeting.participants.map((p, idx) => (
           <div key={idx} className="border-2 border-white dark:border-slate-900">
             <UserAvatar name={p.name} profilePictureUrl={p.profilePictureUrl} size="xs" />
           </div>

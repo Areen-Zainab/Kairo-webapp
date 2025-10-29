@@ -61,12 +61,11 @@ const MeetingCard: React.FC<{ meeting: Meeting }> = ({ meeting }) => {
       </div>
       <div className="flex items-center space-x-2.5 mb-3">
         <div className="flex -space-x-1.5">
-          {meeting.participants.slice(0, 3).map((p, idx) => (
+          {meeting.participants.map((p, idx) => (
             <div key={idx} className="border-2 border-white dark:border-slate-800">
               <UserAvatar name={p.name} profilePictureUrl={p.profilePictureUrl} size="sm" />
             </div>
           ))}
-          {meeting.participants.length > 3 && (<div className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-medium border-2 border-white dark:bg-slate-700/80 dark:text-slate-300 dark:border-slate-800">+{meeting.participants.length - 3}</div>)}
         </div>
         <span className="text-xs text-gray-600 dark:text-slate-400">{meeting.participants.length} participants</span>
       </div>

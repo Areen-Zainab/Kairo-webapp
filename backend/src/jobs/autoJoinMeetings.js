@@ -64,7 +64,8 @@ async function autoJoinMeetings() {
           meetUrl: link,
           botName: process.env.BOT_NAME || 'Kairo Bot',
           durationMinutes: durationMinutes,
-          meetingId: String(meeting.id)
+          meetingId: String(meeting.id),
+          meetingTitle: meeting.title
         });
 
         // Store session for cleanup
