@@ -176,7 +176,7 @@ export default function KairoLoginPage() {
                 <h1 className="text-4xl font-bold leading-tight">
                   Welcome back to
                   <span className="block bg-gradient-to-r from-purple-400 via-blue-400 to-green-400 bg-clip-text text-transparent">
-                    Kairo AI
+                    Kairo
                   </span>
                 </h1>
                 <p className="text-lg text-slate-400">
