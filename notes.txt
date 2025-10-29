@@ -19,11 +19,11 @@ DONE:
 - graph page with dummy data 
 - post meeting page with dummy data
 - transcript veiw page with dummy data
+- backend setup
 
 
 DO with backend:
 - Add protected route logic using `AuthContext` ---> Ensure that only authenticated users can access internal Kairo pages
-- backend setup
 * [x] Build reusable UI components:
   * [x] `Button`
   * [x] `InputField`

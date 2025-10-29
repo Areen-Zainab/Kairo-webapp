@@ -58,38 +58,97 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose, onWorkspa
     setError(null);
 
     try {
+      // Step 1: Create workspace first (without members)
       const response = await apiService.createWorkspace({
         name: workspaceName,
         description,
-        members,
+        // Don't send members in creation request
       });
 
       if (response.error) {
         setError(response.error);
         toast.error(response.error, 'Workspace Creation Failed');
-      } else if (response.data) {
-        const workspace = response.data.workspace;
-        console.log('Workspace created:', workspace);
-        toast.success(`${workspaceName} has been created successfully!`, 'Workspace Created');
-        
-        // Refresh workspaces and user context
-        await refreshWorkspaces();
-        await refreshUser();
-        
-        // Set as current workspace
-        setCurrentWorkspace({
-          id: String(workspace.id),
-          name: workspace.name,
-          role: 'Owner',
-          color: 'from-purple-500 to-blue-500',
-          memberCount: 1,
-        });
-        
-        // Close modal and navigate to the new workspace
-        onWorkspaceCreated?.();
-        onClose?.();
-        navigate(`/workspace/${workspace.id}`);
+        setIsLoading(false);
+        return;
       }
+
+      if (!response.data) {
+        setError('Failed to create workspace. Please try again.');
+        toast.error('Failed to create workspace. Please try again.', 'Creation Failed');
+        setIsLoading(false);
+        return;
+      }
+
+      const workspace = response.data.workspace;
+      console.log('Workspace created:', workspace);
+      
+      // Step 2: If there are members to invite, invite them as Members
+      if (members && members.length > 0) {
+        try {
+          const inviteResponse = await apiService.inviteWorkspaceMembers(
+            workspace.id,
+            members,
+            'member' // Invite as Members (not Admin or Owner)
+          );
+
+          if (inviteResponse.error) {
+            // Workspace was created but invitations failed
+            console.error('Failed to invite members:', inviteResponse.error);
+            toast.warning(
+              'Workspace created, but some invitations failed. You can invite members later.',
+              'Partial Success'
+            );
+          } else if (inviteResponse.data?.results) {
+            // Check if all invitations were successful
+            const successfulInvites = inviteResponse.data.results.filter(
+              (r: any) => r.status === 'success'
+            ).length;
+            const failedInvites = inviteResponse.data.results.filter(
+              (r: any) => r.status === 'error'
+            ).length;
+
+            if (failedInvites > 0) {
+              toast.warning(
+                `Workspace created! ${successfulInvites} invitation(s) sent, ${failedInvites} failed.`,
+                'Partial Success'
+              );
+            } else {
+              toast.success(
+                `Workspace created and ${successfulInvites} member(s) invited successfully!`,
+                'Workspace Created'
+              );
+            }
+          }
+        } catch (inviteError) {
+          console.error('Error inviting members:', inviteError);
+          // Workspace was created but invitations failed
+          toast.warning(
+            'Workspace created, but failed to send invitations. You can invite members later.',
+            'Partial Success'
+          );
+        }
+      } else {
+        // No members to invite, just show success
+        toast.success(`${workspaceName} has been created successfully!`, 'Workspace Created');
+      }
+      
+      // Refresh workspaces and user context
+      await refreshWorkspaces();
+      await refreshUser();
+      
+      // Set as current workspace
+      setCurrentWorkspace({
+        id: String(workspace.id),
+        name: workspace.name,
+        role: 'Owner',
+        color: 'from-purple-500 to-blue-500',
+        memberCount: 1,
+      });
+      
+      // Close modal and navigate to the new workspace
+      onWorkspaceCreated?.();
+      onClose?.();
+      navigate(`/workspace/${workspace.id}`);
     } catch (error) {
       console.error('Create workspace error:', error);
       setError('Failed to create workspace. Please try again.');

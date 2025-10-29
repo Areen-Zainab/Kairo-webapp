@@ -105,10 +105,21 @@ const PreMeeting = () => {
       } else {
         toastSuccess('Meeting updated successfully', 'Success');
         setIsEditing(false);
-        // Refresh meeting data
+        // Refresh meeting data and update formData
         const refreshResponse = await apiService.getMeetingById(parseInt(id));
         if (refreshResponse.data?.meeting) {
-          setMeeting(refreshResponse.data.meeting);
+          const updatedMeeting = refreshResponse.data.meeting;
+          setMeeting(updatedMeeting);
+          // Update formData with the saved values to ensure consistency
+          setFormData({
+            title: updatedMeeting.title || '',
+            description: updatedMeeting.description || '',
+            meetingLink: updatedMeeting.meetingLink || '',
+            location: updatedMeeting.location || '',
+            platform: updatedMeeting.platform || '',
+            agenda: updatedMeeting.agenda || '',
+            notes: updatedMeeting.notes || '',
+          });
         }
       }
     } catch (error) {
@@ -439,6 +450,26 @@ const PreMeeting = () => {
                       <p className="text-gray-500 dark:text-gray-500 italic">No agenda set</p>
                     )}
                   </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <PenTool className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  Notes
+                </h2>
+                {isEditing ? (
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    className="w-full min-h-[120px] p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+                    placeholder="Add any additional notes for this meeting..."
+                  />
+                ) : (
+                  <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-wrap">
+                    {meeting.notes || 'No notes added'}
+                  </p>
                 )}
               </div>
 

@@ -128,25 +128,30 @@ export default function WorkspaceMembersPage() {
 
           // Find current user's role in this workspace
           const currentMember = transformedMembers.find(m => m.userId === user?.id);
+          let userRole = 'member';
           if (currentMember) {
+            userRole = currentMember.role;
             setCurrentUserRole(currentMember.role);
           } else if (workspace.ownerId === user?.id) {
+            userRole = 'Owner';
             setCurrentUserRole('Owner');
           }
-        }
 
-        // Fetch pending invitations only if user is owner or admin
-        if (canManageMembers) {
-          try {
-            const invitesResponse = await apiService.getWorkspaceInvites(parseInt(workspaceId), 'pending');
-            if (invitesResponse.error) {
-              console.error('Error fetching invites:', invitesResponse.error);
-            } else if (invitesResponse.data?.invites) {
-              setPendingInvites(invitesResponse.data.invites);
+          // Fetch pending invitations only if user is owner or admin
+          // Check role directly here instead of relying on canManageMembers state
+          const canManage = userRole.toLowerCase() === 'owner' || userRole.toLowerCase() === 'admin';
+          if (canManage) {
+            try {
+              const invitesResponse = await apiService.getWorkspaceInvites(parseInt(workspaceId), 'pending');
+              if (invitesResponse.error) {
+                console.error('Error fetching invites:', invitesResponse.error);
+              } else if (invitesResponse.data?.invites) {
+                setPendingInvites(invitesResponse.data.invites);
+              }
+            } catch (error) {
+              // Silently ignore 403 errors for non-admin users
+              console.warn('Could not fetch invites:', error);
             }
-          } catch (error) {
-            // Silently ignore 403 errors for non-admin users
-            console.warn('Could not fetch invites:', error);
           }
         }
 
@@ -193,8 +198,9 @@ export default function WorkspaceMembersPage() {
   };
 
   // Combine members and pending invites for filtering
+  // Sort so active members appear first, then invited members
   const allMembers = [
-    ...members,
+    ...members.map(m => ({ ...m, status: 'active' as const })),
     ...pendingInvites.map(invite => ({
       id: invite.id + 10000, // Offset to avoid ID conflicts
       userId: invite.invitedUser?.id || 0,
@@ -210,7 +216,13 @@ export default function WorkspaceMembersPage() {
       meetings: 0,
       messages: 0,
     }))
-  ];
+  ].sort((a, b) => {
+    // Active members first, then invited members
+    if (a.status === 'active' && b.status === 'invited') return -1;
+    if (a.status === 'invited' && b.status === 'active') return 1;
+    // Within same status, sort by name
+    return a.name.localeCompare(b.name);
+  });
 
   const filteredMembers = allMembers.filter(member =>
     member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
