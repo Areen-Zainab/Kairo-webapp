@@ -64,7 +64,7 @@ app.all("*", (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`🚀  Server running on http://localhost:${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Database: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
@@ -74,7 +74,7 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('\n⚠️  SIGTERM signal received: closing HTTP server...');
   stopCronJobs();
   server.close(() => {
@@ -83,7 +83,7 @@ process.on('SIGTERM', () => {
   });
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\n⚠️  SIGINT signal received: closing HTTP server...');
   stopCronJobs();
   server.close(() => {

@@ -1,11 +1,13 @@
-const path = require('path');
-const { spawn } = require('child_process');
 const prisma = require('../lib/prisma');
+const { joinMeeting } = require('../services/joinMeeting');
+
+// Track active meeting sessions
+const activeSessions = new Map();
 
 /**
  * Auto-join job
  * - Finds meetings whose startTime has arrived and should be joined by the bot
- * - Spawns the headless meetService process with MEET_URL
+ * - Uses the persistent browser instance to join meetings
  * - Marks meeting metadata to avoid duplicate joins and optionally moves status to in-progress
  */
 async function autoJoinMeetings() {
@@ -34,9 +36,14 @@ async function autoJoinMeetings() {
     for (const meeting of candidates) {
       try {
         const meta = meeting.metadata || {};
+        
+        // Skip if already joined
         if (meta && meta.botJoinTriggeredAt) {
-          skipped++;
-          continue;
+          // Check if session is still active
+          if (activeSessions.has(meeting.id)) {
+            skipped++;
+            continue;
+          }
         }
 
         const link = meeting.meetingLink;
@@ -50,30 +57,43 @@ async function autoJoinMeetings() {
         const durationMs = Math.max(meetingEndTime.getTime() - now.getTime(), 5 * 60 * 1000);
         const durationMinutes = Math.ceil(durationMs / (60 * 1000));
 
-        const scriptPath = path.join(__dirname, '..', 'services', 'meetService.js');
-
-        const isProd = process.env.NODE_ENV === 'production';
-        const child = spawn(process.execPath, [scriptPath], {
-          env: {
-            ...process.env,
-            MEET_URL: link,
-            BOT_NAME: process.env.BOT_NAME || 'Kairo Bot',
-            SHOW_BROWSER: isProd ? 'false' : 'true', // Headless in production for stability
-            MEETING_ID: String(meeting.id),
-            MEETING_TITLE: meeting.title || '',
-            AUTO_MODE: 'true',
-            DURATION_MINUTES: String(durationMinutes)
-          },
-          detached: isProd,
-          stdio: isProd ? 'ignore' : 'inherit'
+        // Join meeting using the persistent browser
+        console.log(`🤖 Joining meeting ${meeting.id} (${meeting.title})...`);
+        
+        const session = await joinMeeting({
+          meetUrl: link,
+          botName: process.env.BOT_NAME || 'Kairo Bot',
+          durationMinutes: durationMinutes,
+          meetingId: String(meeting.id)
         });
 
-        if (isProd) {
-          child.unref();
-        }
+        // Store session for cleanup
+        activeSessions.set(meeting.id, session);
+
+        // Set up cleanup when meeting duration ends or meeting ends
+        const cleanupTimeout = setTimeout(async () => {
+          try {
+            if (session && session.stop) {
+              await session.stop();
+            }
+            activeSessions.delete(meeting.id);
+            
+            // Update meeting status
+            await prisma.meeting.update({
+              where: { id: meeting.id },
+              data: { status: 'completed' }
+            });
+          } catch (err) {
+            console.error(`Error cleaning up meeting ${meeting.id}:`, err);
+          }
+        }, durationMinutes * 60 * 1000);
 
         // Mark as triggered to prevent duplicates; also set status to in-progress
-        const newMetadata = { ...(meta || {}), botJoinTriggeredAt: new Date().toISOString(), botPid: child.pid };
+        const newMetadata = { 
+          ...(meta || {}), 
+          botJoinTriggeredAt: new Date().toISOString(),
+          botSessionId: String(session.meetingId)
+        };
 
         await prisma.meeting.update({
           where: { id: meeting.id },
@@ -83,11 +103,28 @@ async function autoJoinMeetings() {
           }
         });
 
-        console.log(`🤖 Auto-join triggered for meeting ${meeting.id} (${meeting.title})`);
+        console.log(`✅ Auto-join successful for meeting ${meeting.id} (${meeting.title})`);
         triggered++;
       } catch (err) {
-        console.error(`Auto-join error for meeting ${meeting.id}:`, err);
+        console.error(`❌ Auto-join error for meeting ${meeting.id}:`, err);
         errors.push({ meetingId: meeting.id, error: err.message });
+        
+        // Update meeting status to indicate failure
+        try {
+          await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              status: 'scheduled', // Reset status on failure
+              metadata: {
+                ...(meeting.metadata || {}),
+                botJoinError: err.message,
+                botJoinFailedAt: new Date().toISOString()
+              }
+            }
+          });
+        } catch (updateErr) {
+          console.error(`Failed to update meeting ${meeting.id} status:`, updateErr);
+        }
       }
     }
 
@@ -101,6 +138,28 @@ async function autoJoinMeetings() {
   }
 }
 
+/**
+ * Get active sessions (for debugging/monitoring)
+ */
+function getActiveSessions() {
+  return Array.from(activeSessions.keys());
+}
+
+/**
+ * Stop a specific meeting session
+ */
+async function stopMeetingSession(meetingId) {
+  const session = activeSessions.get(meetingId);
+  if (session && session.stop) {
+    await session.stop();
+    activeSessions.delete(meetingId);
+    return true;
+  }
+  return false;
+}
+
 module.exports = autoJoinMeetings;
+module.exports.getActiveSessions = getActiveSessions;
+module.exports.stopMeetingSession = stopMeetingSession;
 
 

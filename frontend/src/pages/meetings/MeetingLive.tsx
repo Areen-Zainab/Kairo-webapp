@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { apiService } from '../../services/api';
+import { meetService } from '../../services/meetService';
+import { useToastContext } from '../../context/ToastContext';
 import {
   Mic,
   MicOff,
@@ -61,6 +65,9 @@ interface Insight {
 }
 
 const LiveMeetingView = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { success: toastSuccess, error: toastError } = useToastContext();
   const [activeTab, setActiveTab] = useState<SidebarTab>('memory');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [meetingDuration, setMeetingDuration] = useState(0);
@@ -77,6 +84,8 @@ const LiveMeetingView = () => {
   const [showParticipants, setShowParticipants] = useState(false);
   const [memoryChatInput, setMemoryChatInput] = useState('');
   const [memoryChat, setMemoryChat] = useState<{id:string; role:'user'|'bot'; text:string}[]>([]);
+  const [meeting, setMeeting] = useState<any>(null);
+  const [isBotJoining, setIsBotJoining] = useState(false);
   
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -201,6 +210,54 @@ const LiveMeetingView = () => {
     const secs = seconds % 60;
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // Fetch meeting details on mount
+  useEffect(() => {
+    const fetchMeeting = async () => {
+      if (!id) return;
+      try {
+        const response = await apiService.getMeetingById(parseInt(id));
+        if (response.error) {
+          toastError(response.error, 'Error');
+          navigate('/workspace/meetings');
+          return;
+        }
+        if (response.data?.meeting) {
+          setMeeting(response.data.meeting);
+        }
+      } catch (e: any) {
+        toastError(e?.message || 'Failed to load meeting', 'Error');
+      }
+    };
+    fetchMeeting();
+  }, [id, navigate, toastError]);
+
+  // Auto-trigger bot join on live page if not yet triggered
+  useEffect(() => {
+    const triggerJoinIfNeeded = async () => {
+      if (!meeting) return;
+      const hasValidLink = !!meeting.meetingLink && typeof meeting.meetingLink === 'string';
+      const isLive = meeting.status === 'in-progress' || new Date(meeting.startTime).getTime() <= Date.now();
+      const alreadyTriggered = !!meeting.metadata?.botJoinTriggeredAt;
+      if (!hasValidLink || !isLive || alreadyTriggered) return;
+      try {
+        setIsBotJoining(true);
+        const result = await meetService.joinMeeting(meeting.id, meeting.meetingLink);
+        if (result.success) {
+          toastSuccess('Bot is joining the meeting', 'Bot Join Started');
+          // Optimistically mark as triggered locally to avoid duplicate calls
+          setMeeting((m: any) => ({ ...(m || {}), metadata: { ...(m?.metadata || {}), botJoinTriggeredAt: new Date().toISOString() } }));
+        } else {
+          toastError(result.message || 'Failed to join meeting with bot', 'Bot Join Failed');
+        }
+      } catch (e: any) {
+        toastError(e?.message || 'Failed to trigger bot join', 'Bot Join Error');
+      } finally {
+        setIsBotJoining(false);
+      }
+    };
+    triggerJoinIfNeeded();
+  }, [meeting, toastSuccess, toastError]);
 
   const addNote = () => {
     if (newNote.trim()) {

@@ -80,7 +80,7 @@ async function updateMeetingStatuses() {
       completedCount,
       inProgressCount,
       errorCount: errors.length,
-      totalChecked: scheduledMeetings.length,
+      totalChecked: meetingsToCheck.length,
       duration
     };
   } catch (error) {
