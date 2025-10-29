@@ -231,12 +231,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
 
       // Handle instant meeting flow
       if (meetingType === 'instant') {
-        // Open meeting link in a new tab
-        if (formData.meetingLink) {
-          window.open(formData.meetingLink, '_blank');
-        }
-
-        // Navigate to live meeting page
+        // Do not open external meeting link; navigate to in-app live view only
         const meetingId = createdMeeting.id;
         const navigatePath = urlWorkspaceId 
           ? `/workspace/${urlWorkspaceId}/meetings/live/${meetingId}`

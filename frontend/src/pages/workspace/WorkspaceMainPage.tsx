@@ -193,9 +193,8 @@ const WorkspaceOverview = () => {
   };
 
   const handleJoinMeeting = (meetingLink: string) => {
-    if (meetingLink) {
-      window.open(meetingLink, '_blank');
-    } else {
+    // Do not open external meeting link. Navigation handled by click targets with IDs.
+    if (!meetingLink) {
       toastError('No meeting link available', 'Cannot Join');
     }
   };
@@ -695,7 +694,7 @@ const WorkspaceOverview = () => {
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleJoinMeeting(meeting.meetingLink!);
+                            navigate(`/workspace/${workspaceId || currentWorkspace?.id}/meetings/pre/${meeting.id}`);
                           }}
                           className="p-1.5 sm:p-2 hover:bg-purple-500/20 rounded-md transition-colors opacity-0 group-hover:opacity-100"
                           title="Join Meeting"

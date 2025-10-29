@@ -176,14 +176,13 @@ export default function KairoLoginPage() {
                 <h1 className="text-4xl font-bold leading-tight">
                   Welcome back to
                   <span className="block bg-gradient-to-r from-purple-400 via-blue-400 to-green-400 bg-clip-text text-transparent">
-                    Kairo
+                    Kairo AI
                   </span>
                 </h1>
                 <p className="text-lg text-slate-400">
                   Transform your meetings into actionable outcomes with AI-powered intelligence
                 </p>
               </div>
-
               <div className="space-y-3 pt-4">
                 <div className="flex items-start space-x-3 p-3 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 hover:border-purple-500/30 transition-all">
                   <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -204,7 +203,6 @@ export default function KairoLoginPage() {
                     <p className="text-xs text-slate-400">Real-time AI processing with 99.9% uptime</p>
                   </div>
                 </div>
-
                 <div className="flex items-start space-x-3 p-3 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 hover:border-purple-500/30 transition-all">
                   <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
                     <Globe className="w-5 h-5" />
@@ -229,7 +227,6 @@ export default function KairoLoginPage() {
                   <h2 className="text-2xl font-bold mb-2">Sign in to your account</h2>
                   <p className="text-slate-400 text-sm">Enter your credentials to continue</p>
                 </div>
-
                 {/* Social Login Buttons */}
                 <div className="grid grid-cols-2 gap-3 mb-6">
                   <button

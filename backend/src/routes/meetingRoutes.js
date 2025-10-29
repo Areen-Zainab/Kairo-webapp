@@ -5,6 +5,8 @@ const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
 
 const router = express.Router();
+const { spawn } = require('child_process');
+const path = require('path');
 
 // Create a new meeting
 router.post("/", authenticateToken, async (req, res) => {
@@ -575,6 +577,140 @@ router.get("/workspace/:workspaceId/statistics", authenticateToken, async (req, 
   } catch (error) {
     console.error("Get meeting statistics error:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Trigger bot to join a meeting (scoped route)
+router.post('/:id/bot/join', authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: 'Invalid meeting ID' });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    // Access control: user must be a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+    if (!membership) {
+      return res.status(403).json({ error: 'You do not have access to this workspace' });
+    }
+
+    // Validate meeting link
+    const meetingLink = req.body?.meetingLink || meeting.meetingLink;
+    if (!meetingLink || typeof meetingLink !== 'string') {
+      return res.status(400).json({ error: 'Meeting link is required' });
+    }
+
+    // Prevent for cancelled/completed
+    if (['cancelled', 'completed'].includes(meeting.status)) {
+      return res.status(400).json({ error: `Cannot join a ${meeting.status} meeting` });
+    }
+
+    // Spawn the bot process, passing link via env (no hardcoding)
+    const scriptPath = path.join(__dirname, '..', 'services', 'meetService.js');
+    const isProd = process.env.NODE_ENV === 'production';
+    const child = spawn(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        MEET_URL: meetingLink,
+        BOT_NAME: process.env.BOT_NAME || 'Kairo Bot',
+        SHOW_BROWSER: 'true',
+        MEETING_ID: String(meeting.id),
+        MEETING_TITLE: meeting.title || ''
+      },
+      detached: isProd,
+      stdio: isProd ? 'ignore' : 'inherit'
+    });
+
+    if (isProd) {
+      child.unref();
+    }
+
+    return res.status(200).json({
+      message: 'Bot join triggered',
+      data: { pid: child.pid }
+    });
+  } catch (error) {
+    console.error('Bot join error:', error);
+    return res.status(500).json({ error: 'Failed to trigger bot join' });
+  }
+});
+
+// Generic route: POST /meetings/bot/join { meetingId, meetingLink }
+router.post('/bot/join', authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.body?.meetingId);
+    const meetingLink = req.body?.meetingLink;
+
+    if (!meetingId || isNaN(meetingId)) {
+      return res.status(400).json({ error: 'meetingId is required' });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    // Access control
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+    if (!membership) {
+      return res.status(403).json({ error: 'You do not have access to this workspace' });
+    }
+
+    // Determine link (prefer body, fallback to meeting record)
+    const link = typeof meetingLink === 'string' && meetingLink ? meetingLink : meeting.meetingLink;
+    if (!link) {
+      return res.status(400).json({ error: 'Meeting link is required' });
+    }
+
+    if (['cancelled', 'completed'].includes(meeting.status)) {
+      return res.status(400).json({ error: `Cannot join a ${meeting.status} meeting` });
+    }
+
+    const scriptPath = path.join(__dirname, '..', 'services', 'meetService.js');
+    const isProd2 = process.env.NODE_ENV === 'production';
+    const child = spawn(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        MEET_URL: link,
+        BOT_NAME: process.env.BOT_NAME || 'Kairo Bot',
+        SHOW_BROWSER: 'true',
+        MEETING_ID: String(meeting.id),
+        MEETING_TITLE: meeting.title || ''
+      },
+      detached: isProd2,
+      stdio: isProd2 ? 'ignore' : 'inherit'
+    });
+
+    if (isProd2) {
+      child.unref();
+    }
+
+    return res.status(200).json({
+      message: 'Bot join triggered',
+      data: { pid: child.pid }
+    });
+  } catch (error) {
+    console.error('Bot join error:', error);
+    return res.status(500).json({ error: 'Failed to trigger bot join' });
   }
 });
 

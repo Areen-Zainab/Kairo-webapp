@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { apiService } from '../../services/api';
+import { meetService } from '../../services/meetService';
 import { useToastContext } from '../../context/ToastContext';
 import UserAvatar from '../../components/ui/UserAvatar';
 import { Clock, Calendar, Users, Video, PenTool, Save, X, MessageSquare, ChevronLeft, Plus, Send, Bold, Italic, List } from 'lucide-react';
@@ -38,6 +39,44 @@ const PreMeeting = () => {
   // Context chat state
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
+
+  // Bot join state
+  const [isBotJoining, setIsBotJoining] = useState(false);
+  const [isBotActive, setIsBotActive] = useState(false);
+  const [autoJoinEnabled, setAutoJoinEnabled] = useState(true);
+  const joinTimerRef = useRef<number | null>(null);
+  const reminderTimerRef = useRef<number | null>(null);
+
+  const handleBotJoin = async (meetingId: number, meetingLink: string) => {
+    if (!meetingId || !meetingLink) return;
+    // Only allow when scheduled
+    if (meeting?.status !== 'scheduled') return;
+
+    try {
+      setIsBotJoining(true);
+      const result = await meetService.joinMeeting(meetingId, meetingLink);
+
+      if (result.success) {
+        toastSuccess('Bot is joining the meeting', 'Bot Join Started');
+        setIsBotActive(true);
+        // Update meeting status to in-progress
+        await apiService.updateMeetingStatus(meetingId, 'in-progress');
+        // Refresh meeting object to reflect status
+        const refreshed = await apiService.getMeetingById(meetingId);
+        if (refreshed.data?.meeting) {
+          setMeeting(refreshed.data.meeting);
+        }
+      } else {
+        toastError(result.message || 'Failed to join meeting with bot', 'Bot Join Failed');
+        console.error('Bot join failed:', result.message);
+      }
+    } catch (err) {
+      toastError('Failed to join meeting with bot', 'Bot Join Error');
+      console.error('Bot join error:', err);
+    } finally {
+      setIsBotJoining(false);
+    }
+  };
 
   useEffect(() => {
     const fetchMeeting = async () => {
@@ -84,6 +123,65 @@ const PreMeeting = () => {
 
     fetchMeeting();
   }, [id, navigate, toastError]);
+
+  // Auto-join timing logic
+  useEffect(() => {
+    if (!meeting || !autoJoinEnabled) return;
+
+    // Clear any existing timers first
+    if (joinTimerRef.current !== null) {
+      window.clearTimeout(joinTimerRef.current);
+      joinTimerRef.current = null;
+    }
+    if (reminderTimerRef.current !== null) {
+      window.clearTimeout(reminderTimerRef.current);
+      reminderTimerRef.current = null;
+    }
+
+    try {
+      const hasValidLink = !!meeting.meetingLink && typeof meeting.meetingLink === 'string';
+      const isScheduledStatus = meeting.status === 'scheduled';
+      const start = new Date(meeting.startTime).getTime();
+      const now = Date.now();
+
+      if (!isScheduledStatus || !hasValidLink) return;
+
+      // Reminder 5 minutes before start
+      const reminderAt = start - 5 * 60 * 1000; // 5 minutes before
+      const reminderDelay = Math.max(0, reminderAt - now);
+      if (reminderDelay > 0) {
+        reminderTimerRef.current = window.setTimeout(() => {
+          toastSuccess('Your meeting starts in 5 minutes', 'Upcoming Meeting');
+        }, reminderDelay);
+      }
+
+      // Join 2 minutes before start
+      const joinAt = start - 2 * 60 * 1000; // 2 minutes before
+      const delay = Math.max(0, joinAt - now);
+
+      if (delay === 0) {
+        // If already past join time, trigger immediately
+        handleBotJoin(meeting.id, meeting.meetingLink);
+      } else {
+        joinTimerRef.current = window.setTimeout(() => {
+          handleBotJoin(meeting.id, meeting.meetingLink);
+        }, delay);
+      }
+    } catch (e) {
+      console.error('Auto-join scheduling error:', e);
+    }
+
+    return () => {
+      if (joinTimerRef.current !== null) {
+        window.clearTimeout(joinTimerRef.current);
+        joinTimerRef.current = null;
+      }
+      if (reminderTimerRef.current !== null) {
+        window.clearTimeout(reminderTimerRef.current);
+        reminderTimerRef.current = null;
+      }
+    };
+  }, [meeting, autoJoinEnabled, toastSuccess]);
 
   const handleSave = async () => {
     if (!id) return;
@@ -342,6 +440,17 @@ const PreMeeting = () => {
               </div>
               
               <div className="flex items-center gap-3">
+                  {/* Bot status badges */}
+                  {isBotJoining && (
+                    <span className="px-2 py-1 text-xs font-medium rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                      Bot Joining...
+                    </span>
+                  )}
+                  {isBotActive && !isBotJoining && (
+                    <span className="px-2 py-1 text-xs font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                      Bot Active
+                    </span>
+                  )}
                   {!isEditing ? (
                     <button
                       onClick={() => { if (canEdit) setIsEditing(true); else toastError('You do not have permission to edit this meeting', 'Permission Denied'); }}
@@ -730,12 +839,38 @@ const PreMeeting = () => {
               {meeting.meetingLink && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                   <button
-                    onClick={() => window.open(meeting.meetingLink, '_blank')}
+                    onClick={() => {
+                      const meetingId = meeting.id;
+                      const path = `/workspace/meetings/live/${meetingId}`;
+                      navigate(path);
+                    }}
                     className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md transition-colors flex items-center justify-center gap-2"
                   >
                     <Video className="w-5 h-5" />
                     Join Meeting
                   </button>
+                  {/* Manual join with bot */}
+                  <div className="mt-3 flex items-center justify-between">
+                    <button
+                      onClick={() => handleBotJoin(meeting.id, meeting.meetingLink)}
+                      disabled={isBotJoining || !isScheduled}
+                      className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                        isBotJoining
+                          ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                          : 'bg-purple-600 hover:bg-purple-700 text-white'
+                      }`}
+                    >
+                      {isBotJoining ? 'Bot Joining…' : 'Join with Bot'}
+                    </button>
+                    <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={autoJoinEnabled}
+                        onChange={(e) => setAutoJoinEnabled(e.target.checked)}
+                      />
+                      Auto-join bot
+                    </label>
+                  </div>
                 </div>
               )}
 

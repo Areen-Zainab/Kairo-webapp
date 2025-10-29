@@ -31,12 +31,8 @@ const MeetingCard: React.FC<{ meeting: Meeting }> = ({ meeting }) => {
 
   const handleJoinButtonClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    if (meeting.meetingLink) {
-      window.open(meeting.meetingLink, '_blank');
-    } else {
-      handleJoinClick(e);
-    }
+    // Do not open external link; navigate to in-app live view
+    handleJoinClick(e);
   };
 
   return (
