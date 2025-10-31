@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
+const { spawn } = require('child_process');
 
 puppeteer.use(StealthPlugin());
 
@@ -13,6 +14,18 @@ const RECORDINGS_DIR = path.join(__dirname, 'recordings');
 if (!fs.existsSync(RECORDINGS_DIR)) {
   fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
 }
+const CHUNKS_DIR = path.join(RECORDINGS_DIR, 'chunks');
+if (!fs.existsSync(CHUNKS_DIR)) {
+  fs.mkdirSync(CHUNKS_DIR, { recursive: true });
+}
+
+let pythonProc = null;
+let pythonStdoutBuffer = '';
+let pythonResolvers = [];
+let transcriptFilepath = null;
+let chunkFlushInterval = null;
+let chunkSequence = 0;
+const PY_SCRIPT_PATH = path.resolve(__dirname, '../../ai-layer/whisperX/transcribe-whisper.py');
 
 console.log('📁 Recordings folder:', path.resolve(RECORDINGS_DIR));
 
@@ -40,6 +53,174 @@ function convertToMp3(inputPath, outputPath) {
       }
     });
   });
+}
+
+function convertToWav(inputPath, outputPath) {
+  return new Promise((resolve) => {
+    const ffmpegPath = ffmpeg.path;
+    const command = `"${ffmpegPath}" -i "${inputPath}" -ac 1 -ar 16000 -f wav "${outputPath}" -y`;
+    exec(command, (error) => {
+      if (error) {
+        console.log('⚠️  FFmpeg WAV conversion failed:', error.message);
+        return resolve(false);
+      }
+      resolve(true);
+    });
+  });
+}
+
+function ensurePythonProc() {
+  if (pythonProc && !pythonProc.killed) return;
+  const candidates = ['python', 'py'];
+  let started = false;
+  for (const cmd of candidates) {
+    try {
+      const proc = spawn(cmd, [PY_SCRIPT_PATH], { shell: process.platform === 'win32' });
+      pythonProc = proc;
+      pythonStdoutBuffer = '';
+      pythonResolvers = [];
+      proc.stdout.on('data', (data) => {
+        pythonStdoutBuffer += data.toString();
+        let idx;
+        while ((idx = pythonStdoutBuffer.indexOf('\n')) !== -1) {
+          const line = pythonStdoutBuffer.slice(0, idx).trim();
+          pythonStdoutBuffer = pythonStdoutBuffer.slice(idx + 1);
+          const resolver = pythonResolvers.shift();
+          if (resolver) resolver.resolve(line);
+        }
+      });
+      proc.stderr.on('data', (data) => {
+        const resolver = pythonResolvers.shift();
+        if (resolver) resolver.reject(new Error(data.toString()));
+      });
+      proc.on('close', () => {
+        while (pythonResolvers.length) {
+          const r = pythonResolvers.shift();
+          r.reject(new Error('Python process closed'));
+        }
+      });
+      started = true;
+      break;
+    } catch (_) {}
+  }
+  if (!started) throw new Error('Failed to start Python');
+}
+
+function sendToPython(audioPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      ensurePythonProc();
+    } catch (e) {
+      return reject(e);
+    }
+    pythonResolvers.push({ resolve, reject });
+    try {
+      pythonProc.stdin.write(audioPath + '\n');
+    } catch (e) {
+      const r = pythonResolvers.pop();
+      if (r) r.reject(e);
+    }
+  });
+}
+
+function runPythonOneShot(audioPath) {
+  return new Promise((resolve, reject) => {
+    const candidates = ['python', 'py'];
+    let attempt = 0;
+    const tryOne = () => {
+      if (attempt >= candidates.length) return reject(new Error('Python not found'));
+      const cmd = candidates[attempt++];
+      const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath], { shell: process.platform === 'win32' });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', d => stdout += d.toString());
+      proc.stderr.on('data', d => stderr += d.toString());
+      proc.on('error', () => tryOne());
+      proc.on('close', (code) => {
+        if (code === 0) return resolve(stdout.trim());
+        if (attempt < candidates.length) return tryOne();
+        return reject(new Error(stderr || `Python exited with code ${code}`));
+      });
+    };
+    tryOne();
+  });
+}
+
+function transcribeChunk(chunkPath) {
+  return sendToPython(chunkPath).catch(() => runPythonOneShot(chunkPath)).then((text) => {
+    if (text && text.trim()) {
+      const line = `[${new Date().toISOString()}] ${text}\n`;
+      if (transcriptFilepath) fs.appendFileSync(transcriptFilepath, line);
+      process.stdout.write(`\n📝 Transcribed: ${text.substring(0, 100)}${text.length>100?'…':''}\n`);
+    }
+  }).catch(() => {});
+}
+
+async function injectChunkGetter(page) {
+  await page.evaluate(() => {
+    if (!window.audioCapture) return;
+    if (window.getAndClearChunks) return;
+    window.getAndClearChunks = function() {
+      try {
+        const chunks = window.audioCapture?.recordedChunks || [];
+        if (!chunks.length) return null;
+        const current = chunks.splice(0, chunks.length);
+        const blob = new Blob(current, { type: 'audio/webm' });
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            resolve({
+              audio: reader.result.split(',')[1],
+              size: blob.size,
+              chunks: current.length
+            });
+          };
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch (_) { return null; }
+    };
+  });
+}
+
+async function startRealtimeTranscription(page) {
+  try { await injectChunkGetter(page); } catch (_) {}
+  if (chunkFlushInterval) clearInterval(chunkFlushInterval);
+  chunkFlushInterval = setInterval(async () => {
+    try {
+      if (!page || page.isClosed()) return;
+      const data = await page.evaluate(() => window.getAndClearChunks ? window.getAndClearChunks() : null);
+      const chunkData = data && data.then ? await data : data;
+      if (!chunkData || !chunkData.audio || !chunkData.size) return;
+      const ts = Date.now();
+      const idx = chunkSequence++;
+      const chunkFilename = `chunk_${ts}_${idx}.webm`;
+      const chunkPath = path.join(CHUNKS_DIR, chunkFilename);
+      fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
+      console.log(`\n💾 Chunk saved: ${path.resolve(chunkPath)} (${(chunkData.size/1024).toFixed(1)} KB)`);
+      const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
+      try { await convertToMp3(chunkPath, mp3Path); console.log(`🎧 Chunk MP3: ${path.resolve(mp3Path)}`); } catch (_) {}
+      await transcribeChunk(fs.existsSync(mp3Path) ? mp3Path : chunkPath);
+    } catch (_) {}
+  }, 4000);
+}
+
+async function flushPendingChunks(page) {
+  try {
+    if (!page || page.isClosed()) return;
+    const data = await page.evaluate(() => window.getAndClearChunks ? window.getAndClearChunks() : null);
+    const chunkData = data && data.then ? await data : data;
+    if (!chunkData || !chunkData.audio || !chunkData.size) return;
+    const ts = Date.now();
+    const idx = chunkSequence++;
+    const chunkFilename = `chunk_${ts}_${idx}.webm`;
+    const chunkPath = path.join(CHUNKS_DIR, chunkFilename);
+    fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
+    console.log(`\n💾 Final chunk saved: ${path.resolve(chunkPath)} (${(chunkData.size/1024).toFixed(1)} KB)`);
+    const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
+    try { await convertToMp3(chunkPath, mp3Path); console.log(`🎧 Final chunk MP3: ${path.resolve(mp3Path)}`); } catch (_) {}
+    await transcribeChunk(fs.existsSync(mp3Path) ? mp3Path : chunkPath);
+  } catch (_) {}
 }
 
 /**
@@ -463,6 +644,13 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
 
     console.log('\n✅ Bot joined successfully!');
     console.log('🎤 Recording meeting audio...');
+    // Prepare transcript and start realtime transcription
+    const transcriptTimestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
+    const transcriptFilename = `transcript_${transcriptTimestamp}.txt`;
+    transcriptFilepath = path.join(RECORDINGS_DIR, transcriptFilename);
+    try { fs.writeFileSync(transcriptFilepath, `Kairo Transcript (${new Date().toISOString()})\n\n`); } catch (_) {}
+    console.log('📝 Live transcript file:', path.resolve(transcriptFilepath));
+    await startRealtimeTranscription(globalPage);
 
     // Set up auto-exit if duration specified
     if (DURATION_MINUTES > 0) {
@@ -516,7 +704,13 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
         if (autoExitTimeout) {
           clearTimeout(autoExitTimeout);
         }
+        if (chunkFlushInterval) {
+          clearInterval(chunkFlushInterval);
+          chunkFlushInterval = null;
+        }
+        try { await flushPendingChunks(globalPage); } catch (_) {}
         await saveRecording(globalPage, baseName);
+        try { if (pythonProc && !pythonProc.killed) { pythonProc.stdin?.write('EXIT\n'); pythonProc.kill(); } } catch (_) {}
         if (globalBrowser) {
           await globalBrowser.close();
         }
