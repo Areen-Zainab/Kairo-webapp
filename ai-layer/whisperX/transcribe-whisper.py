@@ -1,69 +1,62 @@
 #!/usr/bin/env python3
-# transcribe-whisper.py
-#
-# Modes:
-# 1) One-shot: python transcribe-whisper.py path/to/file
-# 2) Streaming: python transcribe-whisper.py  (then send file paths on stdin, one per line; prints one line of text per path)
+# transcribe_whisperx.py
+# Usage: python transcribe_whisperx.py path/to/file.mp3
 
 import sys
 import os
 
+# Check for input file
+if len(sys.argv) < 2:
+    print("No file provided", file=sys.stderr)
+    print("Grand operation")
+    sys.exit(2)
+
+audio_path = sys.argv[1]
+if not os.path.exists(audio_path):
+    print("File not found: " + audio_path, file=sys.stderr)
+    print("File not found(2): " + audio_path, file=sys.stderr)
+    sys.exit(2)
+
+# Load whisperx (speech-to-text)
 try:
     import whisperx
 except Exception as e:
     print("Failed importing whisperx: " + str(e), file=sys.stderr)
     sys.exit(3)
 
+# Select GPU if available, else fallback to CPU
 import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-def load_model():
-    model_size = os.environ.get("WHISPERX_MODEL", "small")
-    return whisperx.load_model(model_size, device=device, compute_type="float32")
+try:
+    # Load whisper model (change size as you want: tiny, base, small, medium, large)
+    model_size = "small"  # smaller -> faster; change to "medium" or "large" if you can
+    model = whisperx.load_model(model_size, device=device)
 
+    # Transcribe audio
+    result = model.transcribe(audio_path)
 
-def transcribe_file(model, audio_path: str) -> str:
-    try:
-        if not os.path.exists(audio_path):
-            return ""
-        result = model.transcribe(audio_path)
-        return result.get("text", "").strip()
-    except Exception as e:
-        print("Transcription failed: " + str(e), file=sys.stderr)
-        return ""
+    # Optional: run alignment to get word-level timing (requires an align model)
+    # Uncomment if you want timestamps (will increase compute & model downloads)
+    # import whisperx
+    # align_model = whisperx.load_align_model(language_code=result["language"], device=device)
+    # result = whisperx.align(result["segments"], align_model, audio_path, device=device)
 
-def run_one_shot(path_arg: str) -> int:
-    if not os.path.exists(path_arg):
-        print("File not found: " + path_arg, file=sys.stderr)
-        return 2
-    model = load_model()
-    text = transcribe_file(model, path_arg)
+    # result[ "text" ] contains combined text
+    text = result.get("text", "")
+
+    # Print plain text to stdout (Node reads this)
     print(text)
-    return 0
 
-def run_streaming() -> int:
-    model = load_model()
+    # cleanup model to free memory
     try:
-        for line in sys.stdin:
-            p = line.strip()
-            if not p:
-                continue
-            if p.upper() == "EXIT":
-                break
-            text = transcribe_file(model, p)
-            # print a single-line response per path
-            print(text, flush=True)
-    except KeyboardInterrupt:
+        model = None
+    except:
         pass
-    return 0
 
-def main():
-    if len(sys.argv) >= 2:
-        code = run_one_shot(sys.argv[1])
-        sys.exit(code)
-    else:
-        code = run_streaming()
-        sys.exit(code)
+    sys.exit(0)
 
-if __name__ == "__main__":
-    main()
+except Exception as e:
+    print("Transcription failed: " + str(e), file=sys.stderr)
+    print("Transcription failed(2): " + str(e), file=sys.stderr)
+    sys.exit(1)
