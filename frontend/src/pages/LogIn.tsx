@@ -48,6 +48,9 @@ export default function KairoLoginPage() {
       if (response.error) {
         setError(response.error);
         toast.error(response.error, 'Login Failed');
+        // Clear fields on failed login
+        setEmail('');
+        setPassword('');
       } else if (response.data) {
         // Store demo user data if this is a demo account
         if (response.data.token && response.data.token.startsWith('demo_token_')) {
@@ -95,6 +98,9 @@ export default function KairoLoginPage() {
       console.error('Login error:', error);
       setError('Failed to sign in. Please try again.');
       toast.error('Failed to sign in. Please check your credentials and try again.', 'Login Failed');
+      // Clear fields on failed login
+      setEmail('');
+      setPassword('');
     } finally {
       setIsLoading(false);
     }

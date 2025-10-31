@@ -121,6 +121,14 @@ export default function KairoSignUpPage() {
       if (response.error) {
         setErrors({ general: response.error });
         toast.error(response.error, 'Signup Failed');
+        // Clear fields on failed signup
+        setFormData({
+          fullName: '',
+          email: '',
+          password: '',
+          confirmPassword: '',
+          acceptTerms: false
+        });
       } else if (response.data) {
         // Success - refresh user context and navigate to onboarding
         console.log('Signup successful:', response.data.user);
@@ -132,6 +140,14 @@ export default function KairoSignUpPage() {
       console.error('Signup error:', error);
       setErrors({ general: 'Failed to create account. Please try again.' });
       toast.error('Failed to create account. Please try again.', 'Signup Failed');
+      // Clear fields on failed signup
+      setFormData({
+        fullName: '',
+        email: '',
+        password: '',
+        confirmPassword: '',
+        acceptTerms: false
+      });
     } finally {
       setIsLoading(false);
     }

@@ -117,13 +117,6 @@ class ApiService {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
-    // Don't make API calls if this is a demo token
-    if (this.token && this.token.startsWith('demo_token_')) {
-      return {
-        error: 'Demo account - API not available',
-      };
-    }
-
     const url = `${this.baseURL}${endpoint}`;
     
     const config: RequestInit = {
@@ -206,6 +199,12 @@ class ApiService {
 
     if (response.data) {
       this.setToken(response.data.token);
+      // If switching from demo to real account, clear any demo user data
+      if (!response.data.token.startsWith('demo_token_')) {
+        try {
+          localStorage.removeItem('demoUser');
+        } catch {}
+      }
     }
 
     return response;
@@ -219,6 +218,12 @@ class ApiService {
 
     if (response.data) {
       this.setToken(response.data.token);
+      // Ensure demo data is cleared after real signup
+      if (!response.data.token.startsWith('demo_token_')) {
+        try {
+          localStorage.removeItem('demoUser');
+        } catch {}
+      }
     }
 
     return response;
@@ -230,6 +235,9 @@ class ApiService {
     });
 
     this.clearToken();
+    try {
+      localStorage.clear();
+    } catch {}
     return response;
   }
 
