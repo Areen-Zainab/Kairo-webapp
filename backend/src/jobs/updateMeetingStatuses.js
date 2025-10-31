@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const { computeMeetingStatus } = require('../utils/meetingStatus');
+const { stopMeetingSession } = require('./autoJoinMeetings');
 
 /**
  * Job to automatically update meeting statuses based on start and end times
@@ -41,7 +42,15 @@ async function updateMeetingStatuses() {
             data: { status: computedStatus }
           });
 
+          // Stop active bot session if meeting is being marked as completed
           if (computedStatus === 'completed') {
+            try {
+              await stopMeetingSession(meeting.id);
+              console.log(`Stopped active bot session for auto-completed meeting ${meeting.id}`);
+            } catch (sessionError) {
+              console.error(`Error stopping bot session for meeting ${meeting.id}:`, sessionError);
+              // Continue even if stopping session fails
+            }
             completedCount++;
           } else if (computedStatus === 'in-progress') {
             inProgressCount++;

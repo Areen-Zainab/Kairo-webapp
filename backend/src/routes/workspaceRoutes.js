@@ -898,9 +898,39 @@ router.get("/:id/members/search", authenticateToken, async (req, res) => {
         m.user.email.toLowerCase().includes(emailLower)
       );
 
+      if (fuzzyMatches.length > 0) {
+        return res.json({
+          members: fuzzyMatches.map(m => m.user),
+          allMembers: allMembers.map(m => m.user)
+        });
+      }
+
+      // If user not found in workspace, check if they exist in the system
+      const userExists = await prisma.user.findUnique({
+        where: { email: emailLower },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          profilePictureUrl: true
+        }
+      });
+
+      if (userExists) {
+        // User exists but is not a workspace member
+        return res.json({
+          members: [],
+          allMembers: allMembers.map(m => m.user),
+          userExistsButNotMember: true,
+          user: userExists
+        });
+      }
+
+      // User doesn't exist at all
       return res.json({
-        members: fuzzyMatches.map(m => m.user),
-        allMembers: allMembers.map(m => m.user)
+        members: [],
+        allMembers: allMembers.map(m => m.user),
+        userExistsButNotMember: false
       });
     }
 

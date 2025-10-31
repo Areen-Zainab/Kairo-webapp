@@ -22,6 +22,7 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose, onWorkspa
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nonExistentUsers, setNonExistentUsers] = useState<string[]>([]);
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files && e.target.files[0];
@@ -102,19 +103,44 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose, onWorkspa
             // Check if all invitations were successful
             const successfulInvites = inviteResponse.data.results.filter(
               (r: any) => r.status === 'success'
-            ).length;
+            );
             const failedInvites = inviteResponse.data.results.filter(
               (r: any) => r.status === 'error'
-            ).length;
+            );
+            
+            // Check for users that don't exist in the system
+            const usersNotFound = failedInvites.filter((r: any) => 
+              r.message?.toLowerCase().includes('not found') || 
+              r.message?.toLowerCase().includes('does not exist') ||
+              r.message?.toLowerCase().includes('need to create an account')
+            );
 
-            if (failedInvites > 0) {
+            if (usersNotFound.length > 0) {
+              // Show error on the page with list of non-existent users
+              const nonExistentEmails = usersNotFound.map((r: any) => r.email);
+              setNonExistentUsers(nonExistentEmails);
+              setError(
+                `The following users are not registered in Kairo: ${nonExistentEmails.join(', ')}. Please remove them or ask them to create an account first.`
+              );
+              
+              // Show warning toast as well
               toast.warning(
-                `Workspace created! ${successfulInvites} invitation(s) sent, ${failedInvites} failed.`,
+                `${nonExistentEmails.length} user(s) are not registered in Kairo. Please remove them and try again.`,
+                'Users Not Found'
+              );
+              
+              setIsLoading(false);
+              return; // Don't proceed with navigation
+            }
+
+            if (failedInvites.length > 0) {
+              toast.warning(
+                `Workspace created! ${successfulInvites.length} invitation(s) sent, ${failedInvites.length} failed.`,
                 'Partial Success'
               );
             } else {
               toast.success(
-                `Workspace created and ${successfulInvites} member(s) invited successfully!`,
+                `Workspace created and ${successfulInvites.length} member(s) invited successfully!`,
                 'Workspace Created'
               );
             }
@@ -165,8 +191,26 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose, onWorkspa
     setEmailInput('');
     setLogoPreview(null);
     setError(null);
+    setNonExistentUsers([]);
     setIsLoading(false);
     onClose?.();
+  };
+
+  const removeNonExistentUser = (email: string) => {
+    const updatedNonExistent = nonExistentUsers.filter(e => e !== email);
+    const updatedMembers = members.filter(e => e !== email);
+    
+    setNonExistentUsers(updatedNonExistent);
+    setMembers(updatedMembers);
+    
+    // Clear error if all non-existent users are removed
+    if (updatedNonExistent.length === 0) {
+      setError(null);
+    } else {
+      setError(
+        `The following users are not registered in Kairo: ${updatedNonExistent.join(', ')}. Please remove them or ask them to create an account first.`
+      );
+    }
   };
 
   if (!isOpen) return null;
@@ -310,7 +354,24 @@ export default function CreateWorkspaceModal({ isOpen = true, onClose, onWorkspa
           <div className="px-6 py-5 border-t flex-shrink-0 bg-gray-50 border-gray-200 dark:bg-gray-900/30 dark:border-gray-700/50">
           {error && (
             <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-sm">
-              {error}
+              <div className="font-semibold mb-2">Error: {error}</div>
+              {nonExistentUsers.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-xs font-medium mb-1">Non-existent users:</div>
+                  {nonExistentUsers.map((email, index) => (
+                    <div key={index} className="flex items-center justify-between bg-red-500/5 px-2 py-1 rounded">
+                      <span className="text-xs">{email}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeNonExistentUser(email)}
+                        className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 ml-2 text-xs font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <div className="flex gap-3">

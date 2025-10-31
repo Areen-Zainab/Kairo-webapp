@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Globe, User, Columns, List as ListIcon, Calendar } from 'lucide-react';
 import type { Task, TaskView, TaskScope, TaskFilter, TaskSort, TaskStatus, TaskPriority } from '../../components/workspace/taskboard/types';
 import KanbanBoard from '../../components/workspace/taskboard/KanbanBoard';
@@ -7,6 +8,7 @@ import CalendarView from '../../components/workspace/taskboard/CalendarView';
 import TaskFilters from '../../components/workspace/taskboard/TaskFilters';
 import TaskDetailModal from '../../modals/taskboard/TaskDetailModal';
 import Layout from '../../components/Layout';
+import { useUser } from '../../context/UserContext';
 
 // Mock data - in a real app, this would come from an API
 const mockTasks: Task[] = [
@@ -154,12 +156,21 @@ const mockTags = [
 ];
 
 const TaskBoard: React.FC = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
   const [tasks, setTasks] = useState<Task[]>(mockTasks);
   const [view, setView] = useState<TaskView>('kanban');
   const [scope, setScope] = useState<TaskScope>('global');
   const [filters, setFilters] = useState<TaskFilter>({});
   const [sort, setSort] = useState<TaskSort>({ field: 'dueDate', direction: 'asc' });
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {

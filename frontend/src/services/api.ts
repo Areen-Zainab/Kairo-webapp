@@ -384,11 +384,11 @@ class ApiService {
     return this.request<{ logs: any[]; pagination: any }>(`/workspaces/${workspaceId}/logs${queryString}`);
   }
 
-  async searchWorkspaceMembers(workspaceId: number, email: string): Promise<ApiResponse<{ members: any[]; allMembers: any[] }>> {
+  async searchWorkspaceMembers(workspaceId: number, email: string): Promise<ApiResponse<{ members: any[]; allMembers: any[]; userExistsButNotMember?: boolean; user?: { id: number; name?: string; email: string; profilePictureUrl?: string } }>> {
     const params = new URLSearchParams();
     params.append('email', email);
     const queryString = params.toString();
-    return this.request<{ members: any[]; allMembers: any[] }>(`/workspaces/${workspaceId}/members/search?${queryString}`);
+    return this.request<{ members: any[]; allMembers: any[]; userExistsButNotMember?: boolean; user?: { id: number; name?: string; email: string; profilePictureUrl?: string } }>(`/workspaces/${workspaceId}/members/search?${queryString}`);
   }
 
   // Meeting methods

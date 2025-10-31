@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Calendar, Clock, Users, MapPin, Plus, Filter
 import Layout from '../../components/Layout';
 import NewMeetingModal from '../../modals/NewMeetingModal';
 import { apiService } from '../../services/api';
+import { useUser } from '../../context/UserContext';
 
 interface Meeting {
   id: string;
@@ -133,6 +134,7 @@ const getMockMeetings = (): Meeting[] => {
 
 const MyCalendar = () => {
   const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -142,6 +144,13 @@ const MyCalendar = () => {
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
   const [realMeetings, setRealMeetings] = useState<any[]>([]);
   const [workspacesList, setWorkspacesList] = useState<string[]>([]);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   // Fetch real meetings from all workspaces
   useEffect(() => {

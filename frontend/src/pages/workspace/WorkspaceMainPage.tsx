@@ -13,7 +13,7 @@ import LiveMeetingBanner from '../../components/meetings/dashboard/LiveMeetingBa
 const WorkspaceOverview = () => {
   const { workspaceId } = useParams<{ workspaceId?: string }>();
   const navigate = useNavigate();
-  const { user, workspaces } = useUser();
+  const { user, workspaces, isAuthenticated, loading } = useUser();
   const [timeFilter, setTimeFilter] = useState('week');
   const [currentWorkspace, setCurrentWorkspace] = useState<any>(null);
   const [workspaceDetails, setWorkspaceDetails] = useState<any>(null);
@@ -25,6 +25,13 @@ const WorkspaceOverview = () => {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   
   const { error: toastError, success: toastSuccess } = useToastContext();
+  
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
   
   // Check if user is areeba@kairo.com to show dummy data
   const shouldShowDummyData = user?.email?.toLowerCase() === 'areeba@kairo.com';
@@ -141,9 +148,8 @@ const WorkspaceOverview = () => {
           setDismissedLiveBanner(false);
         }
       } else {
-        // Check if a live meeting just ended
+        // Check if a live meeting just ended (no toast)
         if (liveMeeting && !dismissedLiveBanner) {
-          toastSuccess(`Meeting ended: ${liveMeeting.title}`, 'Check the summary in the meetings page');
           setDismissedLiveBanner(true);
         }
         if (liveMeeting) {

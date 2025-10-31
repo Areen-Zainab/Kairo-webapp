@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, Filter, Search, Check, X, Clock, Users, Calendar, AlertCircle, CheckCircle } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { useTheme } from '../../theme/ThemeProvider';
 import apiService, { type Notification as ApiNotification } from '../../services/api';
 import { useToast } from '../../hooks/useToast';
+import { useUser } from '../../context/UserContext';
 
 interface Notification {
   id: string;
@@ -19,6 +21,8 @@ interface Notification {
 }
 
 const MyNotifications = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading: authLoading } = useUser();
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
   const { showToast } = useToast();
@@ -34,6 +38,13 @@ const MyNotifications = () => {
     readStatus: 'all' as 'all' | 'read' | 'unread',
   });
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'priority'>('newest');
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, authLoading, navigate]);
 
   // Fetch notifications on component mount
   useEffect(() => {

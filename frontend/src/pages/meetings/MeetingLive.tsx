@@ -28,6 +28,7 @@ import ActionItemsTab from '../../components/meetings/meetingslive/ActionItemsTa
 import NotesTab from '../../components/meetings/meetingslive/NotesTab';
 import TranscriptTab from '../../components/meetings/meetingslive/TranscriptTab';
 import InsightsTab from '../../components/meetings/meetingslive/InsightsTab';
+import LeaveMeetingConfirmationModal from '../../modals/LeaveMeetingConfirmationModal';
 
 type SidebarTab = 'memory' | 'chat' | 'actions' | 'notes' | 'transcript' | 'insights';
 
@@ -65,9 +66,126 @@ interface Insight {
 }
 
 const LiveMeetingView = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id, workspaceId } = useParams<{ id: string; workspaceId?: string }>();
   const navigate = useNavigate();
   const { success: toastSuccess, error: toastError } = useToastContext();
+  
+  const handleLeaveMeeting = () => {
+    setShowBotControls(false);
+    setShowLeaveModal(true);
+  };
+
+  const handleConfirmLeave = async () => {
+    if (isLeavingMeeting) return; // Prevent double-clicks
+    
+    setIsLeavingMeeting(true);
+    
+    // Add timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      console.error('Leave meeting operation timed out after 30 seconds');
+      toastError('Operation timed out. Please try again.', 'Timeout');
+      setShowLeaveModal(false);
+      setIsLeavingMeeting(false);
+    }, 30000); // 30 second timeout
+    
+    try {
+      // Try to get meeting ID from multiple sources
+      let meetId: number | null = null;
+      
+      if (meeting?.id && typeof meeting.id === 'number') {
+        meetId = meeting.id;
+      } else if (id) {
+        meetId = parseInt(String(id));
+      }
+      
+      if (!meetId || isNaN(meetId)) {
+        clearTimeout(timeoutId);
+        console.error('Invalid meeting ID:', { meeting, id, meetId });
+        toastError('Invalid meeting id', 'Error');
+        setShowLeaveModal(false);
+        setIsLeavingMeeting(false);
+        return;
+      }
+      
+      console.log('Leaving meeting:', meetId);
+      
+      // Mark meeting as completed (this will automatically close the bot's meeting tab via backend)
+      console.log('Calling updateMeetingStatus API...');
+      console.log('Request details:', JSON.stringify({
+        meetingId: meetId,
+        endpoint: `/api/meetings/${meetId}/status`,
+        method: 'PATCH',
+        status: 'completed'
+      }, null, 2));
+      
+      // Add a timeout promise to prevent hanging (increased to 45 seconds to allow stopMeetingSession to complete)
+      const apiCallPromise = apiService.updateMeetingStatus(meetId, 'completed');
+      const timeoutPromise = new Promise<{ error: string }>((resolve) => 
+        setTimeout(() => {
+          console.error('API call timed out after 45 seconds');
+          resolve({ error: 'Request timeout: Server did not respond in time. The meeting may still be processed in the background.' });
+        }, 45000)
+      );
+      
+      const resp = await Promise.race([apiCallPromise, timeoutPromise]);
+      
+      clearTimeout(timeoutId); // Clear timeout on successful response
+      
+      console.log('API Response received:');
+      console.log(JSON.stringify(resp, null, 2));
+      
+      // Check for error in response
+      if ('error' in resp && resp.error) {
+        console.error('API error:', resp.error);
+        toastError(resp.error, 'Update Failed');
+        setShowLeaveModal(false);
+        setIsLeavingMeeting(false);
+        return;
+      }
+      
+      // Ensure we have a valid response with data
+      if (!resp || !('data' in resp) || !resp.data) {
+        console.error('Invalid API response:', resp);
+        toastError('Invalid response from server', 'Error');
+        setShowLeaveModal(false);
+        setIsLeavingMeeting(false);
+        return;
+      }
+      
+      console.log('Meeting marked as completed successfully, navigating...', resp);
+      toastSuccess('Meeting marked as completed', 'Meeting Completed');
+      
+      // Close modal immediately
+      setShowLeaveModal(false);
+      
+      // Reset loading state before navigation (navigation will unmount component if successful)
+      setIsLeavingMeeting(false);
+      
+      // Navigate to meetings page with state to show ended banner
+      const endedId = String(meetId);
+      const navPath = workspaceId 
+        ? `/workspace/${workspaceId}/meetings`
+        : '/workspace/meetings';
+      
+      console.log('Navigating to:', navPath);
+      
+      // Navigate immediately - if successful, component unmounts, if it fails, user can try again
+      navigate(navPath, { state: { endedMeetingId: endedId } });
+      
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      console.error('Error leaving meeting:', e);
+      console.error('Error details:', {
+        message: e?.message,
+        stack: e?.stack,
+        response: e?.response,
+        status: e?.status
+      });
+      toastError(e?.message || 'Failed to complete meeting', 'Error');
+      setShowLeaveModal(false);
+      setIsLeavingMeeting(false);
+    }
+  };
   const [activeTab, setActiveTab] = useState<SidebarTab>('memory');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [meetingDuration, setMeetingDuration] = useState(0);
@@ -88,6 +206,8 @@ const LiveMeetingView = () => {
   const [isBotJoining, setIsBotJoining] = useState(false);
   const [isBotJoined, setIsBotJoined] = useState(false);
   const [isWaitingForBot, setIsWaitingForBot] = useState(true);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [isLeavingMeeting, setIsLeavingMeeting] = useState(false);
   
   const transcriptRef = useRef<HTMLDivElement>(null);
   const pollingActiveRef = useRef(false);
@@ -597,7 +717,7 @@ const LiveMeetingView = () => {
                         <SettingsIcon className="w-3.5 h-3.5" /> Settings
                       </button>
                       <div className="border-t my-1 border-gray-200 dark:border-slate-700/50"></div>
-                      <button onClick={() => setShowBotControls(false)} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded transition-all text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
+                      <button onClick={handleLeaveMeeting} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded transition-all text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
                         <LogOut className="w-3.5 h-3.5" /> Leave Meeting
                       </button>
           </div>
@@ -829,6 +949,19 @@ const LiveMeetingView = () => {
       </div>
 
           </div>
+
+      {/* Leave Meeting Confirmation Modal */}
+      <LeaveMeetingConfirmationModal
+        isOpen={showLeaveModal}
+        onClose={() => {
+          if (!isLeavingMeeting) {
+            setShowLeaveModal(false);
+          }
+        }}
+        onConfirm={handleConfirmLeave}
+        meetingTitle={meeting?.title}
+        isLoading={isLeavingMeeting}
+      />
     </Layout>
   );
 };

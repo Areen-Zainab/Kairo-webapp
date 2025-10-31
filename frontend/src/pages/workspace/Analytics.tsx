@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import TabNavigation from '../../components/workspace/analytics/TabNavigation';
 import StatsCard from '../../components/workspace/analytics/StatsCard';
@@ -9,9 +10,12 @@ import SummaryPanel from '../../components/workspace/analytics/SummaryPanel';
 import FiltersSidebar from '../../components/workspace/analytics/FiltersSidebar';
 import ChatBubble from '../../components/workspace/analytics/ChatBubble';
 import AnalyticsChat from '../../components/workspace/analytics/AnalyticsChat';
+import { useUser } from '../../context/UserContext';
 import type { AnalyticsData, FilterOptions, TimeSeriesData, ChartDataPoint, AnalyticsInsight, MeetingAnalytics } from '../../components/workspace/analytics/types';
 
 const Analytics: React.FC = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
   const [activeTab, setActiveTab] = useState('overview');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [filters, setFilters] = useState<FilterOptions>({
@@ -19,6 +23,13 @@ const Analytics: React.FC = () => {
     team: undefined,
     meetingType: undefined
   });
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   // Mock data for corporate project workspace
   const analyticsData: AnalyticsData = {

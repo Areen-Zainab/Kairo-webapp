@@ -23,7 +23,7 @@ import KanbanView from '../../components/meetings/dashboard/KanbanView';
 import CalendarView from '../../components/meetings/dashboard/CalendarView';
 import NewMeetingModal from '../../modals/NewMeetingModal';
 import DeleteConfirmationModal from '../../modals/DeleteConfirmationModal';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import apiService from '../../services/api';
 import { useToastContext } from '../../context/ToastContext';
@@ -51,6 +51,7 @@ interface Meeting {
 
 const MeetingsDashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation() as any;
   const { user, workspaces } = useUser();
   const { workspaceId } = useParams<{ workspaceId?: string }>();
   const [searchParams] = useSearchParams();
@@ -97,6 +98,17 @@ const MeetingsDashboard = () => {
   const [lastKnownLiveMeetings, setLastKnownLiveMeetings] = useState<Set<number>>(new Set());
 
   const { success: toastSuccess, error: toastError } = useToastContext();
+
+  // Show ended banner if navigated from live page with state
+  useEffect(() => {
+    const incomingEndedId = location?.state?.endedMeetingId;
+    if (incomingEndedId) {
+      setEndedMeetingId(String(incomingEndedId));
+      setDismissEndedBanner(false);
+      // Clear state so back/forward doesn't re-trigger
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location, navigate]);
 
   // Check if user is areeba@kairo.com to show dummy data
   const shouldShowDummyData = user?.email?.toLowerCase() === 'areeba@kairo.com';
@@ -436,12 +448,11 @@ const MeetingsDashboard = () => {
         setLastKnownLiveMeetings(currentlyLiveMeetingIds);
       }
       
-      // Show notifications for newly ended meetings
+      // Show banner for newly ended meetings (no toast)
       newlyEnded.forEach(meetingId => {
         const meeting = meetings.find(m => m.id === meetingId);
         if (meeting && !dismissEndedBanner) {
           setEndedMeetingId(meetingId);
-          toastSuccess(`Meeting ended: ${meeting.title}`, 'View the meeting summary');
         }
       });
     };

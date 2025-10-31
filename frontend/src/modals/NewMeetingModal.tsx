@@ -3,6 +3,7 @@ import { Video, X, Zap, CalendarDays, UserPlus, Link, ExternalLink, Loader2 } fr
 import { useNavigate, useParams } from 'react-router-dom';
 import apiService from '../services/api';
 import { useToastContext } from '../context/ToastContext';
+import InviteToWorkspaceConfirmModal from './workspace/InviteToWorkspaceConfirmModal';
 
 interface NewMeetingModalProps {
   isOpen: boolean;
@@ -41,7 +42,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     title: '',
     description: '',
     meetingLink: '',
-    platform: 'zoom',
+    platform: 'google-meet',
     duration: 60,
     participants: [],
     meetingType: 'instant',
@@ -52,6 +53,8 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   const [newParticipant, setNewParticipant] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [participantUserIds, setParticipantUserIds] = useState<number[]>([]);
+  const [pendingInviteUser, setPendingInviteUser] = useState<{email: string; name?: string; id?: number} | null>(null);
+  const [isInvitingUser, setIsInvitingUser] = useState(false);
 
   const handleInputChange = (field: keyof MeetingData, value: any) => {
     setFormData(prev => ({
@@ -104,6 +107,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       }
 
       if (response.data?.members && response.data.members.length > 0) {
+        // User is a workspace member - add them directly
         const member = response.data.members[0];
         setFormData(prev => ({
           ...prev,
@@ -111,15 +115,87 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
         }));
         setParticipantUserIds(prev => [...prev, member.id]);
         toastSuccess(`Added ${member.name || member.email}`, 'Participant Added');
+        setNewParticipant('');
+      } else if (response.data?.userExistsButNotMember && response.data?.user) {
+        // User exists but is not a workspace member - show confirmation modal
+        setPendingInviteUser({
+          email: response.data.user.email,
+          name: response.data.user.name,
+          id: response.data.user.id
+        });
+        setNewParticipant('');
       } else {
-        toastError(`User with email "${email}" not found in this workspace`, 'User Not Found');
+        // User doesn't exist at all
+        toastError(`User with email "${email}" not found. They need to create an account first.`, 'User Not Found');
+        setNewParticipant('');
       }
     } catch (error) {
       console.error('Error looking up participant:', error);
-      toastError('Failed to find user. Make sure they are a member of this workspace.', 'Error');
+      toastError('Failed to find user. Please try again.', 'Error');
+      setNewParticipant('');
     }
-    
-    setNewParticipant('');
+  };
+
+  const handleConfirmInviteToWorkspace = async () => {
+    if (!pendingInviteUser) return;
+
+    const wsId = workspaceId || (urlWorkspaceId ? parseInt(urlWorkspaceId) : undefined);
+    if (!wsId) {
+      toastError('No workspace selected', 'Error');
+      setPendingInviteUser(null);
+      return;
+    }
+
+    setIsInvitingUser(true);
+    try {
+      // Send workspace invitation
+      const inviteResponse = await apiService.inviteWorkspaceMembers(wsId, [pendingInviteUser.email], 'member');
+      
+      if (inviteResponse.error) {
+        toastError(inviteResponse.error, 'Failed to Invite');
+        setIsInvitingUser(false);
+        return;
+      }
+
+      const results = inviteResponse.data?.results || [];
+      const userResult = results.find((r: any) => r.email === pendingInviteUser.email);
+      
+      if (userResult && userResult.status === 'success') {
+        toastSuccess(
+          `${pendingInviteUser.name || pendingInviteUser.email} has been invited to the workspace. Once they accept, they can be added to the meeting.`,
+          'Workspace Invitation Sent'
+        );
+        
+        // Note: We don't add them to participants yet because they need to accept the workspace invite first
+        // Once they accept, the user can search for them again and add them properly
+        
+        setPendingInviteUser(null);
+      } else if (userResult) {
+        // Handle different result statuses
+        if (userResult.status === 'info' && userResult.message?.toLowerCase().includes('already invited')) {
+          toastSuccess(
+            `${pendingInviteUser.name || pendingInviteUser.email} has already been invited. Once they accept, search for them again to add to the meeting.`,
+            'Already Invited'
+          );
+        } else {
+          toastError(userResult.message || 'Failed to invite user', 'Error');
+        }
+        setPendingInviteUser(null);
+      } else {
+        toastError('Failed to invite user', 'Error');
+        setPendingInviteUser(null);
+      }
+    } catch (error) {
+      console.error('Error inviting user to workspace:', error);
+      toastError('Failed to invite user. Please try again.', 'Error');
+      setPendingInviteUser(null);
+    } finally {
+      setIsInvitingUser(false);
+    }
+  };
+
+  const handleCancelInvite = () => {
+    setPendingInviteUser(null);
   };
 
   const handleRemoveParticipant = (_participant: string, index: number) => {
@@ -269,7 +345,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       title: '',
       description: '',
       meetingLink: '',
-      platform: 'zoom',
+      platform: 'google-meet',
       duration: 60,
       participants: [],
       meetingType: 'instant',
@@ -291,7 +367,16 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
 
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
+    <>
+      <InviteToWorkspaceConfirmModal
+        isOpen={!!pendingInviteUser}
+        onClose={handleCancelInvite}
+        onConfirm={handleConfirmInviteToWorkspace}
+        userEmail={pendingInviteUser?.email || ''}
+        userName={pendingInviteUser?.name}
+        isLoading={isInvitingUser}
+      />
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[90vh]">
         {/* Fixed Header */}
         <div className="flex-shrink-0 border-b border-slate-200 dark:border-slate-700 px-6 py-4 rounded-t-2xl">
@@ -637,6 +722,7 @@ const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
         </div>
       </div>
     </div>
+    </>
   );
 };
 

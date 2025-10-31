@@ -3,6 +3,7 @@ const Meeting = require("../models/Meeting");
 const WorkspaceLog = require("../models/WorkspaceLog");
 const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
+const { stopMeetingSession, getActiveSessions, removeFromActiveSessions } = require("../jobs/autoJoinMeetings");
 
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -410,6 +411,15 @@ router.delete("/:id", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "Only workspace owner, admin, or the meeting creator can delete this meeting" });
     }
 
+    // Stop active bot session if any
+    try {
+      await stopMeetingSession(meetingId);
+      console.log(`Stopped active bot session for deleted meeting ${meetingId}`);
+    } catch (sessionError) {
+      console.error(`Error stopping bot session for meeting ${meetingId}:`, sessionError);
+      // Continue with deletion even if stopping session fails
+    }
+
     await Meeting.delete(meetingId);
 
     // Log meeting deletion
@@ -486,7 +496,23 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
       }
     }
 
+    // Update meeting status first (respond quickly to frontend)
     const updatedMeeting = await Meeting.updateStatus(meetingId, status, req.user.id);
+
+    // If meeting is being marked as completed or cancelled, stop the bot session
+    if (status === 'completed' || status === 'cancelled') {
+      // Stop active bot session in background (don't wait for this to complete)
+      // This will close the browser and remove it from activeSessions
+      stopMeetingSession(meetingId)
+        .then(() => {
+          console.log(`Stopped active bot session for ${status} meeting ${meetingId}`);
+        })
+        .catch((sessionError) => {
+          console.error(`Error stopping bot session for meeting ${meetingId}:`, sessionError);
+          // Even if stopping fails, remove from activeSessions to prevent auto-join
+          removeFromActiveSessions(meetingId);
+        });
+    }
 
     // Log status change
     try {
@@ -502,6 +528,7 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
       console.error("Error creating workspace log:", logError);
     }
 
+    // Respond immediately to frontend
     res.json({
       message: "Meeting status updated successfully",
       meeting: updatedMeeting

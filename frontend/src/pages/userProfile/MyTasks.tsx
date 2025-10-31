@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Filter, Search, CheckSquare, Clock, User, Calendar, Trash2, Check } from 'lucide-react';
 import Layout from '../../components/Layout';
+import { useUser } from '../../context/UserContext';
 
 interface Task {
   id: string;
@@ -17,6 +19,8 @@ interface Task {
 }
 
 const MyTasks = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -28,6 +32,13 @@ const MyTasks = () => {
   });
   const [sortBy, setSortBy] = useState<'due-date' | 'priority' | 'created' | 'title'>('due-date');
   const [viewOpacity, setViewOpacity] = useState(1);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   useEffect(() => {
     setViewOpacity(0);

@@ -1,8 +1,19 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { FileText } from 'lucide-react';
+import { useUser } from '../../context/UserContext';
 
 const Transcripts: React.FC = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
   return (
     <Layout>
       <div className="flex items-center justify-center min-h-[80vh]">

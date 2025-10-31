@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { UserPlus, Search, MoreVertical, Crown, Trash2, Shield, Eye, Edit3, TrendingUp, Users, BarChart3, Clock, MessageSquare, Loader2 } from 'lucide-react';
 import Layout from '../../components/Layout';
 import AddMemberModal from '../../modals/workspace/AddMember';
@@ -50,12 +50,20 @@ interface PendingInvite {
 }
 
 export default function WorkspaceMembersPage() {
+  const navigate = useNavigate();
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { user } = useUser();
+  const { user, isAuthenticated, loading: authLoading } = useUser();
   const { success: toastSuccess, error: toastError } = useToastContext();
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, authLoading, navigate]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showMenu, setShowMenu] = useState<number | null>(null);

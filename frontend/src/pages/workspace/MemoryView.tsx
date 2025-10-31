@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import GraphCanvas from '../../components/workspace/memory/GraphCanvas';
 import ContextPanel from '../../components/workspace/memory/ContextPanel';
@@ -8,9 +9,12 @@ import MemoryQueryBar from '../../components/workspace/memory/MemoryQueryBar';
 import ExportDropdown from '../../components/workspace/memory/ExportDropdown';
 import { useGraphData } from '../../hooks/useGraphData';
 import { useQueryMemory } from '../../hooks/useQueryMemory';
+import { useUser } from '../../context/UserContext';
 import type { MemoryNode, MemoryFilter, GraphViewport, FocusMode, WorkspaceMemory } from '../../components/workspace/memory/types';
 
 const MemoryView: React.FC = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
   const [selectedNode, setSelectedNode] = useState<MemoryNode | null>(null);
   const [filters, setFilters] = useState<MemoryFilter>({});
   const [viewport, setViewport] = useState<GraphViewport>({
@@ -45,7 +49,14 @@ const MemoryView: React.FC = () => {
     members: 12
   };
 
-  const { graphData, loading, error } = useGraphData(filters);
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
+
+  const { graphData, loading: graphLoading, error } = useGraphData(filters);
   const { queryMemory, isQuerying } = useQueryMemory();
 
   const handleNodeClick = (node: MemoryNode) => {

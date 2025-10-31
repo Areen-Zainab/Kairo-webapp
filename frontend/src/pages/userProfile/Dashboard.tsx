@@ -19,8 +19,15 @@ const Dashboard = () => {
   const [meetingsLoading, setMeetingsLoading] = useState(true);
   const [workspaceMeetingCounts, setWorkspaceMeetingCounts] = useState<{[key: number]: number}>({});
   
-  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite, setCurrentWorkspace } = useUser();
+  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite, setCurrentWorkspace, isAuthenticated, loading } = useUser();
   const { success: toastSuccess, error: toastError } = useToastContext();
+  
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
   
   // Use context user or fallback
   const displayUser = user ? {

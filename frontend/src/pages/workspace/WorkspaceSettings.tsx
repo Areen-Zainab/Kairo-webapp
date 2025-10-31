@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Settings, Sparkles, Plug, Shield, Database, Paintbrush } from 'lucide-react';
 import Layout from '../../components/Layout';
 import WorkspaceGeneralTab from '../../components/workspace/settings/WorkspaceGeneralTab';
@@ -7,11 +8,21 @@ import WorkspaceIntegrationsTab from '../../components/workspace/settings/Worksp
 import WorkspaceRolesTab from '../../components/workspace/settings/WorkspaceRolesTab';
 import WorkspaceStorageTab from '../../components/workspace/settings/WorkspaceStorageTab';
 import ThemeTab from '../../components/workspace/settings/ThemeTab';
+import { useUser } from '../../context/UserContext';
 
 
 // Main Component
 export default function WorkspaceSettingsPage() {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
   const [activeTab, setActiveTab] = useState('general');
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   const tabs = [
     { id: 'general', label: 'General', icon: Settings },

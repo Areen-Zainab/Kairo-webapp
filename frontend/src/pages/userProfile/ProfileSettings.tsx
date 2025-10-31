@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { User, Settings, Bell, Lock } from 'lucide-react';
 import type { UserProfile } from '../../context/UserContext';
 import Layout from '../../components/Layout';
@@ -19,9 +20,17 @@ interface Tab {
 }
 
 const ProfileSettings = () => {
-  const { user, updateProfile, updatePreferences, updateNotificationSettings } = useUser();
+  const navigate = useNavigate();
+  const { user, updateProfile, updatePreferences, updateNotificationSettings, isAuthenticated, loading } = useUser();
   const [activeTab, setActiveTab] = useState<TabType>('profile');
   const [successMessage, setSuccessMessage] = useState<string>('');
+  
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
   
   useEffect(() => {
     if (successMessage) {

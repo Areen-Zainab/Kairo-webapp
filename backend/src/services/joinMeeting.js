@@ -586,50 +586,78 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
 
     // Turn OFF camera and microphone
     console.log('\n🔧 Disabling camera and microphone...');
-    await globalPage.evaluate(() => {
-      const buttons = document.querySelectorAll('button, div[role="button"]');
-      
-      buttons.forEach(btn => {
-        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-        
-        if (label.includes('turn off camera') || label.includes('camera off')) {
-          btn.click();
-        }
-        
-        if (label.includes('turn off microphone') || label.includes('mute')) {
-          btn.click();
-        }
-      });
-    });
-    
-    await sleep(2000);
-    console.log('✅ Camera and mic disabled');
+    try {
+      // Check if page is still open before attempting to evaluate
+      if (!globalPage || globalPage.isClosed()) {
+        console.log('⚠️ Page is closed, skipping camera/mic disable');
+      } else {
+        await globalPage.evaluate(() => {
+          const buttons = document.querySelectorAll('button, div[role="button"]');
+          
+          buttons.forEach(btn => {
+            const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+            
+            if (label.includes('turn off camera') || label.includes('camera off')) {
+              btn.click();
+            }
+            
+            if (label.includes('turn off microphone') || label.includes('mute')) {
+              btn.click();
+            }
+          });
+        });
+        await sleep(2000);
+        console.log('✅ Camera and mic disabled');
+      }
+    } catch (error) {
+      console.error('❌ Error disabling camera/mic:', error.message);
+      // Continue execution even if this fails
+    }
 
     // Click "Join now"
     console.log('\n⏳ Joining meeting...');
-    await globalPage.evaluate(() => {
-      const buttons = document.querySelectorAll('button, div[role="button"]');
-      buttons.forEach(btn => {
-        const text = (btn.textContent || '').toLowerCase();
-        if (text.includes('join now') || text.includes('ask to join')) {
-          btn.click();
-        }
+    try {
+      // Check if page is still open before attempting to evaluate
+      if (!globalPage || globalPage.isClosed()) {
+        throw new Error('Page is closed, cannot join meeting');
+      }
+      
+      await globalPage.evaluate(() => {
+        const buttons = document.querySelectorAll('button, div[role="button"]');
+        buttons.forEach(btn => {
+          const text = (btn.textContent || '').toLowerCase();
+          if (text.includes('join now') || text.includes('ask to join')) {
+            btn.click();
+          }
+        });
       });
-    });
-    
-    await sleep(8000);
-    console.log('✅ Join clicked');
+      
+      await sleep(8000);
+      console.log('✅ Join clicked');
+    } catch (error) {
+      console.error('❌ Error joining meeting:', error.message);
+      throw error; // Re-throw as this is critical
+    }
 
     await sleep(5000);
 
     // Check recording status
-    const recordingStatus = await globalPage.evaluate(() => {
-      return {
-        isRecording: window.audioCapture?.isRecording || false,
-        hasTrack: window.audioCapture?.trackToRecord !== null,
-        chunks: window.audioCapture?.recordedChunks?.length || 0
-      };
-    });
+    let recordingStatus = { isRecording: false, hasTrack: false, chunks: 0 };
+    try {
+      if (globalPage && !globalPage.isClosed()) {
+        recordingStatus = await globalPage.evaluate(() => {
+          return {
+            isRecording: window.audioCapture?.isRecording || false,
+            hasTrack: window.audioCapture?.trackToRecord !== null,
+            chunks: window.audioCapture?.recordedChunks?.length || 0
+          };
+        });
+      } else {
+        console.log('⚠️ Page is closed, skipping recording status check');
+      }
+    } catch (error) {
+      console.error('❌ Error checking recording status:', error.message);
+    }
 
     console.log('\n📊 Recording Status:');
     console.log('  🎵 Audio track found:', recordingStatus.hasTrack ? 'YES' : 'NO');
@@ -638,8 +666,14 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
 
     if (!recordingStatus.isRecording && recordingStatus.hasTrack) {
       console.log('\n⚠️ Recording not started automatically, forcing start...');
-      await globalPage.evaluate(() => window.startAudioRecording());
-      await sleep(2000);
+      try {
+        if (globalPage && !globalPage.isClosed()) {
+          await globalPage.evaluate(() => window.startAudioRecording());
+          await sleep(2000);
+        }
+      } catch (error) {
+        console.error('❌ Error starting recording:', error.message);
+      }
     }
 
     console.log('\n✅ Bot joined successfully!');
@@ -673,10 +707,25 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
           monitorInterval = null;
           return;
         }
-        const status = await globalPage.evaluate(() => ({
-          chunks: window.audioCapture?.recordedChunks?.length || 0,
-          isRecording: window.audioCapture?.isRecording || false
-        }));
+        
+        // Wrap evaluate in try-catch to handle "Requesting main frame too early" errors
+        let status;
+        try {
+          status = await globalPage.evaluate(() => ({
+            chunks: window.audioCapture?.recordedChunks?.length || 0,
+            isRecording: window.audioCapture?.isRecording || false
+          }));
+        } catch (evalError) {
+          // Page might have closed/navigated during evaluate
+          if (evalError.message.includes('Requesting main frame too early') || 
+              evalError.message.includes('Page is closed') ||
+              globalPage.isClosed()) {
+            clearInterval(monitorInterval);
+            monitorInterval = null;
+            return;
+          }
+          throw evalError; // Re-throw unexpected errors
+        }
         
         if (status.chunks > lastChunkCount) {
           const timeStr = DURATION_MINUTES > 0 
@@ -686,7 +735,11 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
           lastChunkCount = status.chunks;
         }
       } catch (e) {
-        // Ignore - page might be closing
+        // Ignore - page might be closing or other transient errors
+        if (globalPage && !globalPage.isClosed()) {
+          // Only log if page is still open (might be a real error)
+          // console.error('Monitor error:', e.message);
+        }
       }
     }, 1000);
 
@@ -698,21 +751,52 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
       browser: globalBrowser,
       stop: async () => {
         console.log('\n\n🛑 Stopping recording...');
+        
+        // Close browser FIRST
+        if (globalBrowser) {
+          try {
+            console.log('Closing browser...');
+            await globalBrowser.close();
+            console.log('✅ Browser closed');
+          } catch (err) {
+            console.error('❌ Error closing browser:', err.message);
+          }
+        }
+        
+        // Then stop intervals and clean up
         if (monitorInterval) {
           clearInterval(monitorInterval);
+          monitorInterval = null;
         }
         if (autoExitTimeout) {
           clearTimeout(autoExitTimeout);
+          autoExitTimeout = null;
         }
         if (chunkFlushInterval) {
           clearInterval(chunkFlushInterval);
           chunkFlushInterval = null;
         }
-        try { await flushPendingChunks(globalPage); } catch (_) {}
-        await saveRecording(globalPage, baseName);
-        try { if (pythonProc && !pythonProc.killed) { pythonProc.stdin?.write('EXIT\n'); pythonProc.kill(); } } catch (_) {}
-        if (globalBrowser) {
-          await globalBrowser.close();
+        
+        // Try to save recording if page is still available (may fail if browser already closed)
+        try { 
+          if (globalPage && !globalPage.isClosed?.()) {
+            await flushPendingChunks(globalPage); 
+            await saveRecording(globalPage, baseName);
+          } else {
+            console.log('⚠️ Page already closed, skipping save');
+          }
+        } catch (err) {
+          console.error('❌ Error saving recording:', err.message);
+        }
+        
+        // Kill Python process
+        try { 
+          if (pythonProc && !pythonProc.killed) { 
+            pythonProc.stdin?.write('EXIT\n'); 
+            pythonProc.kill(); 
+          }
+        } catch (err) {
+          console.error('❌ Error killing Python process:', err.message);
         }
       }
     };
