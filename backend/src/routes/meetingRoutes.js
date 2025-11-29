@@ -3,7 +3,7 @@ const Meeting = require("../models/Meeting");
 const WorkspaceLog = require("../models/WorkspaceLog");
 const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
-const { stopMeetingSession, getActiveSessions, removeFromActiveSessions } = require("../jobs/autoJoinMeetings");
+const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
 
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -501,14 +501,24 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
 
     // If meeting is being marked as completed or cancelled, stop the bot session
     if (status === 'completed' || status === 'cancelled') {
+      console.log(`\n🛑 [ROUTE] Meeting ${meetingId} marked as ${status}, stopping bot session...`);
+      console.log(`   Active sessions before stop: ${getActiveSessions().join(', ') || 'none'}`);
+      
       // Stop active bot session in background (don't wait for this to complete)
       // This will close the browser and remove it from activeSessions
       stopMeetingSession(meetingId)
-        .then(() => {
-          console.log(`Stopped active bot session for ${status} meeting ${meetingId}`);
+        .then((stopped) => {
+          if (stopped) {
+            console.log(`✅ [ROUTE] Stopped active bot session for ${status} meeting ${meetingId}`);
+          } else {
+            console.log(`⚠️ [ROUTE] No active session found to stop for meeting ${meetingId}`);
+            console.log(`   This might be normal if bot was started via separate process (meetService.js)`);
+          }
+          console.log(`   Active sessions after stop: ${getActiveSessions().join(', ') || 'none'}`);
         })
         .catch((sessionError) => {
-          console.error(`Error stopping bot session for meeting ${meetingId}:`, sessionError);
+          console.error(`❌ [ROUTE] Error stopping bot session for meeting ${meetingId}:`, sessionError);
+          console.error(sessionError.stack);
           // Even if stopping fails, remove from activeSessions to prevent auto-join
           removeFromActiveSessions(meetingId);
         });
@@ -644,29 +654,53 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `Cannot join a ${meeting.status} meeting` });
     }
 
-    // Spawn the bot process, passing link via env (no hardcoding)
-    const scriptPath = path.join(__dirname, '..', 'services', 'meetService.js');
-    const isProd = process.env.NODE_ENV === 'production';
-    const child = spawn(process.execPath, [scriptPath], {
-      env: {
-        ...process.env,
-        MEET_URL: meetingLink,
-        BOT_NAME: process.env.BOT_NAME || 'Kairo Bot',
-        SHOW_BROWSER: 'true',
-        MEETING_ID: String(meeting.id),
-        MEETING_TITLE: meeting.title || ''
-      },
-      detached: isProd,
-      stdio: isProd ? 'ignore' : 'inherit'
+    // Check if bot is already active for this meeting
+    const { getActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
+    const activeSessionIds = getActiveSessions();
+    if (activeSessionIds.includes(meetingId)) {
+      console.log(`⚠️ [ROUTE] Bot already active for meeting ${meetingId}`);
+      return res.status(400).json({ error: 'Bot is already active for this meeting' });
+    }
+
+    // Use MeetingBot class (same as autoJoinMeetings) to ensure session is tracked
+    const MeetingBot = require('../services/MeetingBot');
+    
+    // Calculate duration (from now until meeting end, minimum 5 minutes)
+    const now = new Date();
+    const meetingEndTime = new Date(meeting.endTime);
+    const durationMs = Math.max(meetingEndTime.getTime() - now.getTime(), 5 * 60 * 1000);
+    const durationMinutes = Math.ceil(durationMs / (60 * 1000));
+
+    console.log(`\n🤖 [ROUTE] Joining meeting ${meetingId} via bot/join route...`);
+    console.log(`   Meeting: ${meeting.title}`);
+    console.log(`   Duration: ${durationMinutes} minutes`);
+    console.log(`   Link: ${meetingLink.substring(0, 50)}...`);
+
+    // Start bot in background (don't await - respond immediately to frontend)
+    const bot = new MeetingBot({
+      meetUrl: meetingLink,
+      botName: process.env.BOT_NAME || 'Kairo Bot',
+      durationMinutes: durationMinutes,
+      meetingId: String(meeting.id),
+      meetingTitle: meeting.title || ''
     });
 
-    if (isProd) {
-      child.unref();
-    }
+    // Start bot and store session in activeSessions
+    bot.start()
+      .then((session) => {
+        // Store session in activeSessions Map so it can be stopped later
+        activeSessions.set(meetingId, session);
+        console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
+        console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+      })
+      .catch((error) => {
+        console.error(`❌ [ROUTE] Error starting bot for meeting ${meetingId}:`, error);
+        console.error(error.stack);
+      });
 
     return res.status(200).json({
       message: 'Bot join triggered',
-      data: { pid: child.pid }
+      data: { meetingId: meetingId }
     });
   } catch (error) {
     console.error('Bot join error:', error);
@@ -712,28 +746,52 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `Cannot join a ${meeting.status} meeting` });
     }
 
-    const scriptPath = path.join(__dirname, '..', 'services', 'meetService.js');
-    const isProd2 = process.env.NODE_ENV === 'production';
-    const child = spawn(process.execPath, [scriptPath], {
-      env: {
-        ...process.env,
-        MEET_URL: link,
-        BOT_NAME: process.env.BOT_NAME || 'Kairo Bot',
-        SHOW_BROWSER: 'true',
-        MEETING_ID: String(meeting.id),
-        MEETING_TITLE: meeting.title || ''
-      },
-      detached: isProd2,
-      stdio: isProd2 ? 'ignore' : 'inherit'
+    // Check if bot is already active for this meeting
+    const activeSessionIds = getActiveSessions();
+    if (activeSessionIds.includes(meetingId)) {
+      console.log(`⚠️ [ROUTE] Bot already active for meeting ${meetingId}`);
+      return res.status(400).json({ error: 'Bot is already active for this meeting' });
+    }
+
+    // Use MeetingBot class (same as autoJoinMeetings) to ensure session is tracked
+    const MeetingBot = require('../services/MeetingBot');
+    
+    // Calculate duration (from now until meeting end, minimum 5 minutes)
+    const now = new Date();
+    const meetingEndTime = new Date(meeting.endTime);
+    const durationMs = Math.max(meetingEndTime.getTime() - now.getTime(), 5 * 60 * 1000);
+    const durationMinutes = Math.ceil(durationMs / (60 * 1000));
+
+    console.log(`\n🤖 [ROUTE] Joining meeting ${meetingId} via /bot/join route...`);
+    console.log(`   Meeting: ${meeting.title}`);
+    console.log(`   Duration: ${durationMinutes} minutes`);
+    console.log(`   Link: ${link.substring(0, 50)}...`);
+
+    // Start bot in background (don't await - respond immediately to frontend)
+    const bot = new MeetingBot({
+      meetUrl: link,
+      botName: process.env.BOT_NAME || 'Kairo Bot',
+      durationMinutes: durationMinutes,
+      meetingId: String(meeting.id),
+      meetingTitle: meeting.title || ''
     });
 
-    if (isProd2) {
-      child.unref();
-    }
+    // Start bot and store session in activeSessions
+    bot.start()
+      .then((session) => {
+        // Store session in activeSessions Map so it can be stopped later
+        activeSessions.set(meetingId, session);
+        console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
+        console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+      })
+      .catch((error) => {
+        console.error(`❌ [ROUTE] Error starting bot for meeting ${meetingId}:`, error);
+        console.error(error.stack);
+      });
 
     return res.status(200).json({
       message: 'Bot join triggered',
-      data: { pid: child.pid }
+      data: { meetingId: meetingId }
     });
   } catch (error) {
     console.error('Bot join error:', error);

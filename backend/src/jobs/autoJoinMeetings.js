@@ -163,27 +163,46 @@ function removeFromActiveSessions(meetingId) {
  * Stop a specific meeting session
  */
 async function stopMeetingSession(meetingId) {
+  console.log(`\n🛑 [stopMeetingSession] Attempting to stop meeting ${meetingId}...`);
+  console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ') || 'none'}`);
+  console.log(`   Looking for session with key: ${meetingId} (type: ${typeof meetingId})`);
+  
   const session = activeSessions.get(meetingId);
-  if (session && session.stop) {
-    try {
-      console.log(`🛑 Stopping bot session for meeting ${meetingId}...`);
-      await session.stop();
-      activeSessions.delete(meetingId);
-      console.log(`✅ Bot session stopped for meeting ${meetingId}`);
-      return true;
-    } catch (error) {
-      console.error(`❌ Error stopping bot session for meeting ${meetingId}:`, error);
-      activeSessions.delete(meetingId); // Remove from active sessions even on error
-      return false;
-    }
+  
+  if (!session) {
+    console.log(`⚠️ [stopMeetingSession] No active session found for meeting ${meetingId}`);
+    console.log(`   Available session IDs: ${Array.from(activeSessions.keys()).map(id => `${id} (${typeof id})`).join(', ') || 'none'}`);
+    return false;
   }
-  console.log(`⚠️ No active session found for meeting ${meetingId}`);
-  return false;
+  
+  if (!session.stop || typeof session.stop !== 'function') {
+    console.error(`❌ [stopMeetingSession] Session found but stop() method is missing or not a function`);
+    console.error(`   Session type: ${typeof session}`);
+    console.error(`   Session keys: ${Object.keys(session).join(', ')}`);
+    activeSessions.delete(meetingId);
+    return false;
+  }
+  
+  try {
+    console.log(`🛑 [stopMeetingSession] Calling session.stop() for meeting ${meetingId}...`);
+    await session.stop();
+    activeSessions.delete(meetingId);
+    console.log(`✅ [stopMeetingSession] Bot session stopped successfully for meeting ${meetingId}`);
+    console.log(`   Remaining active sessions: ${Array.from(activeSessions.keys()).join(', ') || 'none'}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [stopMeetingSession] Error stopping bot session for meeting ${meetingId}:`, error);
+    console.error(`   Error stack:`, error.stack);
+    activeSessions.delete(meetingId); // Remove from active sessions even on error
+    return false;
+  }
 }
 
 module.exports = autoJoinMeetings;
 module.exports.getActiveSessions = getActiveSessions;
 module.exports.stopMeetingSession = stopMeetingSession;
 module.exports.removeFromActiveSessions = removeFromActiveSessions;
+// Export activeSessions Map so routes can add sessions to it
+module.exports.activeSessions = activeSessions;
 
 

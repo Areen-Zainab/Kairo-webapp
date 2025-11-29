@@ -245,94 +245,153 @@ class MeetingBot {
    * Stop the bot - stop recording, leave meeting, cleanup
    */
   async stop() {
-    console.log('\n\n🛑 Stopping recording...');
+    console.log('\n\n🛑 [MeetingBot.stop] Starting stop process...');
+    console.log(`   Meeting ID: ${this.config.meetingId}`);
+    console.log(`   Has audioRecorder: ${!!this.audioRecorder}`);
+    console.log(`   Has page: ${!!this.page}`);
+    console.log(`   Has browser: ${!!this.browser}`);
 
-    // Clear intervals and timeouts
-    if (this.monitorInterval) {
-      clearInterval(this.monitorInterval);
-      this.monitorInterval = null;
+    try {
+      // Clear intervals and timeouts
+      if (this.monitorInterval) {
+        clearInterval(this.monitorInterval);
+        this.monitorInterval = null;
+        console.log('   ✅ Cleared monitorInterval');
+      }
+      if (this.autoExitTimeout) {
+        clearTimeout(this.autoExitTimeout);
+        this.autoExitTimeout = null;
+        console.log('   ✅ Cleared autoExitTimeout');
+      }
+
+      // Stop audio recording and save complete recording
+      if (this.audioRecorder) {
+        const baseName = (() => {
+          const slugify = (str) => (str || '').toString()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 80);
+          const titleSlug = slugify(this.config.meetingTitle);
+          const idPart = this.config.meetingId ? String(this.config.meetingId) : null;
+          if (titleSlug && idPart) return `${titleSlug}_${idPart}`;
+          if (idPart) return `meeting_${idPart}`;
+          return null;
+        })();
+
+        console.log(`\n📹 [MeetingBot.stop] Step 1: Stopping streamRecorder and flushing chunks...`);
+        // CRITICAL ORDER:
+        // 1. Stop streamRecorder and flush pending chunks
+        await this.audioRecorder.stopRecording();
+        console.log(`   ✅ Step 1 complete: stopRecording() finished`);
+        
+        console.log(`\n💾 [MeetingBot.stop] Step 2: Saving complete recording...`);
+        // 2. Get complete recording (this will stop completeRecorder)
+        // Add timeout wrapper to ensure we don't hang forever
+        const savePromise = this.audioRecorder.saveCompleteRecording(baseName);
+        const saveTimeout = new Promise((resolve) => {
+          setTimeout(() => {
+            console.error(`   ⏰ [MeetingBot.stop] saveCompleteRecording() timed out after 35 seconds, proceeding anyway...`);
+            resolve(null);
+          }, 35000); // 35 second timeout (5s more than the internal timeout)
+        });
+        
+        const saveResult = await Promise.race([savePromise, saveTimeout]);
+        console.log(`   ✅ Step 2 complete: saveCompleteRecording() finished`);
+        console.log(`   Save result: ${saveResult ? 'success' : 'no recording saved or timed out'}`);
+        
+        console.log(`\n🧹 [MeetingBot.stop] Step 3: Final audio cleanup...`);
+        // 3. Final cleanup (close audio context)
+        await this.audioRecorder.finalCleanup();
+        console.log(`   ✅ Step 3 complete: finalCleanup() finished`);
+      } else {
+        console.log('   ⚠️ No audioRecorder to stop');
+      }
+
+      console.log(`\n🚪 [MeetingBot.stop] Step 4: Leaving meeting and closing browser...`);
+      // Leave meeting and close browser
+      await this.cleanup();
+      console.log(`\n✅ [MeetingBot.stop] Stop process completed successfully!`);
+    } catch (error) {
+      console.error(`\n❌ [MeetingBot.stop] Error during stop process:`, error);
+      console.error(`   Error stack:`, error.stack);
+      // Still try to cleanup even if there was an error
+      try {
+        console.log(`\n🔄 [MeetingBot.stop] Attempting cleanup after error...`);
+        await this.cleanup();
+      } catch (cleanupError) {
+        console.error(`❌ [MeetingBot.stop] Cleanup also failed:`, cleanupError);
+      }
+      throw error; // Re-throw to let caller know it failed
     }
-    if (this.autoExitTimeout) {
-      clearTimeout(this.autoExitTimeout);
-      this.autoExitTimeout = null;
-    }
-
-    // Stop audio recording and save complete recording
-    if (this.audioRecorder) {
-      const baseName = (() => {
-        const slugify = (str) => (str || '').toString()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 80);
-        const titleSlug = slugify(this.config.meetingTitle);
-        const idPart = this.config.meetingId ? String(this.config.meetingId) : null;
-        if (titleSlug && idPart) return `${titleSlug}_${idPart}`;
-        if (idPart) return `meeting_${idPart}`;
-        return null;
-      })();
-
-      // CRITICAL ORDER:
-      // 1. Stop streamRecorder and flush pending chunks
-      await this.audioRecorder.stopRecording();
-      
-      // 2. Get complete recording (this will stop completeRecorder)
-      await this.audioRecorder.saveCompleteRecording(baseName);
-      
-      // 3. Final cleanup (close audio context)
-      await this.audioRecorder.finalCleanup();
-    }
-
-    // Leave meeting and close browser
-    await this.cleanup();
   }
 
   /**
    * Cleanup - leave meeting, close browser
    */
   async cleanup() {
+    console.log(`\n🧹 [MeetingBot.cleanup] Starting cleanup...`);
+    console.log(`   Page exists: ${!!this.page}`);
+    console.log(`   Page closed: ${this.page ? this.page.isClosed() : 'N/A'}`);
+    console.log(`   Browser exists: ${!!this.browser}`);
+
     // Leave meeting
     try {
       if (this.page && !this.page.isClosed()) {
-        console.log('Leaving meeting...');
+        console.log(`\n🚪 [MeetingBot.cleanup] Step 1: Leaving meeting...`);
         await leaveMeeting(this.page);
         // Give a moment for the leave action to complete
         await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log(`   ✅ Step 1 complete: Left meeting`);
+      } else {
+        console.log(`   ⚠️ Skipping leave meeting - page is ${!this.page ? 'null' : 'closed'}`);
       }
     } catch (err) {
-      console.error('❌ Error leaving meeting:', err && err.message ? err.message : err);
+      console.error(`❌ [MeetingBot.cleanup] Error leaving meeting:`, err && err.message ? err.message : err);
+      console.error(`   Error stack:`, err.stack);
     }
 
     // Close browser
     if (this.browser) {
       try {
-        console.log('Closing browser...');
+        console.log(`\n🔒 [MeetingBot.cleanup] Step 2: Closing browser...`);
         // Close all pages first
         const pages = await this.browser.pages();
+        console.log(`   Found ${pages.length} page(s) to close`);
         for (const page of pages) {
           try {
             if (!page.isClosed()) {
               await page.close();
+              console.log(`   ✅ Closed page`);
+            } else {
+              console.log(`   ⚠️ Page already closed`);
             }
           } catch (e) {
-            // Ignore individual page close errors
+            console.error(`   ⚠️ Error closing individual page:`, e.message);
           }
         }
         // Then close browser
         await this.browser.close();
-        console.log('✅ Browser closed');
+        console.log(`   ✅ Step 2 complete: Browser closed`);
       } catch (err) {
-        console.error('❌ Error closing browser:', err && err.message ? err.message : err);
+        console.error(`❌ [MeetingBot.cleanup] Error closing browser:`, err && err.message ? err.message : err);
+        console.error(`   Error stack:`, err.stack);
         // Force close if normal close fails
         try {
           if (this.browser.process()) {
+            console.log(`   🔄 Attempting force kill...`);
             this.browser.process().kill('SIGKILL');
+            console.log(`   ✅ Force kill sent`);
           }
         } catch (killErr) {
-          // Ignore
+          console.error(`   ❌ Force kill also failed:`, killErr.message);
         }
       }
+    } else {
+      console.log(`   ⚠️ No browser to close`);
     }
+    
+    console.log(`\n✅ [MeetingBot.cleanup] Cleanup completed`);
   }
 }
 

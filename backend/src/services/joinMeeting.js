@@ -127,23 +127,142 @@ async function leaveMeeting(page) {
   }
 
   try {
-    await page.evaluate(() => {
-      const buttons = document.querySelectorAll('button, div[role="button"]');
-      buttons.forEach(btn => {
+    console.log('🔍 Searching for leave button...');
+    
+    // Try multiple strategies to find and click the leave button
+    const leftMeeting = await page.evaluate(() => {
+      // Strategy 1: Look for button with "Leave call" or "Leave" in aria-label
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      
+      // First, try to find the most specific leave button
+      let leaveButton = null;
+      
+      for (const btn of buttons) {
+        const text = (btn.textContent || '').toLowerCase().trim();
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
+        const dataTestId = btn.getAttribute('data-testid') || '';
+        const className = btn.className || '';
+        
+        // Check for leave button indicators
+        if (
+          label.includes('leave call') ||
+          label === 'leave call' ||
+          (text.includes('leave') && !text.includes('leave meeting')) ||
+          dataTestId.includes('leave') ||
+          className.includes('leave')
+        ) {
+          // Make sure it's visible and clickable
+          const rect = btn.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0 && 
+                           window.getComputedStyle(btn).display !== 'none' &&
+                           window.getComputedStyle(btn).visibility !== 'hidden';
+          
+          if (isVisible) {
+            leaveButton = btn;
+            break; // Found the button, stop searching
+          }
+        }
+      }
+      
+      if (leaveButton) {
+        console.log('[KAIRO] Found leave button, clicking...');
+        // Scroll into view if needed
+        leaveButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Try multiple click methods
+        try {
+          leaveButton.click();
+        } catch (e1) {
+          try {
+            leaveButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          } catch (e2) {
+            try {
+              const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+              const mouseUp = new MouseEvent('mouseup', { bubbles: true, cancelable: true });
+              leaveButton.dispatchEvent(mouseDown);
+              leaveButton.dispatchEvent(mouseUp);
+            } catch (e3) {
+              console.error('[KAIRO] All click methods failed');
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+      
+      // Strategy 2: Look for end call button (alternative)
+      for (const btn of buttons) {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        if (label.includes('end call') || label.includes('hang up')) {
+          const rect = btn.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0;
+          if (isVisible) {
+            btn.click();
+            return true;
+          }
+        }
+      }
+      
+      console.log('[KAIRO] No leave button found');
+      return false;
+    });
+
+    if (!leftMeeting) {
+      console.log('⚠️ Could not find leave button, trying keyboard shortcut...');
+      // Fallback: Try keyboard shortcut (Ctrl+E or Alt+Q)
+      try {
+        await page.keyboard.down('Control');
+        await page.keyboard.press('e');
+        await page.keyboard.up('Control');
+        await sleep(500);
+      } catch (kbErr) {
+        console.log('⚠️ Keyboard shortcut failed, trying Alt+Q...');
+        try {
+          await page.keyboard.down('Alt');
+          await page.keyboard.press('q');
+          await page.keyboard.up('Alt');
+        } catch (kbErr2) {
+          console.log('⚠️ All leave methods failed');
+        }
+      }
+    }
+    
+    // Wait for leave action to process
+    await sleep(2000);
+    
+    // Check if we successfully left (look for confirmation dialog or "you left" message)
+    const confirmLeave = await page.evaluate(() => {
+      const bodyText = (document.body?.innerText || '').toLowerCase();
+      const hasConfirmation = bodyText.includes('leave the call') || 
+                             bodyText.includes('end call for everyone') ||
+                             bodyText.includes('you left the meeting');
+      
+      // Look for confirmation button
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      for (const btn of buttons) {
         const text = (btn.textContent || '').toLowerCase();
         const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-        
-        if (text.includes('leave') || text.includes('leave call') || 
-            label.includes('leave') || label.includes('leave call')) {
-          btn.click();
+        if ((text.includes('leave') || label.includes('leave')) && 
+            (text.includes('call') || label.includes('call'))) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            btn.click();
+            return true;
+          }
         }
-      });
+      }
+      
+      return hasConfirmation;
     });
     
-    await sleep(2000);
-    console.log('✅ Left meeting');
+    if (confirmLeave) {
+      await sleep(1000);
+    }
+    
+    console.log('✅ Leave action completed');
   } catch (error) {
-    console.error('❌ Error leaving meeting:', error.message);
+    console.error('❌ Error leaving meeting:', error && error.message ? error.message : error);
+    // Even if leave fails, we'll still close the browser
   }
 }
 
