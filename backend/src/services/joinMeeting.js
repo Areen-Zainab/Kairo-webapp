@@ -1,4 +1,4 @@
-// bot-join.js - FIXED FOR WINDOWS - INTEGRATED AS MODULE
+// joinMeeting.js - FIXED FOR WINDOWS - INTEGRATED AS MODULE
 require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
@@ -25,7 +25,9 @@ let pythonResolvers = [];
 let transcriptFilepath = null;
 let chunkFlushInterval = null;
 let chunkSequence = 0;
-const PY_SCRIPT_PATH = path.resolve(__dirname, '../../ai-layer/whisperX/transcribe-whisper.py');
+
+const PY_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/whisperX/transcribe-whisper.py');
+
 
 console.log('📁 Recordings folder:', path.resolve(RECORDINGS_DIR));
 

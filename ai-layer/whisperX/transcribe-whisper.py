@@ -7,76 +7,113 @@
 import sys
 import os
 
+# Add ffmpeg to PATH if it's in the current directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+os.environ["PATH"] = current_dir + os.pathsep + os.environ["PATH"]
+
 # Load whisperx (speech-to-text)
 try:
     import whisperx
+    import torch
 except Exception as e:
-    print("Failed importing whisperx: " + str(e), file=sys.stderr)
+    print(f"Failed importing dependencies: {e}", file=sys.stderr)
     sys.exit(3)
 
 # Select GPU if available, else fallback to CPU
-import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
+compute_type = "float16" if device == "cuda" else "int8"
 
-# Load whisper model once (change size as you want: tiny, base, small, medium, large)
-model_size = "small"  # smaller -> faster; change to "medium" or "large" if you can
+# Model configuration
+model_size = "base"  # Options: tiny, base, small, medium, large-v2
 model = None
+
+print(f"[Kairo Transcription] Device: {device}", file=sys.stderr)
+print(f"[Kairo Transcription] Model: {model_size}", file=sys.stderr)
 
 def transcribe_audio(audio_path):
     """Transcribe a single audio file and return the text."""
     global model
     
     if not os.path.exists(audio_path):
-        print("File not found: " + audio_path, file=sys.stderr)
+        print(f"[Error] File not found: {audio_path}", file=sys.stderr)
         return None
     
     try:
         # Load model if not already loaded
         if model is None:
-            model = whisperx.load_model(model_size, device=device)
+            print("[Kairo] Loading WhisperX model...", file=sys.stderr)
+            model = whisperx.load_model(model_size, device=device, compute_type=compute_type)
+            print("[Kairo] ✓ Model loaded successfully", file=sys.stderr)
+        
+        # Load audio
+        print(f"[Kairo] Processing: {audio_path}", file=sys.stderr)
+        audio = whisperx.load_audio(audio_path)
         
         # Transcribe audio
-        result = model.transcribe(audio_path)
+        result = model.transcribe(audio, batch_size=16)
         
-        # result["text"] contains combined text
-        text = result.get("text", "")
-        return text
+        # Extract text from segments
+        if "segments" in result:
+            text = " ".join([seg["text"].strip() for seg in result["segments"]])
+        else:
+            text = result.get("text", "")
+        
+        print(f"[Kairo] ✓ Transcription complete. Language: {result.get('language', 'unknown')}", file=sys.stderr)
+        
+        return text.strip()
         
     except Exception as e:
-        print("Transcription failed: " + str(e), file=sys.stderr)
+        print(f"[Error] Transcription failed: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return None
 
-# Main execution
-try:
-    # Determine mode: command-line argument or stdin streaming
-    streaming_mode = len(sys.argv) < 2
-    
-    if streaming_mode:
-        # Streaming mode: read file paths from stdin
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
-            if line.upper() == "EXIT":
-                break
+def main():
+    """Main execution function"""
+    try:
+        # Determine mode: command-line argument or stdin streaming
+        streaming_mode = len(sys.argv) < 2
+        
+        if streaming_mode:
+            print("[Kairo] Starting streaming mode (reading from stdin)...", file=sys.stderr)
+            print("[Kairo] Send audio file paths, one per line. Type 'EXIT' to quit.", file=sys.stderr)
             
-            text = transcribe_audio(line)
+            # Streaming mode: read file paths from stdin
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                if line.upper() == "EXIT":
+                    print("[Kairo] Exiting...", file=sys.stderr)
+                    break
+                
+                text = transcribe_audio(line)
+                if text:
+                    # Output only the transcription text to stdout
+                    print(text)
+                    sys.stdout.flush()
+                else:
+                    print("", file=sys.stdout)  # Empty line on failure
+                    sys.stdout.flush()
+        else:
+            # Command-line mode: single file
+            audio_path = sys.argv[1]
+            text = transcribe_audio(audio_path)
             if text:
                 print(text)
-                sys.stdout.flush()
-    else:
-        # Command-line mode: single file
-        audio_path = sys.argv[1]
-        text = transcribe_audio(audio_path)
-        if text:
-            print(text)
-        else:
-            sys.exit(1)
-    
-    sys.exit(0)
-    
-except KeyboardInterrupt:
-    sys.exit(0)
-except Exception as e:
-    print("Error: " + str(e), file=sys.stderr)
-    sys.exit(1)
+            else:
+                sys.exit(1)
+        
+        sys.exit(0)
+        
+    except KeyboardInterrupt:
+        print("\n[Kairo] Interrupted by user", file=sys.stderr)
+        sys.exit(0)
+    except Exception as e:
+        print(f"[Error] {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
