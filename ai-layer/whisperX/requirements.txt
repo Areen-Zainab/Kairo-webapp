@@ -1,0 +1,13 @@
+# WhisperX Transcription Requirements
+# Install with: py -3.10 -m pip install -r requirements.txt
+
+# Core dependencies
+torch>=2.7.0
+torchaudio>=2.7.0
+torchvision>=2.7.0
+whisperx
+faster-whisper>=1.0.0
+
+# Note: For GPU support (CUDA 11.8), install with:
+# py -3.10 -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu118
+# py -3.10 -m pip install whisperx faster-whisper
