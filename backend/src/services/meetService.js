@@ -54,7 +54,7 @@ async function joinGoogleMeet() {
     for (let navAttempts = 0; navAttempts < 3; navAttempts++) {
       try {
         await globalPage.goto(MEET_URL, { waitUntil: 'load', timeout: 120000 });
-        try { await globalPage.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 }); } catch (_) {}
+        try { await globalPage.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 }); } catch (_) { }
         navSuccess = true;
         await sleep(1500);
         console.log('✅ Page loaded');
@@ -80,7 +80,7 @@ async function joinGoogleMeet() {
           clickByText(['accept all', 'i agree', 'got it', 'allow all']);
         });
       }, 2, 1000);
-    } catch (_) {}
+    } catch (_) { }
 
     // Enter bot name
     console.log('⏳ Entering name...');
@@ -107,9 +107,9 @@ async function joinGoogleMeet() {
     await sleep(2000);
     // Disable cam/mic
     await withRetry('disable cam/mic', async () => {
-      try { await globalPage.keyboard.down('Control'); await globalPage.keyboard.press('KeyD'); await globalPage.keyboard.up('Control'); } catch (_) {}
+      try { await globalPage.keyboard.down('Control'); await globalPage.keyboard.press('KeyD'); await globalPage.keyboard.up('Control'); } catch (_) { }
       await sleep(500);
-      try { await globalPage.keyboard.down('Control'); await globalPage.keyboard.press('KeyE'); await globalPage.keyboard.up('Control'); } catch (_) {}
+      try { await globalPage.keyboard.down('Control'); await globalPage.keyboard.press('KeyE'); await globalPage.keyboard.up('Control'); } catch (_) { }
       await globalPage.evaluate(() => {
         document.querySelectorAll('button, div[role="button"][aria-label]').forEach(btn => {
           const label = (btn.getAttribute('aria-label') || '').toLowerCase();
@@ -173,7 +173,7 @@ async function joinGoogleMeet() {
           await cleanup();
           process.exit(0);
         }
-      } catch (_) {}
+      } catch (_) { }
     }, 1000);
 
     process.on('SIGINT', () => handleExit('SIGINT'));
@@ -274,7 +274,7 @@ async function transcribeChunk(chunkPath) {
 
 function runPythonTranscriber(audioPath) {
   return new Promise((resolve, reject) => {
-    const py = spawn('python3', [PY_SCRIPT_PATH, audioPath], { shell: true });
+    const py = spawn('py', ['-3.10', PY_SCRIPT_PATH, audioPath], { shell: true });
     let output = '';
     let errorOutput = '';
 

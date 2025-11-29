@@ -107,7 +107,7 @@ function concatenateChunksToMp3(baseName) {
       const concatContent = chunkFiles
         .map(f => `file '${path.join(CHUNKS_DIR, f).replace(/\\/g, '/')}'`)
         .join('\n');
-      
+
       fs.writeFileSync(concatFilePath, concatContent);
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
@@ -149,7 +149,7 @@ function concatenateChunksToMp3(baseName) {
 
 function ensurePythonProc() {
   if (pythonProc && !pythonProc.killed) return;
-  const candidates = ['python', 'py'];
+  const candidates = ['py -3.10', 'python3.10', 'python', 'py'];
   let started = false;
   for (const cmd of candidates) {
     try {
@@ -203,7 +203,7 @@ function sendToPython(audioPath) {
 
 function runPythonOneShot(audioPath) {
   return new Promise((resolve, reject) => {
-    const candidates = ['python', 'py'];
+    const candidates = ['py -3.10', 'python3.10', 'python', 'py'];
     let attempt = 0;
     const tryOne = () => {
       if (attempt >= candidates.length) return reject(new Error('Python not found'));
@@ -559,9 +559,9 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
         try {
           if (!ctx) return;
           if (typeof ctx.state !== 'undefined' && ctx.state === 'suspended') {
-            await ctx.resume().catch(() => {});
+            await ctx.resume().catch(() => { });
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       const OriginalRTCPeerConnection = window.RTCPeerConnection;
@@ -585,9 +585,9 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
 
             // If recorder not active, start it
             if (!window.audioCapture.isRecording) {
-              try { window.startAudioRecording(); } catch (_) {}
+              try { window.startAudioRecording(); } catch (_) { }
             }
-          } catch (_) {}
+          } catch (_) { }
         });
 
         return pc;
@@ -602,7 +602,7 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
           if (window.audioCapture.isRecording) return;
 
           window.audioCapture.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          resumeAudioContextIfNeeded(window.audioCapture.audioContext).catch(() => {});
+          resumeAudioContextIfNeeded(window.audioCapture.audioContext).catch(() => { });
 
           const dest = window.audioCapture.audioContext.createMediaStreamDestination();
 
@@ -700,9 +700,9 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
 
             if (window.audioCapture.mediaRecorder && window.audioCapture.mediaRecorder.state !== 'inactive') {
               window.audioCapture.mediaRecorder.onstop = processChunks;
-              try { window.audioCapture.mediaRecorder.stop(); } catch (_) {}
+              try { window.audioCapture.mediaRecorder.stop(); } catch (_) { }
               if (window.audioCapture.audioContext) {
-                try { window.audioCapture.audioContext.close(); } catch (_) {}
+                try { window.audioCapture.audioContext.close(); } catch (_) { }
               }
             } else {
               processChunks();
@@ -844,7 +844,7 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
 
     console.log('\n✅ Bot joined successfully!');
     console.log('🎤 Recording meeting audio...');
-    
+
     const transcriptTimestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
     const transcriptFilename = `transcript_${transcriptTimestamp}.txt`;
     transcriptFilepath = path.join(RECORDINGS_DIR, transcriptFilename);
@@ -882,8 +882,8 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
         } catch (evalError) {
           if (evalError && evalError.message &&
             (evalError.message.includes('Requesting main frame too early') ||
-            evalError.message.includes('Page is closed') ||
-            globalPage.isClosed())) {
+              evalError.message.includes('Page is closed') ||
+              globalPage.isClosed())) {
             clearInterval(monitorInterval);
             monitorInterval = null;
             return;
@@ -976,14 +976,14 @@ async function joinMeeting({ meetUrl, botName, durationMinutes, meetingId, meeti
     if (chunkFlushInterval) {
       clearInterval(chunkFlushInterval);
     }
-    
-    try { 
+
+    try {
       await flushPendingChunks(globalPage);
-      await saveRecording(globalPage, baseName); 
-    } catch (_) { 
+      await saveRecording(globalPage, baseName);
+    } catch (_) {
       try { await concatenateChunksToMp3(baseName); } catch (_) { }
     }
-    
+
     if (globalBrowser) {
       await globalBrowser.close();
     }
