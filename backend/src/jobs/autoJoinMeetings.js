@@ -1,5 +1,5 @@
 const prisma = require('../lib/prisma');
-const { joinMeeting } = require('../services/joinMeeting');
+const MeetingBot = require('../services/MeetingBot');
 
 // Track active meeting sessions
 const activeSessions = new Map();
@@ -57,16 +57,18 @@ async function autoJoinMeetings() {
         const durationMs = Math.max(meetingEndTime.getTime() - now.getTime(), 5 * 60 * 1000);
         const durationMinutes = Math.ceil(durationMs / (60 * 1000));
 
-        // Join meeting using the persistent browser
+        // Join meeting using MeetingBot
         console.log(`🤖 Joining meeting ${meeting.id} (${meeting.title})...`);
         
-        const session = await joinMeeting({
+        const bot = new MeetingBot({
           meetUrl: link,
           botName: process.env.BOT_NAME || 'Kairo Bot',
           durationMinutes: durationMinutes,
           meetingId: String(meeting.id),
           meetingTitle: meeting.title
         });
+
+        const session = await bot.start();
 
         // Store session for cleanup
         activeSessions.set(meeting.id, session);
@@ -147,20 +149,41 @@ function getActiveSessions() {
 }
 
 /**
+ * Remove a meeting from active sessions without stopping (for cleanup)
+ */
+function removeFromActiveSessions(meetingId) {
+  const removed = activeSessions.delete(meetingId);
+  if (removed) {
+    console.log(`Removed meeting ${meetingId} from active sessions`);
+  }
+  return removed;
+}
+
+/**
  * Stop a specific meeting session
  */
 async function stopMeetingSession(meetingId) {
   const session = activeSessions.get(meetingId);
   if (session && session.stop) {
-    await session.stop();
-    activeSessions.delete(meetingId);
-    return true;
+    try {
+      console.log(`🛑 Stopping bot session for meeting ${meetingId}...`);
+      await session.stop();
+      activeSessions.delete(meetingId);
+      console.log(`✅ Bot session stopped for meeting ${meetingId}`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Error stopping bot session for meeting ${meetingId}:`, error);
+      activeSessions.delete(meetingId); // Remove from active sessions even on error
+      return false;
+    }
   }
+  console.log(`⚠️ No active session found for meeting ${meetingId}`);
   return false;
 }
 
 module.exports = autoJoinMeetings;
 module.exports.getActiveSessions = getActiveSessions;
 module.exports.stopMeetingSession = stopMeetingSession;
+module.exports.removeFromActiveSessions = removeFromActiveSessions;
 
 
