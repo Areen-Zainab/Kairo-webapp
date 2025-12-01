@@ -5,7 +5,10 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 const path = require('path');
 const AudioRecorder = require('./AudioRecorder');
-const { navigateToMeeting, enterBotName, disableCameraAndMic, clickJoinButton, leaveMeeting } = require('./joinMeeting');
+
+// Platform-specific handlers
+const meetPlatform = require('./meetService');
+const zoomPlatform = require('./zoomService');
 
 puppeteer.use(StealthPlugin());
 
@@ -17,7 +20,7 @@ if (!fs.existsSync(MEETING_DATA_BASE_DIR)) {
 
 class MeetingBot {
   constructor(config) {
-    this.config = config; // { meetUrl, botName, durationMinutes, meetingId, meetingTitle }
+    this.config = config;
     this.browser = null;
     this.page = null;
     this.audioRecorder = null;
@@ -25,9 +28,26 @@ class MeetingBot {
     this.chunksDir = null;
     this.monitorInterval = null;
     this.autoExitTimeout = null;
-    // Expose meetingId for compatibility
     this.meetingId = config.meetingId;
     this.success = false;
+    
+    // Detect platform and set handlers
+    this.platform = this.detectPlatform(config.meetUrl);
+    this.platformHandlers = this.platform === 'zoom' ? zoomPlatform : meetPlatform;
+    
+    console.log(`🎯 Detected platform: ${this.platform.toUpperCase()}`);
+  }
+
+  /**
+   * Detect meeting platform from URL
+   */
+  detectPlatform(url) {
+    if (url.includes('zoom.us')) {
+      return 'zoom';
+    } else if (url.includes('meet.google.com')) {
+      return 'meet';
+    }
+    throw new Error('Unsupported meeting platform. Only Google Meet and Zoom are supported.');
   }
 
   /**
@@ -93,24 +113,28 @@ class MeetingBot {
     console.log('📁 Meeting data directory:', path.resolve(this.meetingDataDir));
   }
 
+
   /**
    * Join the meeting using pure functions from joinMeeting.js
    */
   async joinMeeting() {
-    console.log('\n⏳ Loading meeting...');
-    await navigateToMeeting(this.page, this.config.meetUrl);
+    console.log(`\n⏳ Loading ${this.platform} meeting...`);
+    
+    const botName = this.config.botName || process.env.BOT_NAME || 'Kairo Bot';
+    
+    await this.platformHandlers.navigateToMeeting(this.page, this.config.meetUrl, botName);
     console.log('✅ Page loaded');
 
     console.log('\n⏳ Entering name...');
-    await enterBotName(this.page, this.config.botName || process.env.BOT_NAME || 'Kairo Bot');
+    await this.platformHandlers.enterBotName(this.page, botName);
     console.log('✅ Name entered');
 
     console.log('\n🔧 Disabling camera and microphone...');
-    await disableCameraAndMic(this.page);
+    await this.platformHandlers.disableCameraAndMic(this.page);
     console.log('✅ Camera and mic disabled');
 
     console.log('\n⏳ Joining meeting...');
-    await clickJoinButton(this.page);
+    await this.platformHandlers.clickJoinButton(this.page);
     console.log('✅ Join clicked');
 
     // Wait for meeting to load
@@ -335,12 +359,11 @@ class MeetingBot {
     console.log(`   Page closed: ${this.page ? this.page.isClosed() : 'N/A'}`);
     console.log(`   Browser exists: ${!!this.browser}`);
 
-    // Leave meeting
+    // Leave meeting using platform-specific handler
     try {
       if (this.page && !this.page.isClosed()) {
-        console.log(`\n🚪 [MeetingBot.cleanup] Step 1: Leaving meeting...`);
-        await leaveMeeting(this.page);
-        // Give a moment for the leave action to complete
+        console.log(`\n🚪 [MeetingBot.cleanup] Step 1: Leaving ${this.platform} meeting...`);
+        await this.platformHandlers.leaveMeeting(this.page);
         await new Promise(resolve => setTimeout(resolve, 1000));
         console.log(`   ✅ Step 1 complete: Left meeting`);
       } else {
@@ -351,11 +374,10 @@ class MeetingBot {
       console.error(`   Error stack:`, err.stack);
     }
 
-    // Close browser
+    // Close browser 
     if (this.browser) {
       try {
         console.log(`\n🔒 [MeetingBot.cleanup] Step 2: Closing browser...`);
-        // Close all pages first
         const pages = await this.browser.pages();
         console.log(`   Found ${pages.length} page(s) to close`);
         for (const page of pages) {
@@ -370,13 +392,11 @@ class MeetingBot {
             console.error(`   ⚠️ Error closing individual page:`, e.message);
           }
         }
-        // Then close browser
         await this.browser.close();
         console.log(`   ✅ Step 2 complete: Browser closed`);
       } catch (err) {
         console.error(`❌ [MeetingBot.cleanup] Error closing browser:`, err && err.message ? err.message : err);
         console.error(`   Error stack:`, err.stack);
-        // Force close if normal close fails
         try {
           if (this.browser.process()) {
             console.log(`   🔄 Attempting force kill...`);
@@ -396,4 +416,3 @@ class MeetingBot {
 }
 
 module.exports = MeetingBot;
-
