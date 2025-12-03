@@ -1,13 +1,26 @@
 const express = require("express");
 const Meeting = require("../models/Meeting");
+const MeetingFile = require("../models/MeetingFile");
 const WorkspaceLog = require("../models/WorkspaceLog");
+const MeetingNote = require("../models/MeetingNote");
 const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
 const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
+const multer = require('multer');
+const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType } = require("../services/meetingFileStorage");
+const { getMeetingStats } = require("../services/meetingStatsService");
 
 const router = express.Router();
 const { spawn } = require('child_process');
 const path = require('path');
+
+// Configure multer for file uploads (memory storage)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB limit
+  }
+});
 
 // Create a new meeting
 router.post("/", authenticateToken, async (req, res) => {
@@ -276,7 +289,28 @@ router.get("/:id", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "You do not have access to this meeting" });
     }
 
-    res.json({ meeting });
+    // Get transcript and audio stats if meeting is completed
+    let stats = null;
+    if (meeting.status === 'completed' || meeting.status === 'in-progress') {
+      try {
+        stats = getMeetingStats(meetingId);
+      } catch (error) {
+        console.error('Error getting meeting stats:', error);
+        // Continue without stats if there's an error
+      }
+    }
+
+    // Add stats to meeting metadata if available
+    const meetingWithStats = {
+      ...meeting,
+      stats: stats || {
+        transcriptLength: 0,
+        audioDurationSeconds: 0,
+        audioDurationMinutes: 0
+      }
+    };
+
+    res.json({ meeting: meetingWithStats });
   } catch (error) {
     console.error("Get meeting error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -617,6 +651,202 @@ router.get("/workspace/:workspaceId/statistics", authenticateToken, async (req, 
   }
 });
 
+// Get notes for a meeting
+router.get('/:id/notes', authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: 'Invalid meeting ID' });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    // Access control: user must be a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'You do not have access to this workspace' });
+    }
+
+    const notes = await MeetingNote.findByMeetingId(meetingId);
+    res.json({ notes });
+  } catch (error) {
+    console.error('Get meeting notes error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create a new note for a meeting
+router.post('/:id/notes', authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+    const { content, type = 'manual', timestamp = 0, color = '#3b82f6' } = req.body;
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: 'Invalid meeting ID' });
+    }
+
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json({ error: 'Note content is required' });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    // Access control: user must be a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'You do not have access to this workspace' });
+    }
+
+    const note = await MeetingNote.create({
+      meetingId,
+      userId: req.user.id,
+      content: content.trim(),
+      type,
+      timestamp: typeof timestamp === 'number' ? timestamp : 0,
+      color: color || '#3b82f6',
+      authorName: req.user.name
+    });
+
+    res.status(201).json({ note });
+  } catch (error) {
+    console.error('Create meeting note error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update a note (only the creator can update)
+router.patch('/:meetingId/notes/:noteId', authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.meetingId);
+    const noteId = parseInt(req.params.noteId);
+
+    if (isNaN(meetingId) || isNaN(noteId)) {
+      return res.status(400).json({ error: 'Invalid meeting ID or note ID' });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    // Access control: user must be a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'You do not have access to this workspace' });
+    }
+
+    const existing = await prisma.meetingNote.findUnique({
+      where: { id: noteId }
+    });
+
+    if (!existing || existing.meetingId !== meetingId) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    if (existing.userId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit your own notes' });
+    }
+
+    const updates = {};
+    if (typeof req.body.content === 'string') {
+      updates.content = req.body.content.trim();
+    }
+    if (typeof req.body.color === 'string' && req.body.color) {
+      updates.color = req.body.color;
+    }
+    if (typeof req.body.timestamp === 'number') {
+      updates.timestamp = req.body.timestamp;
+    }
+
+    const note = await MeetingNote.update(noteId, updates);
+    res.json({ note });
+  } catch (error) {
+    console.error('Update meeting note error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete a note (only the creator can delete)
+router.delete('/:meetingId/notes/:noteId', authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.meetingId);
+    const noteId = parseInt(req.params.noteId);
+
+    if (isNaN(meetingId) || isNaN(noteId)) {
+      return res.status(400).json({ error: 'Invalid meeting ID or note ID' });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    // Access control: user must be a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'You do not have access to this workspace' });
+    }
+
+    const existing = await prisma.meetingNote.findUnique({
+      where: { id: noteId }
+    });
+
+    if (!existing || existing.meetingId !== meetingId) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    if (existing.userId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own notes' });
+    }
+
+    await MeetingNote.delete(noteId);
+    res.json({ message: 'Note deleted successfully' });
+  } catch (error) {
+    console.error('Delete meeting note error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Trigger bot to join a meeting (scoped route)
 router.post('/:id/bot/join', authenticateToken, async (req, res) => {
   try {
@@ -796,6 +1026,247 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Bot join error:', error);
     return res.status(500).json({ error: 'Failed to trigger bot join' });
+  }
+});
+
+// ==================== Meeting Files Routes ====================
+
+// Get all files for a meeting
+router.get("/:id/files", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    const files = await MeetingFile.findByMeetingId(meetingId);
+    res.json({ files });
+  } catch (error) {
+    console.error("Get meeting files error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Upload a file for a meeting
+router.post("/:id/files", authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check workspace membership
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this workspace" });
+    }
+
+    // Check if user is workspace owner/admin OR a meeting participant
+    const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin';
+    
+    if (!isOwnerOrAdmin) {
+      // Check if user is a participant of this meeting
+      const participant = await prisma.meetingParticipant.findUnique({
+        where: {
+          meetingId_userId: {
+            meetingId: meetingId,
+            userId: req.user.id
+          }
+        }
+      });
+
+      if (!participant) {
+        return res.status(403).json({ 
+          error: "Only workspace owners/admins and meeting participants can upload files" 
+        });
+      }
+    }
+
+    // Get user info for uploader name
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { name: true, email: true }
+    });
+
+    // Save file to disk
+    const { filepath, filename } = await saveMeetingFile(
+      meetingId,
+      req.file.buffer,
+      req.file.originalname
+    );
+
+    // Detect file type
+    const fileType = detectFileType(req.file.mimetype, req.file.originalname);
+
+    // Create database record
+    const file = await MeetingFile.create({
+      meetingId,
+      userId: req.user.id,
+      filename: req.file.originalname, // Store original filename
+      filepath, // Store relative path
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+      fileType,
+      uploaderName: user?.name || user?.email || 'Unknown'
+    });
+
+    res.status(201).json({
+      message: "File uploaded successfully",
+      file
+    });
+  } catch (error) {
+    console.error("Upload meeting file error:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+// Download a meeting file
+router.get("/:meetingId/files/:fileId/download", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.meetingId);
+    const fileId = parseInt(req.params.fileId);
+
+    if (isNaN(meetingId) || isNaN(fileId)) {
+      return res.status(400).json({ error: "Invalid meeting ID or file ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    const file = await MeetingFile.findById(fileId);
+    if (!file || file.meetingId !== meetingId) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    // Get file buffer
+    const buffer = getFileBuffer(file.filepath);
+
+    // Set headers for download
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Content-Length', file.fileSize);
+
+    res.send(buffer);
+  } catch (error) {
+    console.error("Download meeting file error:", error);
+    if (error.message === 'File not found') {
+      return res.status(404).json({ error: "File not found" });
+    }
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete a meeting file
+router.delete("/:meetingId/files/:fileId", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.meetingId);
+    const fileId = parseInt(req.params.fileId);
+
+    if (isNaN(meetingId) || isNaN(fileId)) {
+      return res.status(400).json({ error: "Invalid meeting ID or file ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    const file = await MeetingFile.findById(fileId);
+    if (!file || file.meetingId !== meetingId) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    // Only file owner or workspace admin/owner can delete
+    const isOwner = file.uploadedBy.id === req.user.id;
+    const isAdminOrOwner = membership.role === 'admin' || membership.role === 'owner';
+    
+    if (!isOwner && !isAdminOrOwner) {
+      return res.status(403).json({ error: "You can only delete your own files" });
+    }
+
+    // Delete physical file
+    try {
+      deleteMeetingFile(file.filepath);
+    } catch (fileError) {
+      console.error("Error deleting physical file:", fileError);
+      // Continue with DB deletion even if file deletion fails
+    }
+
+    // Delete database record
+    await MeetingFile.delete(fileId);
+
+    res.json({ message: "File deleted successfully" });
+  } catch (error) {
+    console.error("Delete meeting file error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

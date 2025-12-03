@@ -117,6 +117,138 @@ async function clickJoinButton(page) {
 }
 
 /**
+ * Check if the "You can't join this video call" error screen is displayed
+ * @param {Page} page - Puppeteer page object
+ * @returns {Promise<boolean>} - True if error screen is detected, false otherwise
+ */
+async function detectJoinError(page) {
+  if (!page || page.isClosed()) {
+    return false;
+  }
+
+  try {
+    const hasError = await page.evaluate(() => {
+      const bodyText = (document.body?.innerText || '').toLowerCase();
+      const bodyHTML = (document.body?.innerHTML || '').toLowerCase();
+      
+      // Check for the error message text
+      const hasErrorText = 
+        bodyText.includes("you can't join this video call") ||
+        bodyText.includes("can't join this video call") ||
+        bodyText.includes("you can't join") ||
+        bodyHTML.includes("you can't join this video call");
+      
+      // Check for "Return to home screen" button (indicator of error screen)
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      const hasReturnButton = buttons.some(btn => {
+        const text = (btn.textContent || '').toLowerCase();
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        return text.includes('return to home screen') || 
+               text.includes('return to home') ||
+               label.includes('return to home screen');
+      });
+      
+      // Check for "Submit feedback" link (also on error screen)
+      const links = Array.from(document.querySelectorAll('a'));
+      const hasFeedbackLink = links.some(link => {
+        const text = (link.textContent || '').toLowerCase();
+        return text.includes('submit feedback');
+      });
+      
+      return hasErrorText || (hasReturnButton && hasFeedbackLink);
+    });
+    
+    return hasError;
+  } catch (error) {
+    // If we can't check, assume no error (don't want false positives)
+    return false;
+  }
+}
+
+/**
+ * Check if bot has entered the meeting (sees leave button or other indicators)
+ * @param {Page} page - Puppeteer page object
+ * @param {number} timeoutMs - Maximum time to wait (default: 30000ms = 30 seconds)
+ * @returns {Promise<boolean>} - True if bot has entered, false otherwise
+ */
+async function waitForMeetingEntry(page, timeoutMs = 30000) {
+  if (!page || page.isClosed()) {
+    return false;
+  }
+
+  const startTime = Date.now();
+  const checkInterval = 1000; // Check every second
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const hasEntered = await page.evaluate(() => {
+        // Strategy 1: Look for leave button (most reliable indicator)
+        const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+        
+        for (const btn of buttons) {
+          const text = (btn.textContent || '').toLowerCase().trim();
+          const label = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
+          const dataTestId = btn.getAttribute('data-testid') || '';
+          
+          // Check for leave button indicators
+          if (
+            label.includes('leave call') ||
+            label === 'leave call' ||
+            (text.includes('leave') && !text.includes('leave meeting')) ||
+            dataTestId.includes('leave')
+          ) {
+            const rect = btn.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0 && 
+                             window.getComputedStyle(btn).display !== 'none' &&
+                             window.getComputedStyle(btn).visibility !== 'hidden';
+            
+            if (isVisible) {
+              return true;
+            }
+          }
+        }
+
+        // Strategy 2: Look for meeting controls (toolbar with multiple buttons)
+        const toolbarButtons = Array.from(document.querySelectorAll('button[data-testid], div[role="button"][data-testid]'));
+        const hasMultipleControls = toolbarButtons.length >= 3; // Usually has mic, camera, leave, etc.
+        
+        // Strategy 3: Look for participant count or meeting info
+        const bodyText = (document.body?.innerText || '').toLowerCase();
+        const hasMeetingIndicators = 
+          bodyText.includes('participant') ||
+          bodyText.includes('people') ||
+          bodyText.includes('present') ||
+          bodyText.includes('meeting');
+
+        // Strategy 4: Check for video grid or meeting content area
+        const videoElements = document.querySelectorAll('video, [data-self-name], [data-participant-id]');
+        const hasVideoContent = videoElements.length > 0;
+
+        // Entered if we have leave button OR (multiple controls AND meeting indicators)
+        return hasMultipleControls && (hasMeetingIndicators || hasVideoContent);
+      });
+
+      if (hasEntered) {
+        return true;
+      }
+
+      // Wait before next check
+      await sleep(checkInterval);
+    } catch (error) {
+      // If page is closed or error occurs, return false
+      if (page.isClosed()) {
+        return false;
+      }
+      // Continue checking on other errors
+      await sleep(checkInterval);
+    }
+  }
+
+  // Timeout reached
+  return false;
+}
+
+/**
  * Leave the meeting
  * @param {Page} page - Puppeteer page object
  */
@@ -271,5 +403,7 @@ module.exports = {
   enterBotName,
   disableCameraAndMic,
   clickJoinButton,
-  leaveMeeting
+  waitForMeetingEntry,
+  leaveMeeting,
+  detectJoinError
 };

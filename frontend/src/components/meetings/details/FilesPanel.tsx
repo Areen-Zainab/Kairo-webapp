@@ -5,8 +5,32 @@ const FilesPanel: React.FC<FilesPanelProps> = ({
   files,
   onFileClick,
   onFileDownload,
+  onFileUpload,
+  onFileDelete,
   currentTime
 }) => {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onFileUpload) {
+      onFileUpload(file);
+    }
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDelete = (file: MeetingFile) => {
+    if (window.confirm(`Are you sure you want to delete "${file.name}"?`)) {
+      onFileDelete?.(file.id);
+    }
+  };
   const [filter, setFilter] = useState<'all' | 'pdf' | 'image' | 'document' | 'presentation' | 'other'>('all');
   const [sortBy, setSortBy] = useState<'name' | 'type' | 'size' | 'date'>('name');
 
@@ -96,9 +120,21 @@ const FilesPanel: React.FC<FilesPanelProps> = ({
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
           Files & Resources
         </h3>
-        <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors">
-          Upload File
-        </button>
+        <div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleFileChange}
+            multiple={false}
+          />
+          <button
+            onClick={handleUploadClick}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors"
+          >
+            Upload File
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -192,6 +228,14 @@ const FilesPanel: React.FC<FilesPanelProps> = ({
                     >
                       Download
                     </button>
+                    {onFileDelete && (
+                      <button
+                        onClick={() => handleDelete(file)}
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded transition-colors"
+                      >
+                        Delete
+                      </button>
+                    )}
                     {file.linkedTranscriptId && (
                       <button
                         onClick={() => console.log('Jump to transcript:', file.linkedTranscriptId)}

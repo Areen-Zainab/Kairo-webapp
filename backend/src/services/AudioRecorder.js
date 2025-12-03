@@ -484,9 +484,29 @@ class AudioRecorder {
           const ok = await this.convertToMp3(chunkPath, mp3Path);
           if (ok && this.transcriptionService) {
             console.log(`   🎧 Chunk MP3: ${path.basename(mp3Path)}`);
-            await this.transcriptionService.transcribe(mp3Path, idx);
+            try {
+              const result = await this.transcriptionService.transcribe(mp3Path, idx);
+              if (result && result.success) {
+                console.log(`   ✅ Chunk ${idx} transcribed successfully`);
+              } else {
+                console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+              }
+            } catch (transcribeError) {
+              console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+            }
           } else if (this.transcriptionService) {
-            await this.transcriptionService.transcribe(chunkPath, idx);
+            try {
+              const result = await this.transcriptionService.transcribe(chunkPath, idx);
+              if (result && result.success) {
+                console.log(`   ✅ Chunk ${idx} transcribed successfully`);
+              } else {
+                console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+              }
+            } catch (transcribeError) {
+              console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+            }
+          } else {
+            console.warn(`   ⚠️  No transcription service available for chunk ${idx}`);
           }
         } else {
           // Subsequent chunks: Extract only the new portion from the end
@@ -541,9 +561,29 @@ class AudioRecorder {
             const ok = await this.convertToMp3(chunkPath, mp3Path);
             if (ok && this.transcriptionService) {
               console.log(`   🎧 Chunk MP3: ${path.basename(mp3Path)}`);
-              await this.transcriptionService.transcribe(mp3Path, idx);
+              try {
+                const result = await this.transcriptionService.transcribe(mp3Path, idx);
+                if (result && result.success) {
+                  console.log(`   ✅ Chunk ${idx} transcribed successfully`);
+                } else {
+                  console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+                }
+              } catch (transcribeError) {
+                console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+              }
             } else if (this.transcriptionService) {
-              await this.transcriptionService.transcribe(chunkPath, idx);
+              try {
+                const result = await this.transcriptionService.transcribe(chunkPath, idx);
+                if (result && result.success) {
+                  console.log(`   ✅ Chunk ${idx} transcribed successfully`);
+                } else {
+                  console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+                }
+              } catch (transcribeError) {
+                console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+              }
+            } else {
+              console.warn(`   ⚠️  No transcription service available for chunk ${idx}`);
             }
           } else {
             console.error('   ❌ Failed to extract segment, skipping this chunk');
@@ -816,24 +856,9 @@ class AudioRecorder {
       console.error('[AudioRecorder.stopRecording] Error stopping streamRecorder:', err);
     }
 
-    // Note: saveCompleteRecording() is called separately in MeetingBot.js
-    // We'll finalize transcription here, but diarization will happen later if complete audio is available
-    // For now, finalize without complete audio (will still generate all outputs)
-    if (this.transcriptionService) {
-      try {
-        // Finalize without complete audio initially (will generate outputs without diarization)
-        // If complete audio becomes available later, diarization can be run separately
-        await this.transcriptionService.finalize(null);
-      } catch (error) {
-        console.error('⚠️  Transcription finalization failed:', error.message);
-      }
-    }
-
-    // Cleanup transcription service
-    if (this.transcriptionService) {
-      this.transcriptionService.cleanup();
-      this.transcriptionService = null;
-    }
+    // Note: saveCompleteRecording() and transcription finalization are called separately in MeetingBot.js
+    // We do NOT finalize or cleanup transcription here - that happens in MeetingBot.stop() after
+    // the complete audio is saved, so diarization can run with the full audio file.
     
     console.log('[AudioRecorder.stopRecording] Completed');
   }

@@ -427,6 +427,7 @@ async function debugAudioCapture(page) {
   
   return audioDebug;
 }
+
 /**
  * Leave the Zoom meeting
  * @param {Page} page - Puppeteer page object

@@ -6,6 +6,21 @@
 
 import sys
 import os
+import io
+
+# Fix Windows console encoding for Unicode output
+if sys.platform == 'win32':
+    # Set stdout to UTF-8 encoding to handle Unicode characters
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    else:
+        # Fallback for older Python versions
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+    else:
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # --- Ensure ffmpeg in PATH if it's in the same directory as this script ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -182,6 +197,65 @@ def transcribe_audio(audio_path):
         return None
 
 
+def transcribe_audio_with_diarization(audio_path):
+    """
+    Transcribe audio with speaker diarization.
+    Returns a dict with 'segments' (list of dicts with 'start', 'end', 'text', 'speaker') and 'language'.
+    """
+    global model, device
+    
+    if not os.path.exists(audio_path):
+        print(f"[Error] File not found: {audio_path}", file=sys.stderr)
+        return None
+
+    try:
+        # Load model if not already loaded
+        if model is None:
+            load_whisperx_model()
+        
+        # Load audio
+        print(f"[Kairo] Processing for diarization: {audio_path}", file=sys.stderr)
+        audio = whisperx.load_audio(audio_path)
+        
+        # Transcribe
+        batch_size = 4 if device == "cpu" else 16
+        result = model.transcribe(audio, batch_size=batch_size)
+        
+        # Perform diarization
+        print("[Kairo] Performing speaker diarization...", file=sys.stderr)
+        try:
+            diarize_model = whisperx.DiarizationPipeline(use_auth_token=None, device=device)
+            diarize_segments = diarize_model(audio)
+            
+            # Align transcription with diarization
+            result = whisperx.assign_word_speakers(diarize_segments, result)
+        except Exception as diarize_error:
+            print(f"[Warning] Diarization failed, continuing without speaker labels: {diarize_error}", file=sys.stderr)
+            # Continue without diarization - result will still have segments
+        
+        # Format output
+        segments = []
+        if "segments" in result:
+            for seg in result["segments"]:
+                segments.append({
+                    "start": seg.get("start", 0.0),
+                    "end": seg.get("end", 0.0),
+                    "text": seg.get("text", "").strip(),
+                    "speaker": seg.get("speaker", "SPEAKER_00")
+                })
+        
+        return {
+            "segments": segments,
+            "language": result.get("language", "unknown")
+        }
+        
+    except Exception as e:
+        print(f"[Error] Diarization failed: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return None
+
+
 def main():
     """Main execution function: CLI single-file mode or streaming mode (stdin)."""
     try:
@@ -211,12 +285,26 @@ def main():
         else:
             # Command-line mode: single file
             audio_path = sys.argv[1]
-            text = transcribe_audio(audio_path)
-            if text:
-                print(text)
+            diarize_mode = len(sys.argv) > 2 and sys.argv[2] == '--diarize'
+            
+            if diarize_mode:
+                # Diarization mode: output JSON with segments
+                import json
+                result = transcribe_audio_with_diarization(audio_path)
+                if result:
+                    # Output only JSON to stdout, all logs to stderr
+                    print(json.dumps(result, ensure_ascii=False))
+                    sys.stdout.flush()
+                else:
+                    sys.exit(1)
             else:
-                # non-zero exit on failure
-                sys.exit(1)
+                # Regular transcription mode
+                text = transcribe_audio(audio_path)
+                if text:
+                    print(text)
+                else:
+                    # non-zero exit on failure
+                    sys.exit(1)
 
         sys.exit(0)
 

@@ -21,6 +21,10 @@ interface MeetingTabsProps {
   onAddActionItem: (actionItem: any) => void;
   onUpdateActionItem: (id: string, actionItem: any) => void;
   onDeleteActionItem: (id: string) => void;
+  onFileClick?: (file: any) => void;
+  onFileDownload?: (file: any) => void;
+  onFileUpload?: (file: File) => void;
+  onFileDelete?: (fileId: string) => void;
   currentTime: number;
 }
 
@@ -37,6 +41,10 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
   onAddActionItem,
   onUpdateActionItem,
   onDeleteActionItem,
+  onFileClick,
+  onFileDownload,
+  onFileUpload,
+  onFileDelete,
   currentTime
 }) => {
   const tabs = [
@@ -150,15 +158,17 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
             onDeleteNote={onDeleteNote}
           />
         );
-      case 'files':
-        return (
-          <FilesPanel
-            files={meeting.files}
-            onFileClick={(file) => console.log('File clicked:', file)}
-            onFileDownload={(file) => console.log('File download:', file)}
-            currentTime={currentTime}
-          />
-        );
+        case 'files':
+          return (
+            <FilesPanel
+              files={meeting.files}
+              onFileClick={onFileClick || ((file) => console.log('File clicked:', file))}
+              onFileDownload={onFileDownload || ((file) => console.log('File download:', file))}
+              onFileUpload={onFileUpload}
+              onFileDelete={onFileDelete}
+              currentTime={currentTime}
+            />
+          );
       case 'ai-insights':
         return (
           <AIInsightsPanel

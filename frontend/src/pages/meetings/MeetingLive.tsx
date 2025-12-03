@@ -244,10 +244,7 @@ const LiveMeetingView = () => {
     { id: '3', text: 'Critical: Design system needs to be completed by Dec 15', timestamp: '10:04 AM', category: 'important' },
   ]);
 
-  const [notes, setNotes] = useState([
-    { id: '1', text: 'Focus on mobile-first approach', timestamp: '10:02 AM', author: 'Sana Khan', isPrivate: false },
-    { id: '2', text: 'Need to hire 2 more engineers', timestamp: '10:03 AM', author: 'You', isPrivate: true },
-  ]);
+  const [notes, setNotes] = useState<any[]>([]);
   const [newNotePrivacy, setNewNotePrivacy] = useState<'public' | 'private'>('public');
 
   const memoryItems = [
@@ -348,6 +345,30 @@ const LiveMeetingView = () => {
         if (response.data?.meeting) {
           const fetchedMeeting = response.data.meeting;
           setMeeting(fetchedMeeting);
+
+          // Load existing notes for this meeting
+          try {
+            apiService.getMeetingNotes(fetchedMeeting.id).then((notesResp) => {
+              if (notesResp.data?.notes) {
+                const mapped = notesResp.data.notes.map((n: any) => ({
+                  id: String(n.id),
+                  text: n.content,
+                  // For live page, show human time instead of raw seconds
+                  timestamp: n.type === 'timeline'
+                    ? `${Math.floor(n.timestamp / 60)}:${String(n.timestamp % 60).padStart(2, '0')}`
+                    : new Date(n.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                  author: n.author?.name || 'Unknown',
+                  isPrivate: false, // backend does not yet model privacy; treat as public
+                  color: n.color,
+                  type: n.type,
+                  rawTimestamp: n.timestamp,
+                }));
+                setNotes(mapped);
+              }
+            });
+          } catch (e) {
+            console.error('Failed to load meeting notes', e);
+          }
           
           // Check if bot has already joined - only consider 'in-progress' as confirmed join
           const botHasJoined = fetchedMeeting.metadata?.botJoinTriggeredAt && 
@@ -517,20 +538,64 @@ const LiveMeetingView = () => {
     };
   }, [meeting?.id, isBotJoined, toastSuccess, toastError]); // Only depend on meeting ID to prevent re-runs on meeting updates
 
-  const addNote = () => {
-    if (newNote.trim()) {
-      setNotes([
-        ...notes,
-        {
-        id: Date.now().toString(),
-        text: newNote,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          author: 'You',
-          isPrivate: newNotePrivacy === 'private'
-        }
-      ]);
-      setNewNote('');
-      setNewNotePrivacy('public');
+  const addNote = async () => {
+    if (!newNote.trim() || !meeting?.id) return;
+
+    const content = newNote.trim();
+    const createdAtLabel = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    // Optimistic UI
+    const tempId = `temp-${Date.now()}`;
+    const optimistic = {
+      id: tempId,
+      text: content,
+      timestamp: createdAtLabel,
+      author: 'You',
+      isPrivate: newNotePrivacy === 'private',
+      color: '#3b82f6',
+      type: 'manual',
+      rawTimestamp: 0,
+    };
+    setNotes(prev => [...prev, optimistic]);
+    setNewNote('');
+    setNewNotePrivacy('public');
+
+    try {
+      const resp = await apiService.createMeetingNote(meeting.id, {
+        content,
+        type: 'manual',
+        timestamp: 0,
+        color: optimistic.color,
+      });
+
+      if (resp.error || !resp.data?.note) {
+        // Revert optimistic note on error
+        setNotes(prev => prev.filter(n => n.id !== tempId));
+        toastError(resp.error || 'Failed to save note', 'Error');
+        return;
+      }
+
+      const saved = resp.data.note;
+      setNotes(prev =>
+        prev.map(n =>
+          n.id === tempId
+            ? {
+                id: String(saved.id),
+                text: saved.content,
+                timestamp: createdAtLabel,
+                author: saved.author?.name || 'You',
+                isPrivate: optimistic.isPrivate,
+                color: saved.color,
+                type: saved.type,
+                rawTimestamp: saved.timestamp,
+              }
+            : n
+        )
+      );
+    } catch (e: any) {
+      console.error('Failed to create meeting note', e);
+      setNotes(prev => prev.filter(n => n.id !== tempId));
+      toastError(e?.message || 'Failed to save note', 'Error');
     }
   };
 

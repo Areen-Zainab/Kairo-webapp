@@ -467,6 +467,38 @@ class ApiService {
     return this.request<{ statistics: any }>(`/meetings/workspace/${workspaceId}/statistics${queryString}`);
   }
 
+  // Meeting notes
+  async getMeetingNotes(meetingId: number): Promise<ApiResponse<{ notes: any[] }>> {
+    return this.request<{ notes: any[] }>(`/meetings/${meetingId}/notes`);
+  }
+
+  async createMeetingNote(
+    meetingId: number,
+    note: { content: string; type?: 'manual' | 'timeline'; timestamp?: number; color?: string }
+  ): Promise<ApiResponse<{ note: any }>> {
+    return this.request<{ note: any }>(`/meetings/${meetingId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify(note),
+    });
+  }
+
+  async updateMeetingNote(
+    meetingId: number,
+    noteId: number,
+    updates: Partial<{ content: string; timestamp: number; color: string }>
+  ): Promise<ApiResponse<{ note: any }>> {
+    return this.request<{ note: any }>(`/meetings/${meetingId}/notes/${noteId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteMeetingNote(meetingId: number, noteId: number): Promise<ApiResponse> {
+    return this.request(`/meetings/${meetingId}/notes/${noteId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Upload methods
   async uploadProfilePicture(imageData: string, fileExtension?: string): Promise<ApiResponse<UploadProfilePictureResponse>> {
     return this.request<UploadProfilePictureResponse>('/upload/profile-picture', {
@@ -516,6 +548,77 @@ class ApiService {
 
   async deleteNotification(id: number): Promise<ApiResponse> {
     return this.request(`/notifications/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Meeting file methods
+  async getMeetingFiles(meetingId: number): Promise<ApiResponse<{ files: any[] }>> {
+    return this.request<{ files: any[] }>(`/meetings/${meetingId}/files`);
+  }
+
+  async uploadMeetingFile(meetingId: number, file: File): Promise<ApiResponse<{ file: any }>> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const url = `${this.baseURL}/meetings/${meetingId}/files`;
+    const token = this.getToken();
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          error: data.error || data.message || `HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
+
+      return { data };
+    } catch (error) {
+      console.error('API request failed:', error);
+      let errorMessage = 'Network error occurred';
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        errorMessage = 'Unable to connect to server. Please check your connection.';
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      return { error: errorMessage };
+    }
+  }
+
+  async downloadMeetingFile(meetingId: number, fileId: number): Promise<Blob | null> {
+    const url = `${this.baseURL}/meetings/${meetingId}/files/${fileId}/download`;
+    const token = this.getToken();
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Download failed:', response.statusText);
+        return null;
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('Download error:', error);
+      return null;
+    }
+  }
+
+  async deleteMeetingFile(meetingId: number, fileId: number): Promise<ApiResponse> {
+    return this.request(`/meetings/${meetingId}/files/${fileId}`, {
       method: 'DELETE',
     });
   }
