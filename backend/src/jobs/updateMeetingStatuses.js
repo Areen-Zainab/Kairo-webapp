@@ -10,7 +10,7 @@ const { stopMeetingSession } = require('./autoJoinMeetings');
  */
 async function updateMeetingStatuses() {
   const startTime = Date.now();
-  console.log(`\n[${new Date().toISOString()}] Starting meeting status update job...`);
+  console.log(`\n[${new Date().toISOString()}] ⏰ Starting meeting status update job...`);
 
   try {
     const now = new Date();

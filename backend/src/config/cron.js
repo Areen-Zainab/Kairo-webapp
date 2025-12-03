@@ -17,7 +17,6 @@ function initializeCronJobs() {
   // This means: at every 15 minutes
   
   meetingStatusCronJob = cron.schedule('*/15 * * * *', async () => {
-    console.log(`\n⏰ [${new Date().toISOString()}] Running scheduled meeting status update...`);
     try {
       const result = await updateMeetingStatuses();
       
@@ -41,7 +40,6 @@ function initializeCronJobs() {
   
   // Auto-join job - runs every minute to ensure headless join at start time
   autoJoinCronJob = cron.schedule('* * * * *', async () => {
-    console.log(`\n⏰ [${new Date().toISOString()}] Running auto-join meetings job...`);
     try {
       const result = await autoJoinMeetings();
       if (!result.success) {

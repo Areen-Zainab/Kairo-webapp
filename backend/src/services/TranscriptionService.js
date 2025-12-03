@@ -4,6 +4,9 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const PY_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/whisperX/transcribe-whisper.py');
+// Check for venv in root directory (where backend runs with venv activated)
+const ROOT_VENV_PYTHON_WIN = path.resolve(__dirname, '../../../venv/Scripts/python.exe');
+const ROOT_VENV_PYTHON_UNIX = path.resolve(__dirname, '../../../venv/bin/python');
 
 class TranscriptionService {
   constructor(meetingDataDir, transcriptFilepath) {
@@ -14,6 +17,8 @@ class TranscriptionService {
     this.pythonResolvers = [];
     this.pythonProcExited = false;
     this.pythonProcExited = false;
+    this.transcriptionQueue = []; // Queue for sequential processing
+    this.processingTranscription = false; // Flag to prevent concurrent processing
     
     // Create transcripts subdirectory
     this.transcriptsDir = path.join(meetingDataDir, 'transcripts');
@@ -211,6 +216,27 @@ class TranscriptionService {
   }
 
   /**
+   * Get Python executable path (prefer root venv, fallback to system Python)
+   */
+  getPythonExecutable() {
+    // Check for root venv Python (Windows)
+    if (process.platform === 'win32' && fs.existsSync(ROOT_VENV_PYTHON_WIN)) {
+      console.log(`✅ Found root venv Python (Windows): ${ROOT_VENV_PYTHON_WIN}`);
+      return ROOT_VENV_PYTHON_WIN;
+    }
+    // Check for root venv Python (Unix/Mac)
+    if (fs.existsSync(ROOT_VENV_PYTHON_UNIX)) {
+      console.log(`✅ Found root venv Python (Unix): ${ROOT_VENV_PYTHON_UNIX}`);
+      return ROOT_VENV_PYTHON_UNIX;
+    }
+    // Fallback to system Python
+    console.log(`⚠️  Root venv Python not found, will use system Python`);
+    console.log(`   Checked Windows: ${ROOT_VENV_PYTHON_WIN} (exists: ${fs.existsSync(ROOT_VENV_PYTHON_WIN)})`);
+    console.log(`   Checked Unix: ${ROOT_VENV_PYTHON_UNIX} (exists: ${fs.existsSync(ROOT_VENV_PYTHON_UNIX)})`);
+    return null;
+  }
+
+  /**
    * Check if Python process is actually alive and working
    */
   isPythonProcAlive() {
@@ -246,16 +272,32 @@ class TranscriptionService {
       this.pythonProc = null;
     }
     
-    const candidates = ['py -3.10', 'python3.10', 'python', 'py'];
+    // Try root venv Python first, then fallback to system Python
+    const venvPython = this.getPythonExecutable();
+    const candidates = venvPython 
+      ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
+      : ['py -3.10', 'python3.10', 'python', 'py'];
     let started = false;
     
     for (const cmd of candidates) {
       try {
-        const proc = spawn(cmd, [PY_SCRIPT_PATH], { shell: process.platform === 'win32' });
+        // Check if cmd is a full path (contains path separators)
+        const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
+        
+        // For full paths, don't use shell mode and pass executable + script separately
+        // For command strings like 'py -3.10', use shell mode
+        const spawnOptions = isFullPath 
+          ? { shell: false } // Direct execution, no shell
+          : { shell: process.platform === 'win32' }; // Use shell for command strings
+        
+        const proc = spawn(cmd, [PY_SCRIPT_PATH], spawnOptions);
+        
         this.pythonProc = proc;
         this.pythonStdoutBuffer = '';
         this.pythonResolvers = [];
         this.pythonProcExited = false; // Track if process has exited
+        
+        console.log(`🔧 Attempting to start Python process: ${cmd} ${PY_SCRIPT_PATH}`);
         
         proc.stdout.on('data', (data) => {
           this.pythonStdoutBuffer += data.toString();
@@ -335,23 +377,62 @@ class TranscriptionService {
   }
 
   /**
-   * Send audio path to persistent Python process
+   * Process transcription queue sequentially
+   * @private
+   */
+  async _processTranscriptionQueue() {
+    if (this.processingTranscription || this.transcriptionQueue.length === 0) {
+      return;
+    }
+    
+    this.processingTranscription = true;
+    
+    while (this.transcriptionQueue.length > 0) {
+      const { audioPath, resolve, reject } = this.transcriptionQueue.shift();
+      
+      try {
+        // Ensure process exists and is alive
+        this.ensurePythonProc();
+        
+        if (!this.isPythonProcAlive()) {
+          // Fallback to one-shot mode
+          console.log('⚠️  Persistent Python process not alive, using one-shot mode');
+          const text = await this.runPythonOneShot(audioPath);
+          resolve(text);
+          continue;
+        }
+        
+        // Send request and wait for response
+        const text = await this._sendSingleRequest(audioPath);
+        resolve(text);
+      } catch (error) {
+        // Try one-shot as fallback
+        try {
+          const text = await this.runPythonOneShot(audioPath);
+          resolve(text);
+        } catch (oneShotError) {
+          reject(oneShotError);
+        }
+      }
+    }
+    
+    this.processingTranscription = false;
+  }
+
+  /**
+   * Send a single transcription request to Python process
    * @param {string} audioPath - Path to audio file
    * @returns {Promise<string>} - Transcription text
+   * @private
    */
-  sendToPython(audioPath) {
+  _sendSingleRequest(audioPath) {
     return new Promise((resolve, reject) => {
       let timeout = null;
-      let resolverIndex = -1;
       
       const cleanup = () => {
         if (timeout) {
           clearTimeout(timeout);
           timeout = null;
-        }
-        // Remove resolver from queue if it's still there
-        if (resolverIndex !== -1 && resolverIndex < this.pythonResolvers.length) {
-          this.pythonResolvers.splice(resolverIndex, 1);
         }
       };
       
@@ -360,25 +441,6 @@ class TranscriptionService {
         cleanup();
         reject(new Error('Transcription timeout - Python process did not respond within 30 seconds'));
       }, 30000); // 30 second timeout
-      
-      try {
-        // Check if process is alive before trying to use it
-        if (!this.isPythonProcAlive()) {
-          cleanup();
-          return reject(new Error('Python process is not alive'));
-        }
-        
-        this.ensurePythonProc();
-        
-        // Double-check after ensurePythonProc (it might have restarted)
-        if (!this.isPythonProcAlive()) {
-          cleanup();
-          return reject(new Error('Python process failed to start'));
-        }
-      } catch (e) {
-        cleanup();
-        return reject(e);
-      }
       
       // Create resolver wrapper that cleans up timeout
       const resolverWrapper = {
@@ -392,21 +454,37 @@ class TranscriptionService {
         }
       };
       
-      // Add to queue and remember index
-      resolverIndex = this.pythonResolvers.length;
+      // Add to resolver queue (only one at a time since we process sequentially)
       this.pythonResolvers.push(resolverWrapper);
       
       try {
         if (!this.pythonProc.stdin || this.pythonProc.stdin.destroyed) {
           cleanup();
+          this.pythonResolvers.pop(); // Remove the resolver we just added
           return reject(new Error('Python process stdin is not available'));
         }
         
         this.pythonProc.stdin.write(audioPath + '\n');
       } catch (e) {
         cleanup();
+        this.pythonResolvers.pop(); // Remove the resolver we just added
         return reject(e);
       }
+    });
+  }
+
+  /**
+   * Send audio path to persistent Python process (queued for sequential processing)
+   * @param {string} audioPath - Path to audio file
+   * @returns {Promise<string>} - Transcription text
+   */
+  sendToPython(audioPath) {
+    return new Promise((resolve, reject) => {
+      // Add to queue for sequential processing
+      this.transcriptionQueue.push({ audioPath, resolve, reject });
+      
+      // Start processing queue if not already processing
+      this._processTranscriptionQueue();
     }).then((text) => {
       // Clean the text before returning
       return this.cleanTranscriptionText(text);
@@ -420,7 +498,11 @@ class TranscriptionService {
    */
   runPythonOneShot(audioPath) {
     return new Promise((resolve, reject) => {
-      const candidates = ['py -3.10', 'python3.10', 'python', 'py'];
+      // Try root venv Python first, then fallback to system Python
+      const venvPython = this.getPythonExecutable();
+      const candidates = venvPython 
+        ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
+        : ['py -3.10', 'python3.10', 'python', 'py'];
       let attempt = 0;
       
       const tryOne = () => {
@@ -429,9 +511,16 @@ class TranscriptionService {
         }
         
         const cmd = candidates[attempt++];
-        const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath], { 
-          shell: process.platform === 'win32' 
-        });
+        // Check if cmd is a full path (contains path separators)
+        const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
+        
+        // For full paths, don't use shell mode and pass executable + script separately
+        // For command strings like 'py -3.10', use shell mode
+        const spawnOptions = isFullPath 
+          ? { shell: false } // Direct execution, no shell
+          : { shell: process.platform === 'win32' }; // Use shell for command strings
+        
+        const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath], spawnOptions);
         
         let stdout = '';
         let stderr = '';
@@ -518,7 +607,11 @@ class TranscriptionService {
    */
   async runDiarizationPython(audioPath) {
     return new Promise((resolve, reject) => {
-      const candidates = ['py -3.10', 'python3.10', 'python', 'py'];
+      // Try root venv Python first, then fallback to system Python
+      const venvPython = this.getPythonExecutable();
+      const candidates = venvPython 
+        ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
+        : ['py -3.10', 'python3.10', 'python', 'py'];
       let attempt = 0;
       
       const tryOne = () => {
@@ -527,10 +620,17 @@ class TranscriptionService {
         }
         
         const cmd = candidates[attempt++];
+        // Check if cmd is a full path (contains path separators)
+        const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
+        
+        // For full paths, don't use shell mode and pass executable + script separately
+        // For command strings like 'py -3.10', use shell mode
+        const spawnOptions = isFullPath 
+          ? { shell: false } // Direct execution, no shell
+          : { shell: process.platform === 'win32' }; // Use shell for command strings
+        
         // Add --diarize flag to Python script
-        const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath, '--diarize'], { 
-          shell: process.platform === 'win32' 
-        });
+        const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath, '--diarize'], spawnOptions);
         
         let stdout = '';
         let stderr = '';

@@ -472,41 +472,34 @@ class AudioRecorder {
         const chunkFilename = `chunk_${ts}_${idx}.webm`;
         const chunkPath = path.join(this.chunksDir, chunkFilename);
         
-        console.log(`\n💾 Received cumulative chunk: ${(chunkData.size / 1024).toFixed(1)} KB (chunks ${chunkData.startIndex} → ${chunkData.endIndex}, ${chunkData.chunks} new)`);
-
         // Special case: First chunk (startIndex = 0) - this IS the new audio, no extraction needed
         if (chunkData.startIndex === 0) {
-          console.log(`   ✅ First chunk - saving as-is (contains ${chunkData.chunks} chunk(s) of new audio)`);
           fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
           
           // Convert to MP3 and transcribe
           const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
           const ok = await this.convertToMp3(chunkPath, mp3Path);
+          const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
+          console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) \n- Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
+          
           if (ok && this.transcriptionService) {
-            console.log(`   🎧 Chunk MP3: ${path.basename(mp3Path)}`);
             try {
               const result = await this.transcriptionService.transcribe(mp3Path, idx);
-              if (result && result.success) {
-                console.log(`   ✅ Chunk ${idx} transcribed successfully`);
-              } else {
-                console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+              if (!result || !result.success) {
+                console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
               }
             } catch (transcribeError) {
-              console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+              console.error(`   ❌ Transcription error:`, transcribeError.message);
             }
           } else if (this.transcriptionService) {
             try {
               const result = await this.transcriptionService.transcribe(chunkPath, idx);
-              if (result && result.success) {
-                console.log(`   ✅ Chunk ${idx} transcribed successfully`);
-              } else {
-                console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+              if (!result || !result.success) {
+                console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
               }
             } catch (transcribeError) {
-              console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+              console.error(`   ❌ Transcription error:`, transcribeError.message);
             }
-          } else {
-            console.warn(`   ⚠️  No transcription service available for chunk ${idx}`);
           }
         } else {
           // Subsequent chunks: Extract only the new portion from the end
@@ -515,29 +508,22 @@ class AudioRecorder {
           const tempRemuxedPath = path.join(this.chunksDir, `temp_remuxed_${ts}.webm`);
           
           fs.writeFileSync(tempCumulativePath, Buffer.from(chunkData.audio, 'base64'));
-          console.log(`   📦 Saved cumulative blob: ${(chunkData.size / 1024).toFixed(1)} KB`);
           
           // Remux the file first to ensure it's valid WebM structure
-          console.log(`   🔧 Remuxing WebM file to fix structure...`);
           const remuxSuccess = await new Promise((resolve) => {
             const ffmpegPath = ffmpeg.path;
             const remuxCommand = `"${ffmpegPath}" -i "${tempCumulativePath}" -c copy "${tempRemuxedPath}" -y 2>&1`;
             
             exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
               if (remuxError || !fs.existsSync(tempRemuxedPath) || fs.statSync(tempRemuxedPath).size < 1000) {
-                console.warn(`   ⚠️  Remux failed, trying extraction on original file...`);
-                // If remux fails, try extraction on original
                 resolve(false);
               } else {
-                console.log(`   ✅ Remux successful`);
                 resolve(true);
               }
             });
           });
           
           const fileToExtract = remuxSuccess ? tempRemuxedPath : tempCumulativePath;
-          
-          console.log(`   🔪 Extracting last ~3 seconds (new audio only)...`);
           
           const extractSuccess = await this.extractLastNSeconds(
             fileToExtract,
@@ -550,44 +536,37 @@ class AudioRecorder {
             fs.unlinkSync(tempCumulativePath);
             if (fs.existsSync(tempRemuxedPath)) fs.unlinkSync(tempRemuxedPath);
           } catch (e) {
-            console.warn('   ⚠️  Could not delete temp file:', e.message);
+            // Silent cleanup
           }
 
           if (extractSuccess) {
-            console.log(`   ✅ Non-cumulative chunk saved: ${path.basename(chunkPath)}`);
-            
             // Convert to MP3 and transcribe (now only ~3 seconds of NEW audio!)
             const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
             const ok = await this.convertToMp3(chunkPath, mp3Path);
+            const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
+            console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
+            
             if (ok && this.transcriptionService) {
-              console.log(`   🎧 Chunk MP3: ${path.basename(mp3Path)}`);
               try {
                 const result = await this.transcriptionService.transcribe(mp3Path, idx);
-                if (result && result.success) {
-                  console.log(`   ✅ Chunk ${idx} transcribed successfully`);
-                } else {
-                  console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+                if (!result || !result.success) {
+                  console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
                 }
               } catch (transcribeError) {
-                console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+                console.error(`   ❌ Transcription error:`, transcribeError.message);
               }
             } else if (this.transcriptionService) {
               try {
                 const result = await this.transcriptionService.transcribe(chunkPath, idx);
-                if (result && result.success) {
-                  console.log(`   ✅ Chunk ${idx} transcribed successfully`);
-                } else {
-                  console.warn(`   ⚠️  Chunk ${idx} transcription failed: ${result?.error || 'Unknown error'}`);
+                if (!result || !result.success) {
+                  console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
                 }
               } catch (transcribeError) {
-                console.error(`   ❌ Error transcribing chunk ${idx}:`, transcribeError.message);
+                console.error(`   ❌ Transcription error:`, transcribeError.message);
               }
-            } else {
-              console.warn(`   ⚠️  No transcription service available for chunk ${idx}`);
             }
           } else {
-            console.error('   ❌ Failed to extract segment, skipping this chunk');
-            console.error('   Debug: Check FFmpeg output above for errors');
+            console.error(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} - ❌ Failed to extract segment, skipping`);
           }
         }
       } catch (err) {
@@ -604,10 +583,8 @@ class AudioRecorder {
    * Flush any pending chunks before stopping
    */
   async flushPendingChunks() {
-    console.log('[AudioRecorder.flushPendingChunks] Starting...');
     try {
       if (!this.page || this.page.isClosed()) {
-        console.log('[AudioRecorder.flushPendingChunks] Page is closed, skipping');
         return;
       }
 
@@ -637,7 +614,6 @@ class AudioRecorder {
       }).catch(() => null);
 
       if (!chunkData || !chunkData.audio || chunkData.size < 1000) {
-        console.log('[AudioRecorder.flushPendingChunks] No final chunk to save');
         return;
       }
 
@@ -646,30 +622,44 @@ class AudioRecorder {
       const chunkFilename = `chunk_${ts}_${idx}.webm`;
       const chunkPath = path.join(this.chunksDir, chunkFilename);
       
-      console.log(`\n💾 FINAL cumulative chunk received: ${(chunkData.size / 1024).toFixed(1)} KB (chunks ${chunkData.startIndex} → ${chunkData.endIndex})`);
-
       // Extract only the new portion (last ~3 seconds) if this isn't the first chunk
       if (chunkData.startIndex > 0) {
         const tempCumulativePath = path.join(this.chunksDir, `temp_final_${ts}.webm`);
+        const tempRemuxedPath = path.join(this.chunksDir, `temp_final_remuxed_${ts}.webm`);
+        
         fs.writeFileSync(tempCumulativePath, Buffer.from(chunkData.audio, 'base64'));
         
-        console.log(`   🔪 Extracting last ~3 seconds (new audio only)...`);
+        // Remux the file first to ensure it's valid WebM structure
+        const remuxSuccess = await new Promise((resolve) => {
+          const ffmpegPath = ffmpeg.path;
+          const remuxCommand = `"${ffmpegPath}" -i "${tempCumulativePath}" -c copy "${tempRemuxedPath}" -y 2>&1`;
+          
+          exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
+            if (remuxError || !fs.existsSync(tempRemuxedPath) || fs.statSync(tempRemuxedPath).size < 1000) {
+              resolve(false);
+            } else {
+              resolve(true);
+            }
+          });
+        });
+        
+        const fileToExtract = remuxSuccess ? tempRemuxedPath : tempCumulativePath;
         
         const extractSuccess = await this.extractLastNSeconds(
-          tempCumulativePath,
+          fileToExtract,
           chunkPath,
           3.5
         );
 
-        // Delete temp file
+        // Clean up temp files
         try {
           fs.unlinkSync(tempCumulativePath);
+          if (fs.existsSync(tempRemuxedPath)) fs.unlinkSync(tempRemuxedPath);
         } catch (e) {
-          console.warn('   ⚠️  Could not delete temp file:', e.message);
+          // Silent cleanup
         }
 
         if (!extractSuccess) {
-          console.error('   ❌ Failed to extract final segment, saving cumulative as fallback');
           fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
         }
       } else {
@@ -677,33 +667,29 @@ class AudioRecorder {
         fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
       }
 
-      console.log(`   ✅ Final chunk saved: ${path.basename(chunkPath)} (${(fs.statSync(chunkPath).size / 1024).toFixed(1)} KB)`);
-
       const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
       
       // CRITICAL FIX: Don't wait for transcription - do it in background
       // The transcription might hang and we need to proceed to save the complete recording
-      console.log('[AudioRecorder.flushPendingChunks] Starting MP3 conversion and transcription in background...');
-      
-      // Fire and forget - don't await
       if (this.transcriptionService) {
         const finalChunkIdx = idx; // Capture idx for use in promise
         this.convertToMp3(chunkPath, mp3Path)
           .then((ok) => {
+            const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
+            console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
             if (ok) {
-              console.log(`🎧 Final chunk MP3: ${path.basename(mp3Path)}`);
               return this.transcriptionService.transcribe(mp3Path, finalChunkIdx);
             } else {
               return this.transcriptionService.transcribe(chunkPath, finalChunkIdx);
             }
           })
           .catch((err) => {
-            console.error('[AudioRecorder.flushPendingChunks] Background transcription error:', err);
+            console.error('   ❌ Background transcription error:', err.message);
           });
+      } else {
+        const mp3Status = 'MP3 conversion skipped (no transcription service)';
+        console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
       }
-      
-      // Don't wait - return immediately so we can proceed to save complete recording
-      console.log('[AudioRecorder.flushPendingChunks] Completed (transcription continuing in background)');
       
     } catch (err) {
       console.error('[AudioRecorder.flushPendingChunks] Error:', err);
@@ -716,23 +702,16 @@ class AudioRecorder {
    * NOTE: This will stop the completeRecorder as part of getting the audio
    */
   async saveCompleteRecording(baseName) {
-    console.log(`\n💾 [AudioRecorder.saveCompleteRecording] Starting...`);
-    console.log(`   Base name: ${baseName || 'none'}`);
-    console.log(`   Page exists: ${!!this.page}`);
-    console.log(`   Page closed: ${this.page ? this.page.isClosed() : 'N/A'}`);
-    
     try {
       if (!this.page || this.page.isClosed()) {
-        console.log('❌ [AudioRecorder.saveCompleteRecording] Page is closed, cannot retrieve complete recording');
+        console.log('❌ Cannot retrieve complete recording: page is closed');
         return null;
       }
-
-      console.log('⏳ [AudioRecorder.saveCompleteRecording] Retrieving complete audio data from completeRecorder...');
 
       // Add timeout to prevent hanging
       const timeoutPromise = new Promise((resolve) => {
         setTimeout(() => {
-          console.error('⏰ [AudioRecorder.saveCompleteRecording] Timeout waiting for stopAndGetAudio (30s)');
+          console.error('⏰ Timeout waiting for complete recording (30s)');
           resolve(null);
         }, 30000); // 30 second timeout
       });
@@ -740,71 +719,44 @@ class AudioRecorder {
       // stopAndGetAudio will stop the completeRecorder and return all chunks
       const evaluatePromise = this.page.evaluate(() => {
         try {
-          console.log('[KAIRO] Calling stopAndGetAudio...');
           if (!window.stopAndGetAudio) {
-            console.error('[KAIRO] stopAndGetAudio function not found!');
             return null;
           }
           return window.stopAndGetAudio();
         } catch (e) {
-          console.error('[KAIRO] Error in stopAndGetAudio:', e);
           return null;
         }
-      }).catch(err => {
-        console.error('❌ [AudioRecorder.saveCompleteRecording] Error in page.evaluate:', err && err.message ? err.message : err);
-        return null;
-      });
+      }).catch(() => null);
 
       const audioData = await Promise.race([evaluatePromise, timeoutPromise]);
       
-      if (!audioData) {
-        console.log('❌ [AudioRecorder.saveCompleteRecording] No audio data retrieved (timeout or error)');
-        return null;
-      }
-
       if (!audioData || !audioData.audio) {
-        console.log('❌ [AudioRecorder.saveCompleteRecording] No complete recording available');
-        console.log('   Debug: audioData =', audioData ? 'exists but no audio' : 'null');
+        console.log('❌ No complete recording available');
         return null;
       }
-
-      console.log('✅ [AudioRecorder.saveCompleteRecording] Audio retrieved:', (audioData.size / 1024).toFixed(1), 'KB');
 
       // Save the complete WebM
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
       const webmFilename = baseName ? `${baseName}_complete.webm` : `recording_${timestamp}.webm`;
       const webmPath = path.join(this.meetingDataDir, webmFilename);
 
-      console.log('⏳ [AudioRecorder.saveCompleteRecording] Saving WebM file...');
       fs.writeFileSync(webmPath, Buffer.from(audioData.audio, 'base64'));
-      console.log('✅ [AudioRecorder.saveCompleteRecording] WebM saved:', path.resolve(webmPath));
 
       // Convert to MP3
-      console.log('⏳ [AudioRecorder.saveCompleteRecording] Converting to MP3...');
       const mp3Filename = baseName ? `${baseName}_complete.mp3` : `recording_${timestamp}.mp3`;
       const mp3Path = path.join(this.meetingDataDir, mp3Filename);
 
       const conversionSuccess = await this.convertToMp3(webmPath, mp3Path);
       
       if (conversionSuccess) {
-        console.log('\n✅ [AudioRecorder.saveCompleteRecording] COMPLETE RECORDING CREATED!');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📁 Complete MP3:', mp3Filename);
-        console.log('📂 Path:', path.resolve(mp3Path));
-        console.log('📁 Complete WebM:', webmFilename);
-        console.log('📂 Path:', path.resolve(webmPath));
-        console.log('📊 Size:', (audioData.size / 1024 / 1024).toFixed(2), 'MB');
-        console.log('📦 Chunks:', audioData.chunks);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        console.log(`✅ Complete recording saved: ${webmFilename} and ${mp3Filename} (${(audioData.size / 1024 / 1024).toFixed(2)} MB)`);
       } else {
-        console.log('⚠️ [AudioRecorder.saveCompleteRecording] MP3 conversion failed, but WebM saved');
+        console.log(`✅ Complete recording saved: ${webmFilename} (MP3 conversion failed)`);
       }
 
-      console.log('✅ [AudioRecorder.saveCompleteRecording] Completed successfully');
       return { mp3Path, webmPath, size: audioData.size };
     } catch (error) {
-      console.error('\n❌ [AudioRecorder.saveCompleteRecording] Save failed:', error && error.message ? error.message : error);
-      console.error('   Error stack:', error.stack);
+      console.error('❌ Save complete recording failed:', error && error.message ? error.message : error);
       return null;
     }
   }
@@ -814,27 +766,21 @@ class AudioRecorder {
    * NOTE: This stops the streamRecorder only. The completeRecorder is stopped by saveCompleteRecording()
    */
   async stopRecording() {
-    console.log('[AudioRecorder.stopRecording] Starting...');
-    
     // Clear interval
     if (this.chunkFlushInterval) {
       clearInterval(this.chunkFlushInterval);
       this.chunkFlushInterval = null;
-      console.log('[AudioRecorder.stopRecording] Cleared chunk flush interval');
     }
 
     // Flush pending chunks from streamRecorder with timeout
-    console.log('[AudioRecorder.stopRecording] Flushing pending chunks...');
     const flushPromise = this.flushPendingChunks();
     const flushTimeout = new Promise((resolve) => {
       setTimeout(() => {
-        console.warn('⏰ [AudioRecorder.stopRecording] flushPendingChunks() timed out after 5 seconds, proceeding anyway...');
         resolve();
       }, 5000); // 5 second timeout
     });
     
     await Promise.race([flushPromise, flushTimeout]);
-    console.log('[AudioRecorder.stopRecording] Flush completed or timed out');
 
     // Stop streamRecorder only (completeRecorder is stopped by saveCompleteRecording)
     try {
@@ -853,14 +799,12 @@ class AudioRecorder {
         });
       }
     } catch (err) {
-      console.error('[AudioRecorder.stopRecording] Error stopping streamRecorder:', err);
+      console.error('Error stopping streamRecorder:', err.message);
     }
 
     // Note: saveCompleteRecording() and transcription finalization are called separately in MeetingBot.js
     // We do NOT finalize or cleanup transcription here - that happens in MeetingBot.stop() after
     // the complete audio is saved, so diarization can run with the full audio file.
-    
-    console.log('[AudioRecorder.stopRecording] Completed');
   }
 
   /**
@@ -894,7 +838,6 @@ class AudioRecorder {
   async extractLastNSeconds(inputPath, outputPath, seconds) {
     return new Promise((resolve) => {
       if (!fs.existsSync(inputPath)) {
-        console.error(`   ❌ Input file not found: ${inputPath}`);
         return resolve(false);
       }
 
@@ -902,10 +845,8 @@ class AudioRecorder {
       setTimeout(() => {
         const ffmpegPath = ffmpeg.path;
         const fileSize = fs.statSync(inputPath).size;
-        console.log(`   📁 Input file size: ${(fileSize / 1024).toFixed(1)} KB`);
         
         if (fileSize < 1000) {
-          console.error(`   ❌ Input file too small: ${fileSize} bytes`);
           return resolve(false);
         }
         
@@ -922,7 +863,6 @@ class AudioRecorder {
               const json = JSON.parse(jsonStdout);
               if (json.format && json.format.duration) {
                 totalDuration = parseFloat(json.format.duration);
-                console.log(`   📊 Duration from JSON: ${totalDuration.toFixed(2)}s`);
               }
             } catch (e) {
               // JSON parse failed, continue to other methods
@@ -939,7 +879,6 @@ class AudioRecorder {
                 const parsed = parseFloat(durationStr);
                 if (!isNaN(parsed) && parsed > 0) {
                   totalDuration = parsed;
-                  console.log(`   📊 Duration from default format: ${totalDuration.toFixed(2)}s`);
                 }
               }
               
@@ -962,18 +901,10 @@ class AudioRecorder {
                     const minutes = parseInt(durationMatch[2]);
                     const secs = parseFloat(durationMatch[3]);
                     totalDuration = hours * 3600 + minutes * 60 + secs;
-                    console.log(`   📊 Duration from fallback: ${totalDuration.toFixed(2)}s`);
                   }
                   
                   if (!totalDuration) {
-                    console.error(`   ❌ Could not determine file duration`);
-                    console.error(`   File size: ${fileSize} bytes`);
-                    console.error(`   JSON output:`, jsonStdout?.substring(0, 300));
-                    console.error(`   Default output:`, probeStdout?.substring(0, 200));
-                    console.error(`   Fallback output (first 500 chars):`, output.substring(0, 500));
-                    
                     // Try to fix/remux the file first, then get duration
-                    console.log(`   🔧 Attempting to fix/remux WebM file...`);
                     const fixedPath = inputPath.replace('.webm', '_fixed.webm');
                     const fixCommand = `"${ffmpegPath}" -i "${inputPath}" -c copy "${fixedPath}" -y 2>&1`;
                     
@@ -986,7 +917,6 @@ class AudioRecorder {
                             const parsed = parseFloat(fixedProbeStdout.trim());
                             if (!isNaN(parsed) && parsed > 0) {
                               totalDuration = parsed;
-                              console.log(`   ✅ Fixed file, duration: ${totalDuration.toFixed(2)}s`);
                               // Use fixed file for extraction
                               const originalInput = inputPath;
                               inputPath = fixedPath;
@@ -1026,36 +956,27 @@ class AudioRecorder {
         });
         
         function proceedWithExtraction(totalDuration) {
-          console.log(`   📊 Total duration: ${totalDuration.toFixed(2)}s`);
-          
           // Calculate start time for extraction (total - N seconds)
           const startTime = Math.max(0, totalDuration - seconds);
           const extractDuration = Math.min(seconds, totalDuration);
           
           // If file is shorter than requested seconds, extract from start
           if (totalDuration <= seconds) {
-            console.log(`   ⚠️  File is shorter than ${seconds}s, extracting entire file`);
             const extractCommand = `"${ffmpegPath}" -i "${inputPath}" -c copy "${outputPath}" -y`;
             
             exec(extractCommand, { maxBuffer: 1024 * 1024 }, (extractError) => {
               if (extractError) {
-                console.error(`   ❌ Extraction failed:`, extractError.message);
                 return resolve(false);
               }
               
               if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
-                const size = (fs.statSync(outputPath).size / 1024).toFixed(1);
-                console.log(`   ✅ Extracted ${size} KB (full file)`);
                 resolve(true);
               } else {
-                console.error(`   ❌ Output file empty or too small`);
                 resolve(false);
               }
             });
             return;
           }
-          
-          console.log(`   🔪 Extracting: ${startTime.toFixed(2)}s → ${totalDuration.toFixed(2)}s (${extractDuration.toFixed(2)}s)`);
           
           // Step 2: Extract the segment
           // -ss AFTER -i for accurate extraction (especially important for end of file)
@@ -1065,24 +986,16 @@ class AudioRecorder {
           exec(extractCommand, { maxBuffer: 1024 * 1024 }, (extractError, extractStdout, extractStderr) => {
             if (extractError) {
               // Fallback: re-encode with Opus
-              console.warn(`   ⚠️  Copy mode failed, re-encoding...`);
               const reencodeCommand = `"${ffmpegPath}" -i "${inputPath}" -ss ${startTime} -t ${extractDuration} -c:a libopus -b:a 128k -f webm "${outputPath}" -y`;
               
               exec(reencodeCommand, { maxBuffer: 1024 * 1024 }, (reencodeError, reencodeStdout, reencodeStderr) => {
                 if (reencodeError) {
-                  console.error(`   ❌ Extraction failed:`, reencodeError.message);
-                  if (reencodeStderr) {
-                    console.error(`   FFmpeg stderr:`, reencodeStderr.substring(0, 300));
-                  }
                   return resolve(false);
                 }
                 
                 if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
-                  const size = (fs.statSync(outputPath).size / 1024).toFixed(1);
-                  console.log(`   ✅ Extracted ${size} KB (re-encoded)`);
                   resolve(true);
                 } else {
-                  console.error(`   ❌ Output file empty or too small`);
                   resolve(false);
                 }
               });
@@ -1091,11 +1004,8 @@ class AudioRecorder {
             
             // Check if extraction succeeded
             if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
-              const size = (fs.statSync(outputPath).size / 1024).toFixed(1);
-              console.log(`   ✅ Extracted ${size} KB (copied)`);
               resolve(true);
             } else {
-              console.error(`   ❌ Output file empty or too small`);
               resolve(false);
             }
           });
@@ -1117,15 +1027,12 @@ class AudioRecorder {
       const command = `"${ffmpegPath}" -i "${inputPath}" -vn -ar 44100 -ac 2 -b:a 192k -f mp3 "${outputPath}" -y`;
       exec(command, (error, stdout, stderr) => {
         if (error) {
-          console.log(`⚠️  FFmpeg conversion failed for ${path.basename(inputPath)}:`, error.message);
           return resolve(false);
         }
 
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
-          console.log(`✅ MP3 conversion complete: ${path.basename(outputPath)}`);
           resolve(true);
         } else {
-          console.log(`⚠️  MP3 file not created or empty: ${path.basename(outputPath)}`);
           resolve(false);
         }
       });
