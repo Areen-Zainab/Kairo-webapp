@@ -6,9 +6,9 @@ const fs = require('fs');
 const path = require('path');
 const AudioRecorder = require('./AudioRecorder');
 
-// Platform-specific handlers
-const meetPlatform = require('./meetService');
-const zoomPlatform = require('./zoomService');
+// Platform-specific handlers (modularized under bot-join)
+const meetPlatform = require('./bot-join/meetService');
+const zoomPlatform = require('./bot-join/zoomService');
 
 puppeteer.use(StealthPlugin());
 
