@@ -1,310 +1,275 @@
-const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
-const { exec, spawn } = require('child_process');
-const ffmpeg = require('ffmpeg-static');
+// meetService.js - Pure functions for Google Meet interactions only
+require('dotenv').config();
 
-// =========================
-// CONFIG
-// =========================
-const MEET_URL = process.env.MEET_URL;
-const BOT_NAME = process.env.BOT_NAME || 'Kairo Bot';
-const RECORDINGS_DIR = path.resolve(process.env.RECORDINGS_DIR || './recordings');
-const CHUNKS_DIR = path.resolve(process.env.CHUNKS_DIR || './chunks');
-const USER_DATA_DIR = process.env.USER_DATA_DIR;
-const AUTO_MODE = !!process.env.AUTO_MODE;
-const DURATION_MINUTES = parseInt(process.env.DURATION_MINUTES || '30');
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-// Adjust this path to where your Python WhisperX script is located
-const PY_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/transcribe-whisper.py');
+/**
+ * Navigate to Google Meet URL
+ * @param {Page} page - Puppeteer page object
+ * @param {string} meetUrl - Google Meet URL
+ */
+async function navigateToMeeting(page, meetUrl) {
+  if (!page || page.isClosed()) {
+    throw new Error('Page is closed, cannot navigate');
+  }
 
-let globalBrowser, globalPage, transcriptFilepath;
-let monitorInterval, autoExitTimeout, chunkFlushInterval, chunkSequence = 0;
-let isFinalizing = false;
+  await page.goto(meetUrl, {
+    waitUntil: 'networkidle2',
+    timeout: 60000
+  });
 
-fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
-fs.mkdirSync(CHUNKS_DIR, { recursive: true });
+  await sleep(5000);
+}
 
-// =========================
-// UTILS
-// =========================
-const sleep = ms => new Promise(res => setTimeout(res, ms));
+/**
+ * Enter bot name into the name input field
+ * @param {Page} page - Puppeteer page object
+ * @param {string} botName - Name to enter
+ */
+async function enterBotName(page, botName) {
+  if (!page || page.isClosed()) {
+    throw new Error('Page is closed, cannot enter name');
+  }
 
-async function withRetry(desc, fn, attempts = 3, delay = 1000) {
-  for (let i = 0; i < attempts; i++) {
-    try { return await fn(); }
-    catch (e) { if (i === attempts - 1) throw e; await sleep(delay); }
+  try {
+    await page.waitForSelector('input[type="text"]', { timeout: 10000 });
+    await page.evaluate((name) => {
+      const inputs = document.querySelectorAll('input');
+      for (const input of inputs) {
+        const placeholder = (input.placeholder || '').toLowerCase();
+        const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
+
+        if (placeholder.includes('name') || ariaLabel.includes('name') || input.type === 'text') {
+          input.value = name;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          console.log('Name entered:', name);
+          break;
+        }
+      }
+    }, botName);
+  } catch (e) {
+    console.log('⚠️ Name field not found or already filled');
+  }
+
+  await sleep(2000);
+}
+
+/**
+ * Disable camera and microphone
+ * @param {Page} page - Puppeteer page object
+ */
+async function disableCameraAndMic(page) {
+  if (!page || page.isClosed()) {
+    console.log('⚠️ Page is closed, skipping camera/mic disable');
+    return;
+  }
+
+  try {
+    await page.evaluate(() => {
+      const buttons = document.querySelectorAll('button, div[role="button"]');
+
+      buttons.forEach(btn => {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+
+        if (label.includes('turn off camera') || label.includes('camera off')) {
+          btn.click();
+        }
+
+        if (label.includes('turn off microphone') || label.includes('mute')) {
+          btn.click();
+        }
+      });
+    });
+    await sleep(2000);
+  } catch (error) {
+    console.error('❌ Error disabling camera/mic:', error.message);
   }
 }
 
-// =========================
-// JOIN MEET
-// =========================
-async function joinGoogleMeet() {
-  try {
-    globalBrowser = await puppeteer.launch({
-      headless: false,
-      args: ['--use-fake-ui-for-media-stream', '--no-sandbox'],
-      userDataDir: USER_DATA_DIR
-    });
-    globalPage = await globalBrowser.newPage();
+/**
+ * Click the join button
+ * @param {Page} page - Puppeteer page object
+ */
+async function clickJoinButton(page) {
+  if (!page || page.isClosed()) {
+    throw new Error('Page is closed, cannot join meeting');
+  }
 
-    console.log('⏳ Loading meeting...');
-    let navSuccess = false;
-    for (let navAttempts = 0; navAttempts < 3; navAttempts++) {
+  try {
+    await page.evaluate(() => {
+      const buttons = document.querySelectorAll('button, div[role="button"]');
+      buttons.forEach(btn => {
+        const text = (btn.textContent || '').toLowerCase();
+        if (text.includes('join now') || text.includes('ask to join')) {
+          btn.click();
+        }
+      });
+    });
+
+    await sleep(8000);
+  } catch (error) {
+    console.error('❌ Error joining meeting:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Leave the meeting
+ * @param {Page} page - Puppeteer page object
+ */
+async function leaveMeeting(page) {
+  if (!page || page.isClosed()) {
+    console.log('⚠️ Page is closed, cannot leave meeting');
+    return;
+  }
+
+  try {
+    console.log('🔍 Searching for leave button...');
+    
+    // Try multiple strategies to find and click the leave button
+    const leftMeeting = await page.evaluate(() => {
+      // Strategy 1: Look for button with "Leave call" or "Leave" in aria-label
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      
+      // First, try to find the most specific leave button
+      let leaveButton = null;
+      
+      for (const btn of buttons) {
+        const text = (btn.textContent || '').toLowerCase().trim();
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
+        const dataTestId = btn.getAttribute('data-testid') || '';
+        const className = btn.className || '';
+        
+        // Check for leave button indicators
+        if (
+          label.includes('leave call') ||
+          label === 'leave call' ||
+          (text.includes('leave') && !text.includes('leave meeting')) ||
+          dataTestId.includes('leave') ||
+          className.includes('leave')
+        ) {
+          // Make sure it's visible and clickable
+          const rect = btn.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0 && 
+                           window.getComputedStyle(btn).display !== 'none' &&
+                           window.getComputedStyle(btn).visibility !== 'hidden';
+          
+          if (isVisible) {
+            leaveButton = btn;
+            break; // Found the button, stop searching
+          }
+        }
+      }
+      
+      if (leaveButton) {
+        console.log('[KAIRO] Found leave button, clicking...');
+        // Scroll into view if needed
+        leaveButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Try multiple click methods
+        try {
+          leaveButton.click();
+        } catch (e1) {
+          try {
+            leaveButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          } catch (e2) {
+            try {
+              const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+              const mouseUp = new MouseEvent('mouseup', { bubbles: true, cancelable: true });
+              leaveButton.dispatchEvent(mouseDown);
+              leaveButton.dispatchEvent(mouseUp);
+            } catch (e3) {
+              console.error('[KAIRO] All click methods failed');
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+      
+      // Strategy 2: Look for end call button (alternative)
+      for (const btn of buttons) {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        if (label.includes('end call') || label.includes('hang up')) {
+          const rect = btn.getBoundingClientRect();
+          const isVisible = rect.width > 0 && rect.height > 0;
+          if (isVisible) {
+            btn.click();
+            return true;
+          }
+        }
+      }
+      
+      console.log('[KAIRO] No leave button found');
+      return false;
+    });
+
+    if (!leftMeeting) {
+      console.log('⚠️ Could not find leave button, trying keyboard shortcut...');
+      // Fallback: Try keyboard shortcut (Ctrl+E or Alt+Q)
       try {
-        await globalPage.goto(MEET_URL, { waitUntil: 'load', timeout: 120000 });
-        try { await globalPage.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 }); } catch (_) { }
-        navSuccess = true;
-        await sleep(1500);
-        console.log('✅ Page loaded');
-        break;
-      } catch (err) {
-        console.error('❌ Navigation error:', err.message);
-        await sleep(3000);
+        await page.keyboard.down('Control');
+        await page.keyboard.press('e');
+        await page.keyboard.up('Control');
+        await sleep(500);
+      } catch (kbErr) {
+        console.log('⚠️ Keyboard shortcut failed, trying Alt+Q...');
+        try {
+          await page.keyboard.down('Alt');
+          await page.keyboard.press('q');
+          await page.keyboard.up('Alt');
+        } catch (kbErr2) {
+          console.log('⚠️ All leave methods failed');
+        }
       }
     }
-    if (!navSuccess) { console.error('❌ Could not load page'); process.exit(2); }
-
-    // Dismiss cookies/consent
-    try {
-      await withRetry('dismiss cookie', async () => {
-        await globalPage.evaluate(() => {
-          const clickByText = txts => {
-            for (const el of document.querySelectorAll('button, div[role="button"], span')) {
-              const t = (el.textContent || '').toLowerCase();
-              if (txts.some(s => t.includes(s))) { el.click(); return true; }
-            }
-            return false;
-          };
-          clickByText(['accept all', 'i agree', 'got it', 'allow all']);
-        });
-      }, 2, 1000);
-    } catch (_) { }
-
-    // Enter bot name
-    console.log('⏳ Entering name...');
-    await withRetry('enter name', async () => {
-      await globalPage.evaluate(name => {
-        const tryFill = () => {
-          const inputs = Array.from(document.querySelectorAll('input'));
-          for (const input of inputs) {
-            const placeholder = (input.placeholder || '').toLowerCase();
-            const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
-            if (placeholder.includes('name') || ariaLabel.includes('name') || input.type === 'text') {
-              input.value = name;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-              return true;
-            }
-          }
-          return false;
-        };
-        tryFill();
-      }, BOT_NAME);
-    });
-
+    
+    // Wait for leave action to process
     await sleep(2000);
-    // Disable cam/mic
-    await withRetry('disable cam/mic', async () => {
-      try { await globalPage.keyboard.down('Control'); await globalPage.keyboard.press('KeyD'); await globalPage.keyboard.up('Control'); } catch (_) { }
-      await sleep(500);
-      try { await globalPage.keyboard.down('Control'); await globalPage.keyboard.press('KeyE'); await globalPage.keyboard.up('Control'); } catch (_) { }
-      await globalPage.evaluate(() => {
-        document.querySelectorAll('button, div[role="button"][aria-label]').forEach(btn => {
-          const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-          if (label.includes('camera')) btn.click();
-          if (label.includes('microphone')) btn.click();
-        });
-      });
-    });
-
-    await sleep(2000);
-    // Click Join
-    await withRetry('click join', async () => {
-      await globalPage.evaluate(() => {
-        const tryClickByText = substrs => {
-          for (const btn of document.querySelectorAll('button, div[role="button"]')) {
-            const txt = (btn.textContent || '').toLowerCase();
-            if (substrs.some(s => txt.includes(s))) { btn.click(); return true; }
+    
+    // Check if we successfully left (look for confirmation dialog or "you left" message)
+    const confirmLeave = await page.evaluate(() => {
+      const bodyText = (document.body?.innerText || '').toLowerCase();
+      const hasConfirmation = bodyText.includes('leave the call') || 
+                             bodyText.includes('end call for everyone') ||
+                             bodyText.includes('you left the meeting');
+      
+      // Look for confirmation button
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      for (const btn of buttons) {
+        const text = (btn.textContent || '').toLowerCase();
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        if ((text.includes('leave') || label.includes('leave')) && 
+            (text.includes('call') || label.includes('call'))) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            btn.click();
+            return true;
           }
-          return false;
-        };
-        tryClickByText(['join now', 'ask to join', 'continue', 'join', 'continue without']);
-      });
-    });
-
-    await sleep(5000);
-    console.log('✅ Bot joined! Recording audio...');
-
-    // Setup transcript
-    const transcriptTimestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
-    transcriptFilepath = path.join(RECORDINGS_DIR, `transcript_${transcriptTimestamp}.txt`);
-    fs.writeFileSync(transcriptFilepath, `Kairo Transcript (${new Date().toISOString()})\n\n`);
-
-    await startRealtimeTranscription();
-
-    // Auto exit if enabled
-    if (AUTO_MODE) {
-      autoExitTimeout = setTimeout(async () => {
-        console.log('⏰ Auto duration reached. Stopping...');
-        await saveRecording();
-        await cleanup();
-        process.exit(0);
-      }, DURATION_MINUTES * 60 * 1000);
-    }
-
-    // Monitor meeting end
-    let lastChunkCount = 0, lastChunkTime = Date.now();
-    monitorInterval = setInterval(async () => {
-      try {
-        const status = await globalPage.evaluate(() => ({
-          chunks: window.audioCapture?.recordedChunks?.length || 0,
-          isRecording: window.audioCapture?.isRecording || false,
-          bodyText: (document.body?.innerText || '').toLowerCase()
-        }));
-        if (status.chunks > lastChunkCount) { lastChunkCount = status.chunks; lastChunkTime = Date.now(); }
-        const idleTooLong = Date.now() - lastChunkTime > 90000;
-        const endedText = status.bodyText.includes('meeting has ended') || status.bodyText.includes('you left the meeting');
-        if (!isFinalizing && (idleTooLong || endedText)) {
-          isFinalizing = true;
-          console.log('🛑 Meeting ended, finalizing...');
-          await saveRecording();
-          await cleanup();
-          process.exit(0);
         }
-      } catch (_) { }
-    }, 1000);
-
-    process.on('SIGINT', () => handleExit('SIGINT'));
-    process.on('SIGTERM', () => handleExit('SIGTERM'));
-
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-    await cleanup();
-    process.exit(1);
-  }
-}
-
-// =========================
-// RECORDING & CHUNKS
-// =========================
-async function saveRecording() {
-  if (!globalPage) return;
-  try {
-    await flushPendingChunks();
-    const audioData = await globalPage.evaluate(() => window.stopAndGetAudio()).catch(() => null);
-    if (!audioData?.audio) return;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
-    const webmFile = path.join(RECORDINGS_DIR, `recording_${timestamp}.webm`);
-    fs.writeFileSync(webmFile, Buffer.from(audioData.audio, 'base64'));
-    const mp3File = webmFile.replace(/.webm$/i, '.mp3');
-    await convertToMp3(webmFile, mp3File);
-  } catch (e) { console.error('❌ Save failed:', e.message); }
-}
-
-async function startRealtimeTranscription() {
-  await withRetry('inject getAndClearChunks', async () => {
-    await globalPage.evaluate(() => {
-      if (!window.audioCapture || window.getAndClearChunks) return;
-      window.getAndClearChunks = function () {
-        const chunks = window.audioCapture.recordedChunks || [];
-        if (!chunks.length) return null;
-        const current = chunks.splice(0, chunks.length);
-        const blob = new Blob(current, { type: 'audio/webm' });
-        return new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve({ audio: reader.result.split(',')[1], size: blob.size, chunks: current.length });
-          reader.readAsDataURL(blob);
-        });
-      };
+      }
+      
+      return hasConfirmation;
     });
-  });
-
-  if (chunkFlushInterval) clearInterval(chunkFlushInterval);
-  chunkFlushInterval = setInterval(async () => {
-    const data = await globalPage.evaluate(() => window.getAndClearChunks && window.getAndClearChunks());
-    const chunkData = data && data.then ? await data : data;
-    if (!chunkData?.audio) return;
-    const ts = Date.now();
-    const idx = chunkSequence++;
-    const chunkPath = path.join(CHUNKS_DIR, `chunk_${ts}_${idx}.webm`);
-    fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
-    const mp3Path = chunkPath.replace(/.webm$/i, '.mp3');
-    await convertToMp3(chunkPath, mp3Path);
-    await transcribeChunk(fs.existsSync(mp3Path) ? mp3Path : chunkPath);
-  }, 4000);
-}
-
-async function flushPendingChunks() {
-  if (!globalPage) return;
-  const data = await globalPage.evaluate(() => window.getAndClearChunks && window.getAndClearChunks());
-  const chunkData = data && data.then ? await data : data;
-  if (!chunkData?.audio) return;
-  const ts = Date.now();
-  const idx = chunkSequence++;
-  const chunkPath = path.join(CHUNKS_DIR, `chunk_${ts}_${idx}.webm`);
-  fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
-  const mp3Path = chunkPath.replace(/.webm$/i, '.mp3');
-  await convertToMp3(chunkPath, mp3Path);
-  await transcribeChunk(fs.existsSync(mp3Path) ? mp3Path : chunkPath);
-}
-
-function convertToMp3(inputPath, outputPath) {
-  return new Promise(resolve => {
-    const cmd = `"${ffmpeg}" -i "${inputPath}" -vn -ar 44100 -ac 2 -b:a 192k "${outputPath}" -y`;
-    exec(cmd, () => { resolve(); });
-  });
-}
-
-// =========================
-// TRANSCRIPTION
-// =========================
-async function transcribeChunk(chunkPath) {
-  try {
-    const text = await runPythonTranscriber(chunkPath);
-    if (text?.trim()) {
-      fs.appendFileSync(transcriptFilepath, `[${new Date().toISOString()}] ${text}\n`);
-      process.stdout.write(`📝 Transcribed: ${text.substring(0, 80)}\n`);
+    
+    if (confirmLeave) {
+      await sleep(1000);
     }
-  } catch (err) {
-    console.error('❌ Transcription error:', err.message);
+    
+    console.log('✅ Leave action completed');
+  } catch (error) {
+    console.error('❌ Error leaving meeting:', error && error.message ? error.message : error);
+    // Even if leave fails, we'll still close the browser
   }
 }
 
-function runPythonTranscriber(audioPath) {
-  return new Promise((resolve, reject) => {
-    const py = spawn('py', ['-3.10', PY_SCRIPT_PATH, audioPath], { shell: true });
-    let output = '';
-    let errorOutput = '';
-
-    py.stdout.on('data', data => output += data.toString());
-    py.stderr.on('data', data => errorOutput += data.toString());
-
-    py.on('close', code => {
-      if (code === 0) resolve(output.trim());
-      else reject(new Error(errorOutput || `Python exited with code ${code}`));
-    });
-  });
-}
-
-// =========================
-// CLEANUP
-// =========================
-async function cleanup() {
-  clearInterval(monitorInterval);
-  clearInterval(chunkFlushInterval);
-  if (globalBrowser) await globalBrowser.close().catch(() => { });
-}
-
-async function handleExit(signal) {
-  console.log(`Received ${signal}, stopping...`);
-  await saveRecording();
-  await cleanup();
-  process.exit(0);
-}
-
-// =========================
-// START
-// =========================
-joinGoogleMeet();
+module.exports = {
+  navigateToMeeting,
+  enterBotName,
+  disableCameraAndMic,
+  clickJoinButton,
+  leaveMeeting
+};
