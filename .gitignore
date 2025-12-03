@@ -6,6 +6,7 @@
 
 # Ignore all environment variable files
 **/.env
+ai-layer/whisperX/venv/
 
 # Optional: common extras for safety
 *.log

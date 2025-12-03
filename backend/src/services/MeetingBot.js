@@ -300,6 +300,17 @@ class MeetingBot {
         console.log(`   ✅ Step 2 complete: saveCompleteRecording() finished`);
         console.log(`   Save result: ${saveResult ? 'success' : 'no recording saved or timed out'}`);
         
+        // Finalize transcription with complete audio file if available
+        if (this.audioRecorder.transcriptionService && saveResult?.mp3Path) {
+          try {
+            console.log(`\n🎭 [MeetingBot.stop] Finalizing transcription with diarization...`);
+            await this.audioRecorder.transcriptionService.finalize(saveResult.mp3Path);
+            console.log(`   ✅ Transcription finalization complete`);
+          } catch (error) {
+            console.error(`   ⚠️  Transcription finalization failed: ${error.message}`);
+          }
+        }
+        
         console.log(`\n🧹 [MeetingBot.stop] Step 3: Final audio cleanup...`);
         // 3. Final cleanup (close audio context)
         await this.audioRecorder.finalCleanup();

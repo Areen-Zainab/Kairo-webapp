@@ -65,7 +65,7 @@ DO with backend:
 **Goal:** Implement Kairo’s live meeting assistant and past meeting views.
 **To-Do:**
 * [DONE] Create `/meetings/live` page
-* [ ] Create `/meetings/history` page (list of past meetings with filters)
+* [DONE] Create `/meetings/history` page (list of past meetings with filters)
 * [DONE] Build components:
   * [DONE] `MeetingSidebar` (Recall Memory, Action Items, Notes tabs)
   * [DONE] `TranscriptionPanel` (real-time transcript UI)

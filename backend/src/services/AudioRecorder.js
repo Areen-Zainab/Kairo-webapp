@@ -4,9 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
-const { spawn } = require('child_process');
-
-const PY_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/whisperX/transcribe-whisper.py');
+const TranscriptionService = require('./TranscriptionService');
 
 class AudioRecorder {
   constructor(page, meetingDataDir, chunksDir) {
@@ -16,9 +14,7 @@ class AudioRecorder {
     this.chunkSequence = 0;
     this.chunkFlushInterval = null;
     this.transcriptFilepath = null;
-    this.pythonProc = null;
-    this.pythonStdoutBuffer = '';
-    this.pythonResolvers = [];
+    this.transcriptionService = null; // Will be initialized when transcript file is created
   }
 
   /**
@@ -412,6 +408,9 @@ class AudioRecorder {
     } catch (_) { }
     console.log('📝 Live transcript file:', path.resolve(this.transcriptFilepath));
 
+    // Initialize transcription service
+    this.transcriptionService = new TranscriptionService(this.meetingDataDir, this.transcriptFilepath);
+
     if (this.chunkFlushInterval) clearInterval(this.chunkFlushInterval);
 
     // Interval runs every 3000ms (3 seconds) to match the 3-second timeslice
@@ -483,11 +482,11 @@ class AudioRecorder {
           // Convert to MP3 and transcribe
           const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
           const ok = await this.convertToMp3(chunkPath, mp3Path);
-          if (ok) {
+          if (ok && this.transcriptionService) {
             console.log(`   🎧 Chunk MP3: ${path.basename(mp3Path)}`);
-            await this.transcribeChunk(mp3Path);
-          } else {
-            await this.transcribeChunk(chunkPath);
+            await this.transcriptionService.transcribe(mp3Path, idx);
+          } else if (this.transcriptionService) {
+            await this.transcriptionService.transcribe(chunkPath, idx);
           }
         } else {
           // Subsequent chunks: Extract only the new portion from the end
@@ -540,11 +539,11 @@ class AudioRecorder {
             // Convert to MP3 and transcribe (now only ~3 seconds of NEW audio!)
             const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
             const ok = await this.convertToMp3(chunkPath, mp3Path);
-            if (ok) {
+            if (ok && this.transcriptionService) {
               console.log(`   🎧 Chunk MP3: ${path.basename(mp3Path)}`);
-              await this.transcribeChunk(mp3Path);
-            } else {
-              await this.transcribeChunk(chunkPath);
+              await this.transcriptionService.transcribe(mp3Path, idx);
+            } else if (this.transcriptionService) {
+              await this.transcriptionService.transcribe(chunkPath, idx);
             }
           } else {
             console.error('   ❌ Failed to extract segment, skipping this chunk');
@@ -647,18 +646,21 @@ class AudioRecorder {
       console.log('[AudioRecorder.flushPendingChunks] Starting MP3 conversion and transcription in background...');
       
       // Fire and forget - don't await
-      this.convertToMp3(chunkPath, mp3Path)
-        .then((ok) => {
-          if (ok) {
-            console.log(`🎧 Final chunk MP3: ${path.basename(mp3Path)}`);
-            return this.transcribeChunk(mp3Path);
-          } else {
-            return this.transcribeChunk(chunkPath);
-          }
-        })
-        .catch((err) => {
-          console.error('[AudioRecorder.flushPendingChunks] Background transcription error:', err);
-        });
+      if (this.transcriptionService) {
+        const finalChunkIdx = idx; // Capture idx for use in promise
+        this.convertToMp3(chunkPath, mp3Path)
+          .then((ok) => {
+            if (ok) {
+              console.log(`🎧 Final chunk MP3: ${path.basename(mp3Path)}`);
+              return this.transcriptionService.transcribe(mp3Path, finalChunkIdx);
+            } else {
+              return this.transcriptionService.transcribe(chunkPath, finalChunkIdx);
+            }
+          })
+          .catch((err) => {
+            console.error('[AudioRecorder.flushPendingChunks] Background transcription error:', err);
+          });
+      }
       
       // Don't wait - return immediately so we can proceed to save complete recording
       console.log('[AudioRecorder.flushPendingChunks] Completed (transcription continuing in background)');
@@ -814,16 +816,23 @@ class AudioRecorder {
       console.error('[AudioRecorder.stopRecording] Error stopping streamRecorder:', err);
     }
 
-    // Kill Python process (don't wait for it)
-    try {
-      if (this.pythonProc && !this.pythonProc.killed) {
-        this.pythonProc.stdin?.write('EXIT\n');
-        this.pythonProc.kill();
-        this.pythonProc = null;
-        console.log('[AudioRecorder.stopRecording] Python process killed');
+    // Note: saveCompleteRecording() is called separately in MeetingBot.js
+    // We'll finalize transcription here, but diarization will happen later if complete audio is available
+    // For now, finalize without complete audio (will still generate all outputs)
+    if (this.transcriptionService) {
+      try {
+        // Finalize without complete audio initially (will generate outputs without diarization)
+        // If complete audio becomes available later, diarization can be run separately
+        await this.transcriptionService.finalize(null);
+      } catch (error) {
+        console.error('⚠️  Transcription finalization failed:', error.message);
       }
-    } catch (err) {
-      console.error('[AudioRecorder.stopRecording] Error killing Python process:', err);
+    }
+
+    // Cleanup transcription service
+    if (this.transcriptionService) {
+      this.transcriptionService.cleanup();
+      this.transcriptionService = null;
     }
     
     console.log('[AudioRecorder.stopRecording] Completed');
@@ -1115,107 +1124,6 @@ class AudioRecorder {
     });
   }
 
-  /**
-   * Transcribe a chunk using WhisperX
-   */
-  async transcribeChunk(chunkPath) {
-    return this.sendToPython(chunkPath).catch(() => this.runPythonOneShot(chunkPath)).then((text) => {
-      if (text && text.trim()) {
-        const line = `[${new Date().toISOString()}] ${text}\n`;
-        if (this.transcriptFilepath) fs.appendFileSync(this.transcriptFilepath, line);
-        process.stdout.write(`\n📝 Transcribed: ${text.substring(0, 100)}${text.length > 100 ? '…' : ''}\n`);
-      }
-    }).catch((e) => {
-      // If transcription fails, log but don't crash
-      console.error('⚠️ Transcription failed for', chunkPath, e && e.message ? e.message : e);
-    });
-  }
-
-  /**
-   * Ensure Python process is running
-   */
-  ensurePythonProc() {
-    if (this.pythonProc && !this.pythonProc.killed) return;
-    const candidates = ['py -3.10', 'python3.10', 'python', 'py'];
-    let started = false;
-    for (const cmd of candidates) {
-      try {
-        const proc = spawn(cmd, [PY_SCRIPT_PATH], { shell: process.platform === 'win32' });
-        this.pythonProc = proc;
-        this.pythonStdoutBuffer = '';
-        this.pythonResolvers = [];
-        proc.stdout.on('data', (data) => {
-          this.pythonStdoutBuffer += data.toString();
-          let idx;
-          while ((idx = this.pythonStdoutBuffer.indexOf('\n')) !== -1) {
-            const line = this.pythonStdoutBuffer.slice(0, idx).trim();
-            this.pythonStdoutBuffer = this.pythonStdoutBuffer.slice(idx + 1);
-            const resolver = this.pythonResolvers.shift();
-            if (resolver) resolver.resolve(line);
-          }
-        });
-        proc.stderr.on('data', (data) => {
-          const resolver = this.pythonResolvers.shift();
-          if (resolver) resolver.reject(new Error(data.toString()));
-        });
-        proc.on('close', () => {
-          while (this.pythonResolvers.length) {
-            const r = this.pythonResolvers.shift();
-            r.reject(new Error('Python process closed'));
-          }
-        });
-        started = true;
-        break;
-      } catch (_) { }
-    }
-    if (!started) throw new Error('Failed to start Python');
-  }
-
-  /**
-   * Send audio path to Python process
-   */
-  sendToPython(audioPath) {
-    return new Promise((resolve, reject) => {
-      try {
-        this.ensurePythonProc();
-      } catch (e) {
-        return reject(e);
-      }
-      this.pythonResolvers.push({ resolve, reject });
-      try {
-        this.pythonProc.stdin.write(audioPath + '\n');
-      } catch (e) {
-        const r = this.pythonResolvers.pop();
-        if (r) r.reject(e);
-      }
-    });
-  }
-
-  /**
-   * Run Python transcription as one-shot process
-   */
-  runPythonOneShot(audioPath) {
-    return new Promise((resolve, reject) => {
-      const candidates = ['py -3.10', 'python3.10', 'python', 'py'];
-      let attempt = 0;
-      const tryOne = () => {
-        if (attempt >= candidates.length) return reject(new Error('Python not found'));
-        const cmd = candidates[attempt++];
-        const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath], { shell: process.platform === 'win32' });
-        let stdout = '';
-        let stderr = '';
-        proc.stdout.on('data', d => stdout += d.toString());
-        proc.stderr.on('data', d => stderr += d.toString());
-        proc.on('error', () => tryOne());
-        proc.on('close', (code) => {
-          if (code === 0) return resolve(stdout.trim());
-          if (attempt < candidates.length) return tryOne();
-          return reject(new Error(stderr || `Python exited with code ${code}`));
-        });
-      };
-      tryOne();
-    });
-  }
 }
 
 module.exports = AudioRecorder;

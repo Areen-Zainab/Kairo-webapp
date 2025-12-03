@@ -1,84 +1,196 @@
 #!/usr/bin/env python3
 # transcribe-whisper.py
-# Usage: 
+# Usage:
 #   Command-line mode: python transcribe-whisper.py path/to/file.mp3
-#   Streaming mode: python transcribe-whisper.py (reads from stdin)
+#   Streaming mode: python transcribe-whisper.py (reads file paths from stdin)
 
 import sys
 import os
 
-# Add ffmpeg to PATH if it's in the current directory
+# --- Ensure ffmpeg in PATH if it's in the same directory as this script ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
-os.environ["PATH"] = current_dir + os.pathsep + os.environ["PATH"]
+os.environ["PATH"] = current_dir + os.pathsep + os.environ.get("PATH", "")
 
-# Load whisperx (speech-to-text)
+# --- PREVENT Pyannote VAD from being used (avoids HF auth / checkpoint issues) ---
+# Set this before importing whisperx or any library that may load checkpoints.
+os.environ["WHISPERX_DISABLE_PYANNOTE"] = "1"
+
+# Import torch first to configure safe globals for PyTorch 2.6+
+import torch
+import collections
+
+# Fix PyTorch 2.6+ weights_only issue by allowlisting safe globals
+# This must be done before any torch.load calls (which happen in whisperx/pyannote)
 try:
-    import whisperx
-    import torch
-except Exception as e:
-    print(f"Failed importing dependencies: {e}", file=sys.stderr)
-    sys.exit(3)
+    import typing
+    from omegaconf.listconfig import ListConfig
+    from omegaconf.base import ContainerMetadata
+    # Add all necessary classes that may be used in checkpoints
+    torch.serialization.add_safe_globals([
+        collections.defaultdict, 
+        ListConfig,
+        ContainerMetadata,
+        typing.Any
+    ])
+except ImportError:
+    # If omegaconf is not available, just add collections.defaultdict
+    try:
+        torch.serialization.add_safe_globals([collections.defaultdict])
+    except AttributeError:
+        pass
+except AttributeError:
+    # Older PyTorch versions don't have add_safe_globals
+    pass
 
-# Select GPU if available, else fallback to CPU
-device = "cuda" if torch.cuda.is_available() else "cpu"
-compute_type = "float16" if device == "cuda" else "int8"
+# Monkey-patch torch.load as a fallback for PyTorch 2.6+ weights_only issue
+# This allows loading models from trusted sources (HuggingFace, etc.)
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    """Patched torch.load that sets weights_only=False for trusted model sources."""
+    # Always override weights_only to False for compatibility with PyTorch 2.6+
+    kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+# Only patch if we're on PyTorch 2.6+ (which has weights_only defaulting to True)
+if hasattr(torch, '__version__'):
+    try:
+        version_parts = torch.__version__.split('.')
+        major, minor = int(version_parts[0]), int(version_parts[1])
+        if major > 2 or (major == 2 and minor >= 6):
+            torch.load = _patched_torch_load
+    except (ValueError, IndexError):
+        pass
+
+# Now import whisperx
+import whisperx
+
+# Force CPU usage (no GPU)
+device = "cpu"
+compute_type = "int8"  # Use int8 for CPU (faster, lower memory)
 
 # Model configuration
-model_size = "base"  # Options: tiny, base, small, medium, large-v2
+model_size = "small"  # tiny, base, small, medium, large-v2
 model = None
 
-print(f"[Kairo Transcription] Device: {device}", file=sys.stderr)
+print(f"[Kairo Transcription] Device: {device} (CPU-only mode)", file=sys.stderr)
 print(f"[Kairo Transcription] Model: {model_size}", file=sys.stderr)
+print(f"[Kairo Transcription] Compute type: {compute_type}", file=sys.stderr)
+
+
+def load_whisperx_model():
+    """Load WhisperX model with VAD properly configured."""
+    global model
+    if model is not None:
+        return model
+
+    print("[Kairo] Loading WhisperX model...", file=sys.stderr)
+    try:
+        # Load model without specifying vad_model parameter
+        # With WHISPERX_DISABLE_PYANNOTE=1, it should use Silero VAD automatically
+        model = whisperx.load_model(
+            model_size,
+            device=device,
+            compute_type=compute_type,
+        )
+        
+        # Check if vad_model is incorrectly set as a string and fix it
+        if hasattr(model, 'vad_model') and isinstance(model.vad_model, str):
+            print(f"[Warning] VAD model is a string '{model.vad_model}', attempting to fix...", file=sys.stderr)
+            # Try to reload without VAD or with proper VAD initialization
+            # For now, set it to None to disable VAD
+            model.vad_model = None
+        
+        print("[Kairo] ✓ Model loaded successfully", file=sys.stderr)
+        return model
+
+    except Exception as e:
+        print(f"[Error] Failed to load WhisperX model: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        raise
+
 
 def transcribe_audio(audio_path):
-    """Transcribe a single audio file and return the text."""
+    """Transcribe a single audio file and return the text (or None on failure)."""
     global model
-    
+
     if not os.path.exists(audio_path):
         print(f"[Error] File not found: {audio_path}", file=sys.stderr)
         return None
-    
+
     try:
         # Load model if not already loaded
         if model is None:
-            print("[Kairo] Loading WhisperX model...", file=sys.stderr)
-            model = whisperx.load_model(model_size, device=device, compute_type=compute_type)
-            print("[Kairo] ✓ Model loaded successfully", file=sys.stderr)
-        
-        # Load audio
+            load_whisperx_model()
+
+        # Load audio (whisperx will handle common media containers via ffmpeg)
         print(f"[Kairo] Processing: {audio_path}", file=sys.stderr)
         audio = whisperx.load_audio(audio_path)
-        
+
         # Transcribe audio
-        result = model.transcribe(audio, batch_size=16)
+        # For CPU: use smaller batch size (4-8) to avoid memory issues
+        batch_size = 4 if device == "cpu" else 16
         
-        # Extract text from segments
-        if "segments" in result:
-            text = " ".join([seg["text"].strip() for seg in result["segments"]])
+        # Check if VAD model is a string (broken state) - use underlying model directly
+        if hasattr(model, 'vad_model') and isinstance(model.vad_model, str):
+            print("[Warning] VAD model is incorrectly set as string, using underlying Whisper model directly", file=sys.stderr)
+            # Access the underlying faster-whisper model and transcribe directly
+            # WhisperX wraps faster-whisper, so model.model should be the underlying model
+            if hasattr(model, 'model'):
+                underlying_model = model.model
+                # Use faster-whisper's transcribe method directly
+                segments, info = underlying_model.transcribe(audio, beam_size=5, language=None)
+                # Convert segments to WhisperX format
+                result = {
+                    "segments": [{"text": segment.text.strip()} for segment in segments],
+                    "language": info.language
+                }
+            else:
+                # Fallback: try to fix vad_model by setting it to None
+                original_vad = model.vad_model
+                try:
+                    model.vad_model = None
+                    result = model.transcribe(audio, batch_size=batch_size)
+                except:
+                    # If that fails, restore and try one more time
+                    model.vad_model = original_vad
+                    result = model.transcribe(audio, batch_size=batch_size)
         else:
-            text = result.get("text", "")
-        
-        print(f"[Kairo] ✓ Transcription complete. Language: {result.get('language', 'unknown')}", file=sys.stderr)
-        
-        return text.strip()
-        
+            result = model.transcribe(audio, batch_size=batch_size)
+
+        # Extract text from segments if available
+        if isinstance(result, dict) and "segments" in result:
+            text = " ".join([seg.get("text", "").strip() for seg in result["segments"]])
+        else:
+            # Some versions return an object with .text or just a string
+            text = ""
+            if isinstance(result, dict):
+                text = result.get("text", "") or ""
+            elif hasattr(result, "text"):
+                text = getattr(result, "text") or ""
+            elif isinstance(result, str):
+                text = result
+            text = text.strip()
+
+        print(f"[Kairo] ✓ Transcription complete. Language: {result.get('language', 'unknown') if isinstance(result, dict) else 'unknown'}", file=sys.stderr)
+        return text.strip() if text else None
+
     except Exception as e:
         print(f"[Error] Transcription failed: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
         return None
 
+
 def main():
-    """Main execution function"""
+    """Main execution function: CLI single-file mode or streaming mode (stdin)."""
     try:
-        # Determine mode: command-line argument or stdin streaming
         streaming_mode = len(sys.argv) < 2
-        
+
         if streaming_mode:
             print("[Kairo] Starting streaming mode (reading from stdin)...", file=sys.stderr)
             print("[Kairo] Send audio file paths, one per line. Type 'EXIT' to quit.", file=sys.stderr)
-            
-            # Streaming mode: read file paths from stdin
+
             for line in sys.stdin:
                 line = line.strip()
                 if not line:
@@ -86,14 +198,15 @@ def main():
                 if line.upper() == "EXIT":
                     print("[Kairo] Exiting...", file=sys.stderr)
                     break
-                
+
                 text = transcribe_audio(line)
                 if text:
                     # Output only the transcription text to stdout
                     print(text)
                     sys.stdout.flush()
                 else:
-                    print("", file=sys.stdout)  # Empty line on failure
+                    # Empty line on failure to keep stream consistent
+                    print("", file=sys.stdout)
                     sys.stdout.flush()
         else:
             # Command-line mode: single file
@@ -102,10 +215,11 @@ def main():
             if text:
                 print(text)
             else:
+                # non-zero exit on failure
                 sys.exit(1)
-        
+
         sys.exit(0)
-        
+
     except KeyboardInterrupt:
         print("\n[Kairo] Interrupted by user", file=sys.stderr)
         sys.exit(0)
@@ -114,6 +228,7 @@ def main():
         import traceback
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
