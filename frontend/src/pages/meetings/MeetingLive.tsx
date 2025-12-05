@@ -29,6 +29,7 @@ import NotesTab from '../../components/meetings/meetingslive/NotesTab';
 import TranscriptTab from '../../components/meetings/meetingslive/TranscriptTab';
 import InsightsTab from '../../components/meetings/meetingslive/InsightsTab';
 import LeaveMeetingConfirmationModal from '../../modals/LeaveMeetingConfirmationModal';
+import { useLiveTranscript } from '../../hooks/useLiveTranscript';
 
 type SidebarTab = 'memory' | 'chat' | 'actions' | 'notes' | 'transcript' | 'insights';
 
@@ -219,12 +220,32 @@ const LiveMeetingView = () => {
     { id: '4', name: 'Fatima Sheikh', avatar: 'FS', isMuted: false, isVideoOn: false, isSpeaking: false },
   ];
 
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([
-    { id: '1', speaker: 'Sana Khan', text: "Thanks everyone for joining. Let's start with the Q4 planning discussion.", timestamp: '10:02 AM', isUser: false },
-    { id: '2', speaker: 'Muhammad Ali', text: "I've prepared a roadmap overview. Should we go through the key milestones first?", timestamp: '10:03 AM', isUser: false },
-    { id: '3', speaker: 'You', text: "Yes, that would be great. Let's focus on the high-priority items.", timestamp: '10:03 AM', isUser: true },
-    { id: '4', speaker: 'Fatima Sheikh', text: "I think we should also discuss the resource allocation for the design system project.", timestamp: '10:04 AM', isUser: false },
-  ]);
+  // Get live transcript entries from backend
+  const meetingId = meeting ? parseInt(meeting.id) : null;
+  const { entries: liveTranscriptEntries, loading: transcriptLoading } = useLiveTranscript(meetingId, 3000);
+  
+  // System messages from privacy mode toggle
+  const [systemMessages, setSystemMessages] = useState<TranscriptEntry[]>([]);
+  
+  // Merge live transcript entries with system messages
+  // Live entries are already sorted by chunkIndex from backend, so we maintain that order
+  // System messages are appended and will be sorted by timestamp
+  const transcript: TranscriptEntry[] = [
+    ...liveTranscriptEntries.map(entry => ({
+      id: entry.id,
+      speaker: entry.speaker,
+      text: entry.text,
+      timestamp: entry.timestamp,
+      isUser: false
+    })),
+    ...systemMessages
+  ].sort((a, b) => {
+    // Sort by timestamp string (already formatted as "10:02 AM")
+    // This works because timestamps are in chronological order
+    const aTime = a.timestamp || '';
+    const bTime = b.timestamp || '';
+    return aTime.localeCompare(bTime);
+  });
 
   const [actionItems, setActionItems] = useState<ActionItem[]>([
     { id: '1', text: 'Review Q4 roadmap document', assignee: 'Sana Khan', isCompleted: false },
@@ -265,13 +286,13 @@ const LiveMeetingView = () => {
       const id = Date.now().toString();
       const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const type = next ? 'privacy-on' : 'privacy-off' as const;
-      setTranscript(prevT => {
-        const last = prevT[prevT.length - 1];
+      setSystemMessages(prevMsgs => {
+        const last = prevMsgs[prevMsgs.length - 1];
         if (last && last.isSystemMessage && last.systemMessageType === type) {
-          return prevT; // prevent duplicate system line
+          return prevMsgs; // prevent duplicate system line
         }
         return [
-          ...prevT,
+          ...prevMsgs,
           {
             id,
             speaker: 'System',
@@ -925,6 +946,7 @@ const LiveMeetingView = () => {
               <TranscriptTab
                 transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
                 transcript={transcript}
+                isLoading={transcriptLoading}
                 onRefer={(text) => {
                   const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
                   setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
@@ -951,6 +973,7 @@ const LiveMeetingView = () => {
           <TranscriptTab
             transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
             transcript={transcript}
+            isLoading={transcriptLoading}
             onRefer={(text) => {
               const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
               setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);

@@ -9,7 +9,7 @@ const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
 const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
 const multer = require('multer');
-const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile } = require("../utils/meetingFileStorage");
+const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile, getLiveTranscriptEntries } = require("../utils/meetingFileStorage");
 const { getMeetingStats } = require("../utils/meetingStats");
 
 const router = express.Router();
@@ -1382,6 +1382,54 @@ router.delete("/:meetingId/files/:fileId", authenticateToken, async (req, res) =
     res.json({ message: "File deleted successfully" });
   } catch (error) {
     console.error("Delete meeting file error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get live transcript entries for a meeting
+router.get("/:id/transcript/live", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+    const { since } = req.query;
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    // Get transcript entries (filtered by since if provided)
+    const entries = getLiveTranscriptEntries(meetingId, since || null);
+
+    // Get latest timestamp from entries
+    const latestTimestamp = entries.length > 0
+      ? entries[entries.length - 1].rawTimestamp
+      : (since || new Date().toISOString());
+
+    res.json({
+      entries,
+      latestTimestamp,
+      hasMore: false
+    });
+  } catch (error) {
+    console.error("Get live transcript error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

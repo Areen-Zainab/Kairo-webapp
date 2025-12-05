@@ -243,18 +243,13 @@ class TranscriptionService {
   getPythonExecutable() {
     // Check for root venv Python (Windows)
     if (process.platform === 'win32' && fs.existsSync(ROOT_VENV_PYTHON_WIN)) {
-      console.log(`✅ Found root venv Python (Windows): ${ROOT_VENV_PYTHON_WIN}`);
       return ROOT_VENV_PYTHON_WIN;
     }
     // Check for root venv Python (Unix/Mac)
     if (fs.existsSync(ROOT_VENV_PYTHON_UNIX)) {
-      console.log(`✅ Found root venv Python (Unix): ${ROOT_VENV_PYTHON_UNIX}`);
       return ROOT_VENV_PYTHON_UNIX;
     }
     // Fallback to system Python
-    console.log(`⚠️  Root venv Python not found, will use system Python`);
-    console.log(`   Checked Windows: ${ROOT_VENV_PYTHON_WIN} (exists: ${fs.existsSync(ROOT_VENV_PYTHON_WIN)})`);
-    console.log(`   Checked Unix: ${ROOT_VENV_PYTHON_UNIX} (exists: ${fs.existsSync(ROOT_VENV_PYTHON_UNIX)})`);
     return null;
   }
 
@@ -277,7 +272,7 @@ class TranscriptionService {
   /**
    * Ensure Python process is running
    */
-  ensurePythonProc() {
+  async ensurePythonProc() {
     // Check if process is actually alive (not just not killed)
     if (this.isPythonProcAlive()) return;
     
@@ -286,6 +281,119 @@ class TranscriptionService {
       const ModelPreloader = require('./ModelPreloader');
       // Normalize meetingId to number (ModelPreloader stores it as number from Meeting.create)
       const meetingIdNum = typeof this.meetingId === 'string' ? parseInt(this.meetingId, 10) : this.meetingId;
+      
+      // First check if preload is in progress - wait for it to complete
+      if (ModelPreloader.isPreloadInProgress(meetingIdNum)) {
+        console.log(`⏳ Preload in progress for meeting ${this.meetingId}, waiting for completion...`);
+        const preloaded = await ModelPreloader.waitForPreload(meetingIdNum);
+        if (preloaded && preloaded.process) {
+          const proc = preloaded.process;
+          // Check if preloaded process is still alive
+          if (proc && !proc.killed && proc.exitCode === null && proc.stdin && !proc.stdin.destroyed) {
+            console.log(`✅ Reusing preloaded model for meeting ${this.meetingId} (looked up as ${meetingIdNum}) after waiting`);
+            
+            // Transfer ownership from preloader to TranscriptionService (removes from Map without killing process)
+            ModelPreloader.transferModel(meetingIdNum);
+            
+            // Take ownership of the process
+            this.pythonProc = proc;
+            this.pythonStdoutBuffer = '';
+            this.pythonResolvers = [];
+            this.pythonProcExited = false;
+            
+            // Remove old handlers and set up TranscriptionService handlers
+            proc.removeAllListeners('data');
+            proc.removeAllListeners('close');
+            proc.removeAllListeners('error');
+            
+            // Drain any leftover data from stdout before setting up new handlers
+            // This prevents PRELOAD's empty line or any buffered data from consuming resolvers
+            if (proc.stdout.readableLength > 0) {
+              const leftover = proc.stdout.read();
+              console.log(`⚠️  Drained ${leftover ? leftover.length : 0} bytes of leftover stdout data from preloaded process`);
+            }
+            
+            // Set up stdout handler for transcription results
+            proc.stdout.removeAllListeners('data');
+            proc.stdout.on('data', (data) => {
+              this.pythonStdoutBuffer += data.toString();
+              let idx;
+              while ((idx = this.pythonStdoutBuffer.indexOf('\n')) !== -1) {
+                const line = this.pythonStdoutBuffer.slice(0, idx).trim();
+                this.pythonStdoutBuffer = this.pythonStdoutBuffer.slice(idx + 1);
+                
+                // Skip empty lines (they shouldn't consume resolvers)
+                if (line === '') {
+                  console.log(`⚠️  Received empty line from Python stdout, skipping (should not happen)`);
+                  continue;
+                }
+                
+                // Filter out log messages that might have leaked to stdout
+                // These look like: "2025-12-05 19:52:28 - whisperx.asr - WARNING - ..."
+                if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+\w+\.\w+\s+-\s+(WARNING|INFO|DEBUG|ERROR)/)) {
+                  console.warn(`⚠️  Filtered out log message from stdout (should be in stderr): "${line.substring(0, 80)}..."`);
+                  continue; // Don't consume a resolver for log messages
+                }
+                
+                const resolver = this.pythonResolvers.shift();
+                if (resolver) {
+                  // Resolve with text and the chunkIndex stored in the resolver
+                  resolver.resolve(line);
+                } else {
+                  console.warn(`⚠️  Received transcription response but no resolver waiting: "${line.substring(0, 50)}..."`);
+                }
+              }
+            });
+            
+            // Set up stderr handler
+            proc.stderr.removeAllListeners('data');
+            proc.stderr.on('data', (data) => {
+              const stderrText = data.toString();
+              if (stderrText.includes('[Error]') || stderrText.includes('Traceback')) {
+                console.error(`[Python Error]: ${stderrText.trim()}`);
+                if (this.pythonResolvers.length > 0) {
+                  const resolver = this.pythonResolvers[0];
+                  if (stderrText.includes('Traceback')) {
+                    this.pythonResolvers.shift();
+                    resolver.reject(new Error(stderrText));
+                  }
+                }
+              }
+            });
+            
+            // Set up process event handlers
+            proc.on('close', (code) => {
+              this.pythonProcExited = true;
+              console.log(`⚠️  Python process closed with code ${code}`);
+              while (this.pythonResolvers.length) {
+                const r = this.pythonResolvers.shift();
+                r.reject(new Error(`Python process closed with code ${code}`));
+              }
+            });
+            
+            proc.on('error', (error) => {
+              this.pythonProcExited = true;
+              console.error(`❌ Python process error: ${error.message}`);
+              while (this.pythonResolvers.length) {
+                const r = this.pythonResolvers.shift();
+                r.reject(error);
+              }
+            });
+            
+            console.log(`✅ Preloaded process transferred to TranscriptionService for meeting ${this.meetingId}`);
+            return;
+          } else {
+            // Preloaded process is dead after waiting, remove it
+            console.log(`⚠️  Preloaded process for meeting ${this.meetingId} (looked up as ${meetingIdNum}) is dead after waiting, creating new one`);
+            ModelPreloader.releaseModel(meetingIdNum);
+          }
+        } else {
+          // Preload failed or timed out, continue to create new process
+          console.log(`⚠️  Preload for meeting ${this.meetingId} did not complete successfully, creating new process`);
+        }
+      }
+      
+      // Check if there's already a completed preloaded model
       const preloaded = ModelPreloader.getPreloadedProcess(meetingIdNum);
       if (preloaded && preloaded.process) {
         const proc = preloaded.process;
@@ -391,7 +499,8 @@ class TranscriptionService {
       } else {
         // No preloaded model found - log for debugging
         const allPreloadedIds = ModelPreloader.getPreloadedMeetingIds();
-        console.log(`ℹ️  No preloaded model found for meeting ${this.meetingId} (looked up as ${meetingIdNum}). Available preloaded meetings: [${allPreloadedIds.join(', ')}]`);
+        const inProgressIds = ModelPreloader.getPreloadsInProgressIds();
+        console.log(`ℹ️  No preloaded model found for meeting ${this.meetingId} (looked up as ${meetingIdNum}). Available preloaded meetings: [${allPreloadedIds.join(', ')}]. Preloads in progress: [${inProgressIds.join(', ')}]`);
       }
     }
     
@@ -432,8 +541,6 @@ class TranscriptionService {
         this.pythonStdoutBuffer = '';
         this.pythonResolvers = [];
         this.pythonProcExited = false; // Track if process has exited
-        
-        console.log(`🔧 Attempting to start Python process: ${cmd} ${PY_SCRIPT_PATH}`);
         
         proc.stdout.on('data', (data) => {
           this.pythonStdoutBuffer += data.toString();
@@ -517,7 +624,6 @@ class TranscriptionService {
         });
         
         started = true;
-        console.log(`✅ Python process started with command: ${cmd}`);
         break;
       } catch (error) {
         // Try next candidate
@@ -545,8 +651,8 @@ class TranscriptionService {
       const { audioPath, chunkIndex, resolve, reject } = this.transcriptionQueue.shift();
       
       try {
-        // Ensure process exists and is alive
-        this.ensurePythonProc();
+        // Ensure process exists and is alive (wait for preload if in progress)
+        await this.ensurePythonProc();
         
         if (!this.isPythonProcAlive()) {
           // Fallback to one-shot mode

@@ -179,6 +179,83 @@ function findCompleteAudioFile(meetingId) {
   }
 }
 
+/**
+ * Get live transcript entries for a meeting
+ * @param {number} meetingId - Meeting ID
+ * @param {string|null} since - ISO timestamp to filter entries (optional)
+ * @returns {Array} Array of transcript entries
+ */
+function getLiveTranscriptEntries(meetingId, since = null) {
+  const meetingDir = findMeetingDirectory(meetingId);
+  if (!meetingDir) {
+    return [];
+  }
+
+  const transcriptsDir = path.join(meetingDir, 'transcripts');
+  if (!fs.existsSync(transcriptsDir)) {
+    return [];
+  }
+
+  try {
+    const files = fs.readdirSync(transcriptsDir);
+    const chunkFiles = files
+      .filter(f => f.startsWith('chunk_') && f.endsWith('_transcript.txt'))
+      .map(f => {
+        const match = f.match(/chunk_(\d+)_transcript\.txt/);
+        return match ? { filename: f, chunkIndex: parseInt(match[1], 10) } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+    const entries = [];
+    const sinceDate = since ? new Date(since) : null;
+
+    for (const { filename, chunkIndex } of chunkFiles) {
+      const filePath = path.join(transcriptsDir, filename);
+      try {
+        const content = fs.readFileSync(filePath, 'utf8').trim();
+        const lines = content.split('\n');
+        if (lines.length < 2) continue;
+
+        const timestamp = lines[0].trim();
+        const text = lines.slice(1).join('\n').trim();
+        
+        if (!text) continue;
+
+        const timestampDate = new Date(timestamp);
+        
+        // Filter by since timestamp if provided
+        if (sinceDate && timestampDate <= sinceDate) {
+          continue;
+        }
+
+        // Format timestamp for display (e.g., "10:02:45 AM") - includes seconds
+        const displayTime = timestampDate.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+
+        entries.push({
+          id: `chunk_${chunkIndex}`,
+          speaker: 'Speaker 1', // Default speaker, will be enhanced with diarization later
+          text: text,
+          timestamp: displayTime,
+          chunkIndex: chunkIndex,
+          rawTimestamp: timestamp
+        });
+      } catch (error) {
+        console.error(`Error reading transcript file ${filename}:`, error.message);
+      }
+    }
+
+    return entries;
+  } catch (error) {
+    console.error(`Error reading transcript directory for meeting ${meetingId}:`, error.message);
+    return [];
+  }
+}
+
 module.exports = {
   findMeetingDirectory,
   ensureUploadsDirectory,
@@ -187,6 +264,7 @@ module.exports = {
   deleteMeetingFile,
   getFileBuffer,
   detectFileType,
-  findCompleteAudioFile
+  findCompleteAudioFile,
+  getLiveTranscriptEntries
 };
 

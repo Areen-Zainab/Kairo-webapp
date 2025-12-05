@@ -1,4 +1,4 @@
-import React, { type RefObject } from 'react';
+import React, { type RefObject, useState, useEffect, useRef } from 'react';
 
 export interface TranscriptEntry {
   id: string;
@@ -14,9 +14,60 @@ interface TranscriptTabProps {
   transcriptRef: RefObject<HTMLDivElement>;
   transcript: TranscriptEntry[];
   onRefer?: (text: string) => void;
+  isLoading?: boolean;
 }
 
-const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript, onRefer }) => {
+// Track which entries have been animated (shared across all AnimatedText instances)
+const animatedEntries = new Set<string>();
+
+// Component for word-by-word animation
+const AnimatedText: React.FC<{ text: string; entryId: string }> = ({ text, entryId }) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    // Clear any existing intervals
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    // If this entry was already animated, show full text immediately
+    if (animatedEntries.has(entryId)) {
+      setDisplayedText(text);
+      return;
+    }
+
+    // Start animation for new entry
+    const words = text.split(' ');
+    setDisplayedText('');
+    let currentIndex = 0;
+    
+    intervalRef.current = setInterval(() => {
+      if (currentIndex < words.length) {
+        setDisplayedText(words.slice(0, currentIndex + 1).join(' '));
+        currentIndex++;
+      } else {
+        animatedEntries.add(entryId);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      }
+    }, 50); // 50ms per word
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [text, entryId]);
+
+  return <span>{displayedText || text}</span>;
+};
+
+const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript, onRefer, isLoading = false }) => {
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full bg-gray-50 dark:bg-slate-900/20">
       <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
@@ -40,12 +91,12 @@ const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript
                 {entry.speaker.split(' ').map(n => n[0]).join('')}
               </div>
               <div className={`flex-1 min-w-0 ${entry.isUser ? 'text-right' : ''}`}>
-                <div className="flex items-center gap-1.5 mb-1">
+                <div className="mb-1 flex items-center gap-2">
                   <span className="text-xs font-medium text-gray-900 dark:text-white">{entry.speaker}</span>
                   <span className="text-xs text-gray-500 dark:text-slate-500">{entry.timestamp}</span>
                 </div>
                 <div className={`relative inline-block px-3 py-2 rounded-lg text-sm ${entry.isUser ? 'bg-purple-50 border border-purple-300 text-purple-800 dark:bg-purple-600/20 dark:border-purple-500/30 dark:text-white' : 'bg-white border border-gray-200 text-gray-800 dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-slate-200'}`}>
-                  {entry.text}
+                  <AnimatedText text={entry.text} entryId={entry.id} />
                   {!!onRefer && (
                     <button
                       type="button"
@@ -61,6 +112,16 @@ const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript
             </div>
           )
         ))}
+        {transcript.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="flex gap-1 mb-3">
+              <div className="w-2 h-2 bg-gray-400 dark:bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-gray-400 dark:bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-gray-400 dark:bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-slate-400">Connecting Audio</p>
+          </div>
+        )}
       </div>
     </div>
   );

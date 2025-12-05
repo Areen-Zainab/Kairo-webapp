@@ -634,6 +634,11 @@ class ApiService {
     return this.request<{ actionItems: any[]; latestUpdate: string | null }>(`/action-items/meetings/${meetingId}/live${query}`);
   }
 
+  async getLiveTranscript(meetingId: number, since?: string): Promise<ApiResponse<{ entries: any[]; latestTimestamp: string; hasMore: boolean }>> {
+    const query = since ? `?since=${encodeURIComponent(since)}` : '';
+    return this.request<{ entries: any[]; latestTimestamp: string; hasMore: boolean }>(`/meetings/${meetingId}/transcript/live${query}`);
+  }
+
   async getPendingActionItems(meetingId: number): Promise<ApiResponse<{ actionItems: any[] }>> {
     return this.request<{ actionItems: any[] }>(`/action-items/meetings/${meetingId}/pending`);
   }
