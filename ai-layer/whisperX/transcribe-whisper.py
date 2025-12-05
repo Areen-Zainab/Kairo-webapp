@@ -76,6 +76,18 @@ if hasattr(torch, '__version__'):
     except (ValueError, IndexError):
         pass
 
+# Configure logging to redirect WhisperX logs to stderr
+import logging
+logging.basicConfig(
+    level=logging.WARNING,  # Only show warnings and errors
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr  # Redirect all logs to stderr
+)
+
+# Suppress WhisperX INFO and DEBUG logs (they're too verbose)
+logging.getLogger('whisperx').setLevel(logging.WARNING)
+logging.getLogger('whisperx.asr').setLevel(logging.WARNING)
+
 # Now import whisperx
 import whisperx
 
@@ -84,7 +96,7 @@ device = "cpu"
 compute_type = "int8"  # Use int8 for CPU (faster, lower memory)
 
 # Model configuration
-model_size = "small"  # tiny, base, small, medium, large-v2
+model_size = "base"  # tiny, base, small, medium, large-v2
 model = None
 
 print(f"[Kairo Transcription] Device: {device} (CPU-only mode)", file=sys.stderr)
@@ -272,12 +284,26 @@ def main():
                 if line.upper() == "EXIT":
                     print("[Kairo] Exiting...", file=sys.stderr)
                     break
+                
+                # PRELOAD command: just load the model without transcribing
+                if line.upper() == "PRELOAD":
+                    print("[Kairo] Preloading model...", file=sys.stderr)
+                    load_whisperx_model()
+                    # Don't output anything to stdout - this would consume a resolver
+                    # The model is loaded, ready for transcription requests
+                    continue
 
                 text = transcribe_audio(line)
                 if text:
                     # Output only the transcription text to stdout
-                    print(text)
-                    sys.stdout.flush()
+                    # Filter out any log-like messages that might have leaked
+                    if not text.startswith(('2025-', '[', 'WARNING', 'INFO', 'DEBUG', 'ERROR')):
+                        print(text)
+                        sys.stdout.flush()
+                    else:
+                        # This looks like a log message, don't output it
+                        print("", file=sys.stdout)
+                        sys.stdout.flush()
                 else:
                     # Empty line on failure to keep stream consistent
                     print("", file=sys.stdout)

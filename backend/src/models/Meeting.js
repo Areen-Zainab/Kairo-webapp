@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const Notification = require('./Notification');
 const { computeMeetingStatus } = require('../utils/meetingStatus');
+const ModelPreloader = require('../services/ModelPreloader');
 
 class Meeting {
   /**
@@ -108,6 +109,45 @@ class Meeting {
         });
 
         await Promise.all(notificationPromises);
+      }
+
+      // Preload model for immediate meetings (startTime is now or very soon)
+      const meetingStartTime = new Date(startTime);
+      const now = new Date();
+      const timeUntilStart = meetingStartTime.getTime() - now.getTime();
+      
+      // Check if this is an instant meeting (status is 'in-progress' and starts now/very soon)
+      // OR if meeting starts within 5 minutes
+      const isInstantMeeting = status === 'in-progress' && timeUntilStart <= 60 * 1000; // Within 1 minute
+      const isImmediateMeeting = timeUntilStart <= 5 * 60 * 1000; // Within 5 minutes
+      
+      if ((isInstantMeeting || isImmediateMeeting) && meetingLink) {
+        console.log(`🔄 Preloading model for immediate meeting ${meeting.id}...`, {
+          status,
+          timeUntilStart: `${(timeUntilStart / 1000).toFixed(1)}s`,
+          isInstantMeeting,
+          isImmediateMeeting,
+          hasMeetingLink: !!meetingLink
+        });
+        // Preload in background (don't await - don't block meeting creation)
+        ModelPreloader.preloadModel(meeting.id)
+          .then(() => {
+            console.log(`✅ Model preloaded for immediate meeting ${meeting.id}`);
+          })
+          .catch((error) => {
+            console.error(`⚠️  Failed to preload model for immediate meeting ${meeting.id}:`, error.message);
+            // Don't fail meeting creation if preload fails
+          });
+      } else {
+        // Debug log to understand why preload didn't trigger
+        if (timeUntilStart <= 10 * 60 * 1000) { // Only log if within 10 minutes to avoid spam
+          console.log(`ℹ️  Model preload skipped for meeting ${meeting.id}:`, {
+            status,
+            timeUntilStart: `${(timeUntilStart / 1000).toFixed(1)}s`,
+            hasMeetingLink: !!meetingLink,
+            reason: !meetingLink ? 'no meeting link' : `timeUntilStart (${timeUntilStart}ms) > 5 minutes`
+          });
+        }
       }
 
       return meeting;

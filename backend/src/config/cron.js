@@ -1,9 +1,11 @@
 const cron = require('node-cron');
 const updateMeetingStatuses = require('../jobs/updateMeetingStatuses');
 const autoJoinMeetings = require('../jobs/autoJoinMeetings');
+const preloadModels = require('../jobs/preloadModels');
 
 let meetingStatusCronJob = null;
 let autoJoinCronJob = null;
+let preloadModelsCronJob = null;
 
 /**
  * Initialize cron jobs
@@ -55,6 +57,23 @@ function initializeCronJobs() {
   
   console.log('   - Auto-join meetings: every minute');
   
+  // Model preload job - runs every minute to preload models 3 minutes before meetings
+  preloadModelsCronJob = cron.schedule('* * * * *', async () => {
+    try {
+      const result = await preloadModels();
+      if (!result.success) {
+        console.error('❌ Model preload job failed:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error in model preload job:', error);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  
+  console.log('   - Model preload: every minute (3 minutes before meetings)');
+  
   // Optional: Run the job immediately on startup (for testing)
   // Uncomment the line below if you want to run the job once on startup
   // updateMeetingStatuses();
@@ -74,6 +93,10 @@ function stopCronJobs() {
   if (autoJoinCronJob) {
     autoJoinCronJob.stop();
     console.log('   - Auto-join meetings job stopped');
+  }
+  if (preloadModelsCronJob) {
+    preloadModelsCronJob.stop();
+    console.log('   - Model preload job stopped');
   }
   
   console.log('✅ All cron jobs stopped');

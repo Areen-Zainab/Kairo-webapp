@@ -133,6 +133,52 @@ function detectFileType(mimeType, filename) {
   return 'other';
 }
 
+/**
+ * Find complete audio file (MP3 or WebM) for a meeting
+ * @param {number} meetingId - Meeting ID
+ * @returns {string|null} Full path to audio file, or null if not found
+ */
+function findCompleteAudioFile(meetingId) {
+  console.log(`[findCompleteAudioFile] Looking for audio file for meeting ${meetingId}`);
+  const meetingDir = findMeetingDirectory(meetingId);
+  console.log(`[findCompleteAudioFile] Meeting directory:`, meetingDir);
+  
+  if (!meetingDir) {
+    console.log(`[findCompleteAudioFile] No meeting directory found for meeting ${meetingId}`);
+    return null;
+  }
+
+  try {
+    const files = fs.readdirSync(meetingDir);
+    console.log(`[findCompleteAudioFile] Files in directory:`, files);
+    
+    // Look for complete audio files (prefer MP3, then WebM)
+    const mp3File = files.find(f => f.includes('_complete.mp3'));
+    console.log(`[findCompleteAudioFile] MP3 file found:`, mp3File);
+    
+    if (mp3File) {
+      const fullPath = path.join(meetingDir, mp3File);
+      console.log(`[findCompleteAudioFile] Returning MP3 path:`, fullPath);
+      return fullPath;
+    }
+    
+    const webmFile = files.find(f => f.includes('_complete.webm'));
+    console.log(`[findCompleteAudioFile] WebM file found:`, webmFile);
+    
+    if (webmFile) {
+      const fullPath = path.join(meetingDir, webmFile);
+      console.log(`[findCompleteAudioFile] Returning WebM path:`, fullPath);
+      return fullPath;
+    }
+
+    console.log(`[findCompleteAudioFile] No complete audio file found for meeting ${meetingId}`);
+    return null;
+  } catch (error) {
+    console.error(`[findCompleteAudioFile] Error finding audio file for meeting ${meetingId}:`, error);
+    return null;
+  }
+}
+
 module.exports = {
   findMeetingDirectory,
   ensureUploadsDirectory,
@@ -140,6 +186,7 @@ module.exports = {
   getFullFilePath,
   deleteMeetingFile,
   getFileBuffer,
-  detectFileType
+  detectFileType,
+  findCompleteAudioFile
 };
 

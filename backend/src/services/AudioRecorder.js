@@ -7,10 +7,11 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 const TranscriptionService = require('./TranscriptionService');
 
 class AudioRecorder {
-  constructor(page, meetingDataDir, chunksDir) {
+  constructor(page, meetingDataDir, chunksDir, meetingId) {
     this.page = page;
     this.meetingDataDir = meetingDataDir;
     this.chunksDir = chunksDir;
+    this.meetingId = meetingId;
     this.chunkSequence = 0;
     this.chunkFlushInterval = null;
     this.transcriptFilepath = null;
@@ -409,7 +410,7 @@ class AudioRecorder {
     console.log('📝 Live transcript file:', path.resolve(this.transcriptFilepath));
 
     // Initialize transcription service
-    this.transcriptionService = new TranscriptionService(this.meetingDataDir, this.transcriptFilepath);
+    this.transcriptionService = new TranscriptionService(this.meetingDataDir, this.transcriptFilepath, this.meetingId);
 
     if (this.chunkFlushInterval) clearInterval(this.chunkFlushInterval);
 
@@ -483,22 +484,52 @@ class AudioRecorder {
           console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) \n- Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
           
           if (ok && this.transcriptionService) {
-            try {
-              const result = await this.transcriptionService.transcribe(mp3Path, idx);
-              if (!result || !result.success) {
-                console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
+            // Retry transcription up to 2 times if it fails
+            let retries = 2;
+            let result = null;
+            while (retries >= 0) {
+              try {
+                result = await this.transcriptionService.transcribe(mp3Path, idx);
+                if (result && result.success) {
+                  break; // Success, exit retry loop
+                }
+              } catch (transcribeError) {
+                console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
               }
-            } catch (transcribeError) {
-              console.error(`   ❌ Transcription error:`, transcribeError.message);
+              
+              if (retries > 0 && (!result || !result.success)) {
+                console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+              }
+              retries--;
+            }
+            
+            if (!result || !result.success) {
+              console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
             }
           } else if (this.transcriptionService) {
-            try {
-              const result = await this.transcriptionService.transcribe(chunkPath, idx);
-              if (!result || !result.success) {
-                console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
+            // Retry transcription up to 2 times if it fails
+            let retries = 2;
+            let result = null;
+            while (retries >= 0) {
+              try {
+                result = await this.transcriptionService.transcribe(chunkPath, idx);
+                if (result && result.success) {
+                  break; // Success, exit retry loop
+                }
+              } catch (transcribeError) {
+                console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
               }
-            } catch (transcribeError) {
-              console.error(`   ❌ Transcription error:`, transcribeError.message);
+              
+              if (retries > 0 && (!result || !result.success)) {
+                console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+              }
+              retries--;
+            }
+            
+            if (!result || !result.success) {
+              console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
             }
           }
         } else {
@@ -547,22 +578,52 @@ class AudioRecorder {
             console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
             
             if (ok && this.transcriptionService) {
-              try {
-                const result = await this.transcriptionService.transcribe(mp3Path, idx);
-                if (!result || !result.success) {
-                  console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
+              // Retry transcription up to 2 times if it fails
+              let retries = 2;
+              let result = null;
+              while (retries >= 0) {
+                try {
+                  result = await this.transcriptionService.transcribe(mp3Path, idx);
+                  if (result && result.success) {
+                    break; // Success, exit retry loop
+                  }
+                } catch (transcribeError) {
+                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
-              } catch (transcribeError) {
-                console.error(`   ❌ Transcription error:`, transcribeError.message);
+                
+                if (retries > 0 && (!result || !result.success)) {
+                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+                }
+                retries--;
+              }
+              
+              if (!result || !result.success) {
+                console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
               }
             } else if (this.transcriptionService) {
-              try {
-                const result = await this.transcriptionService.transcribe(chunkPath, idx);
-                if (!result || !result.success) {
-                  console.warn(`   ⚠️  Transcription failed: ${result?.error || 'Unknown error'}`);
+              // Retry transcription up to 2 times if it fails
+              let retries = 2;
+              let result = null;
+              while (retries >= 0) {
+                try {
+                  result = await this.transcriptionService.transcribe(chunkPath, idx);
+                  if (result && result.success) {
+                    break; // Success, exit retry loop
+                  }
+                } catch (transcribeError) {
+                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
-              } catch (transcribeError) {
-                console.error(`   ❌ Transcription error:`, transcribeError.message);
+                
+                if (retries > 0 && (!result || !result.success)) {
+                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+                }
+                retries--;
+              }
+              
+              if (!result || !result.success) {
+                console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
               }
             }
           } else {

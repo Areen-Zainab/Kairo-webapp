@@ -105,6 +105,7 @@ const MeetingDetails: React.FC = () => {
           meetingType: 'other',
           description: m.description,
           recordingUrl: m.recordingUrl || undefined,
+          audioUrl: m.audioUrl ? (m.audioUrl.startsWith('http') ? m.audioUrl : `http://localhost:5000${m.audioUrl}`) : undefined,
           transcript: [],
           slides: [],
           minutes: [],

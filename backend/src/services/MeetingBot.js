@@ -5,6 +5,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 const path = require('path');
 const AudioRecorder = require('./AudioRecorder');
+const PostMeetingProcessor = require('./PostMeetingProcessor');
 
 // Platform-specific handlers (modularized under bot-join)
 const meetPlatform = require('./bot-join/meetService');
@@ -29,7 +30,13 @@ class MeetingBot {
     this.monitorInterval = null;
     this.autoExitTimeout = null;
     this.meetingId = config.meetingId;
-    this.success = false;
+    this.actionItemsInterval = null;
+    this.actionItemsRunning = false;
+    this.actionItemsExtractionEnabled = true;
+    
+    // Track meeting timing for duration calculation
+    this.joinTime = null;
+    this.stopTime = null;
     
     // Detect platform and set handlers
     this.platform = this.detectPlatform(config.meetUrl);
@@ -199,6 +206,10 @@ class MeetingBot {
 
     console.log('\n✅ Bot joined successfully!');
     console.log('🎤 Recording meeting audio...');
+    
+    // Track join time for duration calculation
+    this.joinTime = new Date();
+    console.log(`⏰ Join time recorded: ${this.joinTime.toISOString()}`);
   }
 
   /**
@@ -280,7 +291,8 @@ class MeetingBot {
         this.audioRecorder = new AudioRecorder(
           this.page,
           this.meetingDataDir,
-          this.chunksDir
+          this.chunksDir,
+          this.meetingId
         );
 
         // Inject audio capture BEFORE navigating to meeting
@@ -320,25 +332,8 @@ class MeetingBot {
     // Start audio recording
     await this.audioRecorder.startRealtimeTranscription();
 
-    // Setup monitoring
-    await this.setupMonitoring();
-
-    // Setup auto-exit if duration specified
-    if (this.config.durationMinutes > 0) {
-      console.log(`\n⏰ Auto mode: Will record for ${this.config.durationMinutes} minutes`);
-      this.autoExitTimeout = setTimeout(() => {
-        console.log('\n\n⏰ Duration reached, stopping recording...');
-        this.stop();
-      }, this.config.durationMinutes * 60 * 1000);
-    } else {
-      console.log('\n💡 Recording in progress. Use stop() method to save recording.\n');
-    }
-
-    this.success = true;
-    return this;
-
-    // Start audio recording
-    await this.audioRecorder.startRealtimeTranscription();
+    // Start action item extraction
+    await this.startActionItemExtraction();
 
     // Setup monitoring
     await this.setupMonitoring();
@@ -354,7 +349,6 @@ class MeetingBot {
       console.log('\n💡 Recording in progress. Use stop() method to save recording.\n');
     }
 
-    this.success = true;
     return this;
   }
 
@@ -368,6 +362,17 @@ class MeetingBot {
     console.log(`   Has page: ${!!this.page}`);
     console.log(`   Has browser: ${!!this.browser}`);
 
+    // Track stop time for duration calculation
+    this.stopTime = new Date();
+    if (this.joinTime) {
+      const durationMs = this.stopTime.getTime() - this.joinTime.getTime();
+      const durationMinutes = durationMs / (1000 * 60);
+      console.log(`⏰ Stop time recorded: ${this.stopTime.toISOString()}`);
+      console.log(`⏰ Meeting duration: ${durationMinutes.toFixed(2)} minutes`);
+    } else {
+      console.log(`⚠️  No join time recorded, cannot calculate duration`);
+    }
+
     try {
       // Clear intervals and timeouts
       if (this.monitorInterval) {
@@ -379,6 +384,12 @@ class MeetingBot {
         clearTimeout(this.autoExitTimeout);
         this.autoExitTimeout = null;
         console.log('   ✅ Cleared autoExitTimeout');
+      }
+
+      if (this.actionItemsInterval) {
+        clearInterval(this.actionItemsInterval);
+        this.actionItemsInterval = null;
+        console.log('   ✅ Cleared actionItemsInterval');
       }
 
       // Stop audio recording and save complete recording
@@ -417,6 +428,43 @@ class MeetingBot {
         console.log(`   ✅ Step 2 complete: saveCompleteRecording() finished`);
         console.log(`   Save result: ${saveResult ? 'success' : 'no recording saved or timed out'}`);
         
+        // Update meeting recording URL and duration in database
+        if (this.meetingId) {
+          try {
+            
+            
+            // Update recording URL and duration with complete system path
+            if (saveResult) {
+              // Prefer MP3 path, fallback to WebM path
+              const recordingPath = saveResult.mp3Path || saveResult.webmPath;
+              if (recordingPath) {
+                console.log(`\n💾 [MeetingBot.stop] Updating recording URL in database...`);
+                await PostMeetingProcessor.updateRecordingUrl(
+                  parseInt(this.meetingId),
+                  recordingPath
+                );
+                
+                // Update meeting duration with actual audio file duration
+                console.log(`\n⏰ [MeetingBot.stop] Updating meeting duration from audio file...`);
+                await PostMeetingProcessor.updateMeetingDuration(
+                  parseInt(this.meetingId),
+                  recordingPath
+                );
+              } else {
+                console.log(`   ⚠️  No recording path available to update`);
+              }
+            } else {
+              console.log(`   ⚠️  Recording not saved, skipping recording URL and duration update`);
+            }
+          } catch (dbUpdateError) {
+            console.error(`   ⚠️  Error updating meeting in database:`, dbUpdateError.message);
+            console.error(`   Error stack:`, dbUpdateError.stack);
+            // Don't throw - continue with cleanup even if DB update fails
+          }
+        } else {
+          console.log(`   ⚠️  No meeting ID available, skipping database updates`);
+        }
+        
         // Finalize transcription with complete audio file if available
         if (this.audioRecorder.transcriptionService) {
           try {
@@ -442,7 +490,18 @@ class MeetingBot {
         } else {
           console.log(`   ⚠️  No transcription service available to finalize`);
         }
-        
+
+        // Process pending action items post-meeting
+        try {
+          const PostMeetingProcessor = require('./PostMeetingProcessor');
+          const postMeetingResult = await PostMeetingProcessor.processPendingActionItems(this.meetingId);
+          if (postMeetingResult.requiresConfirmation) {
+            console.log(`📋 ${postMeetingResult.pendingCount} pending action items require confirmation`);
+          }
+        } catch (postMeetingError) {
+          console.error('⚠️ Error processing pending action items:', postMeetingError.message);
+        }
+
         console.log(`\n🧹 [MeetingBot.stop] Step 3: Final audio cleanup...`);
         // 3. Final cleanup (close audio context)
         await this.audioRecorder.finalCleanup();
@@ -531,6 +590,55 @@ class MeetingBot {
     }
     
     console.log(`\n✅ [MeetingBot.cleanup] Cleanup completed`);
+  }
+
+  // Periodically extract action items from transcript
+  async startActionItemExtraction() {
+    if (!this.actionItemsExtractionEnabled) {
+      console.log('⚠️ Action item extraction disabled');
+      return;
+    }
+
+    const ActionItemService = require('./ActionItemService');
+    const transcriptPath = path.join(this.meetingDataDir, 'transcript_complete.txt');
+    const EXTRACTION_INTERVAL = parseInt(process.env.ACTION_ITEMS_INTERVAL || '90000', 10);
+
+    console.log('📋 Starting periodic action item extraction...');
+
+    this.actionItemsInterval = setInterval(async () => {
+      if (this.actionItemsRunning || !this.page || this.page.isClosed()) {
+        return;
+      }
+
+      this.actionItemsRunning = true;
+
+      try {
+        if (!fs.existsSync(transcriptPath)) {
+          return;
+        }
+
+        const transcriptText = fs.readFileSync(transcriptPath, 'utf8');
+        if (!transcriptText || transcriptText.trim().length < 50) {
+          return;
+        }
+
+        const currentChunk = this.audioRecorder?.chunkSequence || null;
+
+        const result = await ActionItemService.extractAndUpdateActionItems(
+          this.meetingId,
+          transcriptText,
+          currentChunk
+        );
+
+        if (result.added > 0 || result.updated > 0) {
+          console.log(`📋 Action items: ${result.added} added, ${result.updated} updated`);
+        }
+      } catch (error) {
+        console.error('❌ Error in action item extraction:', error.message);
+      } finally {
+        this.actionItemsRunning = false;
+      }
+    }, EXTRACTION_INTERVAL);
   }
 }
 

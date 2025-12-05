@@ -33,12 +33,14 @@ const workspaceRoutes = require("./routes/workspaceRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const meetingRoutes = require("./routes/meetingRoutes");
+const actionItemRoutes = require("./routes/actionItemRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/meetings", meetingRoutes);
+app.use("/api/action-items", actionItemRoutes);
 
 // Health check route
 app.get("/", (req, res) => {

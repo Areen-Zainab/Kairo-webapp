@@ -15,6 +15,7 @@ export interface MeetingDetailsData {
   meetingType: 'sprint-planning' | 'standup' | 'retrospective' | 'review' | 'brainstorming' | 'client-meeting' | 'other';
   description?: string;
   recordingUrl?: string;
+  audioUrl?: string;
   transcript: TranscriptEntry[];
   slides: Slide[];
   minutes: MeetingMinute[];

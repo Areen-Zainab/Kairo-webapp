@@ -32,6 +32,8 @@ model User {
   meetingParticipants  MeetingParticipant[]  @relation("MeetingParticipants")
   meetingNotes         MeetingNote[]
   meetingFiles         MeetingFile[]
+  confirmedActionItems ActionItem[]          @relation("ActionItemConfirmedBy")
+  rejectedActionItems  ActionItem[]          @relation("ActionItemRejectedBy")
 
   @@map("users")
 }
@@ -137,10 +139,42 @@ model Meeting {
   participants    MeetingParticipant[]
   notes           MeetingNote[]
   files           MeetingFile[]
+  actionItems     ActionItem[]
 
   @@index([workspaceId, startTime])
   @@index([status, startTime])
   @@map("meetings")
+}
+
+model ActionItem {
+  id            Int       @id @default(autoincrement())
+  meetingId     Int       @map("meeting_id")
+  title         String
+  description   String?   @db.Text
+  assignee      String?
+  dueDate       DateTime? @map("due_date")
+  status        String    @default("pending")
+  confirmedAt   DateTime? @map("confirmed_at")
+  rejectedAt    DateTime? @map("rejected_at")
+  confirmedBy   Int?      @map("confirmed_by")
+  rejectedBy    Int?      @map("rejected_by")
+  canonicalKey  String    @map("canonical_key")
+  confidence    Float?    @default(0.0)
+  sourceChunk   Int?      @map("source_chunk")
+  firstSeenAt   DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt    DateTime  @updatedAt @map("last_seen_at")
+  rawData       Json?     @map("raw_data")
+  updateHistory Json?     @map("update_history")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  meeting        Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  confirmedByUser User?  @relation("ActionItemConfirmedBy", fields: [confirmedBy], references: [id])
+  rejectedByUser  User?  @relation("ActionItemRejectedBy", fields: [rejectedBy], references: [id])
+
+  @@index([meetingId, status])
+  @@index([meetingId, canonicalKey])
+  @@index([status, lastSeenAt])
+  @@map("action_items")
 }
 
 model MeetingNote {

@@ -622,6 +622,33 @@ class ApiService {
       method: 'DELETE',
     });
   }
+
+  // Action Items
+  async getActionItems(meetingId: number, status?: 'pending' | 'confirmed' | 'rejected'): Promise<ApiResponse<{ actionItems: any[] }>> {
+    const query = status ? `?status=${status}` : '';
+    return this.request<{ actionItems: any[] }>(`/action-items/meetings/${meetingId}${query}`);
+  }
+
+  async getLiveActionItems(meetingId: number, since?: string): Promise<ApiResponse<{ actionItems: any[]; latestUpdate: string | null }>> {
+    const query = since ? `?since=${encodeURIComponent(since)}` : '';
+    return this.request<{ actionItems: any[]; latestUpdate: string | null }>(`/action-items/meetings/${meetingId}/live${query}`);
+  }
+
+  async getPendingActionItems(meetingId: number): Promise<ApiResponse<{ actionItems: any[] }>> {
+    return this.request<{ actionItems: any[] }>(`/action-items/meetings/${meetingId}/pending`);
+  }
+
+  async confirmActionItem(actionItemId: number): Promise<ApiResponse<{ actionItem: any }>> {
+    return this.request<{ actionItem: any }>(`/action-items/${actionItemId}/confirm`, {
+      method: 'POST',
+    });
+  }
+
+  async rejectActionItem(actionItemId: number): Promise<ApiResponse<{ actionItem: any }>> {
+    return this.request<{ actionItem: any }>(`/action-items/${actionItemId}/reject`, {
+      method: 'POST',
+    });
+  }
 }
 
 export type { Notification, NotificationsResponse };

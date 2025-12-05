@@ -1,4 +1,6 @@
 const express = require("express");
+const fs = require('fs');
+const path = require('path');
 const Meeting = require("../models/Meeting");
 const MeetingFile = require("../models/MeetingFile");
 const WorkspaceLog = require("../models/WorkspaceLog");
@@ -7,12 +9,11 @@ const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
 const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
 const multer = require('multer');
-const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType } = require("../utils/meetingFileStorage");
+const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile } = require("../utils/meetingFileStorage");
 const { getMeetingStats } = require("../utils/meetingStats");
 
 const router = express.Router();
 const { spawn } = require('child_process');
-const path = require('path');
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({
@@ -260,6 +261,83 @@ router.get("/my-meetings", authenticateToken, async (req, res) => {
   }
 });
 
+// Handle CORS preflight for audio endpoint
+router.options("/:meetingId/audio", (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.sendStatus(200);
+});
+
+// Get meeting audio file (must be before /:id route to avoid route conflicts)
+router.get("/:meetingId/audio", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.meetingId);
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    // Find audio file
+    const audioPath = findCompleteAudioFile(meetingId);
+    if (!audioPath || !fs.existsSync(audioPath)) {
+      return res.status(404).json({ error: "Audio file not found" });
+    }
+
+    // Determine content type based on file extension
+    const ext = path.extname(audioPath).toLowerCase();
+    let contentType = 'audio/mpeg'; // Default to MP3
+    if (ext === '.webm') {
+      contentType = 'audio/webm';
+    } else if (ext === '.wav') {
+      contentType = 'audio/wav';
+    } else if (ext === '.m4a') {
+      contentType = 'audio/mp4';
+    } else if (ext === '.ogg') {
+      contentType = 'audio/ogg';
+    }
+
+    // Get file stats for Content-Length header
+    const stats = fs.statSync(audioPath);
+    const fileSize = stats.size;
+
+    // Set headers for audio streaming
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', fileSize);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    // Stream the file
+    const fileStream = fs.createReadStream(audioPath);
+    fileStream.pipe(res);
+  } catch (error) {
+    console.error("Get meeting audio error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Get meeting by ID
 router.get("/:id", authenticateToken, async (req, res) => {
   try {
@@ -293,16 +371,36 @@ router.get("/:id", authenticateToken, async (req, res) => {
     let stats = null;
     if (meeting.status === 'completed' || meeting.status === 'in-progress') {
       try {
-        stats = await getMeetingStats(meetingId);
+        // Pass recordingUrl to getMeetingStats so it can use the exact path from database
+        stats = await getMeetingStats(meetingId, meeting.recordingUrl);
       } catch (error) {
         console.error('Error getting meeting stats:', error);
         // Continue without stats if there's an error
       }
     }
 
-    // Add stats to meeting metadata if available
+    // Only check for audio file if meeting is completed (live meetings don't need audio playback)
+    let audioUrl = null;
+    if (meeting.status === 'completed') {
+      const audioPath = findCompleteAudioFile(meetingId);
+      console.log(`[Meeting ${meetingId}] Audio file check:`, {
+        audioPath,
+        found: !!audioPath,
+        meetingStatus: meeting.status
+      });
+      if (audioPath) {
+        // Construct URL for audio file
+        audioUrl = `/api/meetings/${meetingId}/audio`;
+        console.log(`[Meeting ${meetingId}] Audio URL set to:`, audioUrl);
+      } else {
+        console.log(`[Meeting ${meetingId}] No audio file found, audioUrl will be null`);
+      }
+    }
+
+    // Add stats and audio URL to meeting metadata if available
     const meetingWithStats = {
       ...meeting,
+      audioUrl: audioUrl || meeting.recordingUrl, // Use audioUrl if available, fallback to recordingUrl
       stats: stats || {
         transcriptLength: 0,
         audioDurationSeconds: 0,
@@ -560,12 +658,30 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
 
     // Log status change
     try {
+      // Map status to user-friendly title with meeting name
+      const statusTitles = {
+        'completed': `Meeting completed: ${meeting.title}`,
+        'cancelled': `Meeting cancelled: ${meeting.title}`,
+        'in-progress': `Meeting started: ${meeting.title}`,
+        'scheduled': `Meeting scheduled: ${meeting.title}`,
+        'upcoming': `Meeting scheduled: ${meeting.title}`
+      };
+      
+      const title = statusTitles[status] || `Meeting status changed: ${meeting.title}`;
+      const description = status === 'completed' 
+        ? `${meeting.title} meeting was completed`
+        : status === 'cancelled'
+        ? `${meeting.title} meeting was cancelled`
+        : status === 'in-progress'
+        ? `${meeting.title} meeting has started`
+        : `${meeting.title} meeting status changed to ${status}`;
+
       await WorkspaceLog.create({
         workspaceId: meeting.workspaceId,
         userId: req.user.id,
         action: 'meeting_status_changed',
-        title: 'Meeting Status Changed',
-        description: `${meeting.title} meeting status changed to ${status}`,
+        title: title,
+        description: description,
         metadata: { meetingId, title: meeting.title, status }
       });
     } catch (logError) {
