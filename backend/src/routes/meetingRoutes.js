@@ -7,8 +7,8 @@ const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
 const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
 const multer = require('multer');
-const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType } = require("../services/meetingFileStorage");
-const { getMeetingStats } = require("../services/meetingStatsService");
+const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType } = require("../utils/meetingFileStorage");
+const { getMeetingStats } = require("../utils/meetingStats");
 
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -293,7 +293,7 @@ router.get("/:id", authenticateToken, async (req, res) => {
     let stats = null;
     if (meeting.status === 'completed' || meeting.status === 'in-progress') {
       try {
-        stats = getMeetingStats(meetingId);
+        stats = await getMeetingStats(meetingId);
       } catch (error) {
         console.error('Error getting meeting stats:', error);
         // Continue without stats if there's an error
