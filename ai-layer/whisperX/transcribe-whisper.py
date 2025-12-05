@@ -4,6 +4,14 @@
 #   Command-line mode: python transcribe-whisper.py path/to/file.mp3
 #   Streaming mode: python transcribe-whisper.py (reads from stdin)
 
+# ============================================================================
+# FIX: Prevent PyTorch resource deadlock on Windows
+# ============================================================================
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
+# Set threading before importing torch/transformers
 import sys
 import os
 
@@ -13,6 +21,8 @@ os.environ["PATH"] = current_dir + os.pathsep + os.environ["PATH"]
 
 # Load whisperx (speech-to-text)
 try:
+    import torch
+    torch.set_num_threads(1)  # Prevent threading conflicts
     import whisperx
     import torch
 except Exception as e:
@@ -24,7 +34,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 compute_type = "float16" if device == "cuda" else "int8"
 
 # Model configuration
-model_size = "base"  # Options: tiny, base, small, medium, large-v2
+model_size = "small"  # Options: tiny, base, small, medium, large-v2
 model = None
 
 print(f"[Kairo Transcription] Device: {device}", file=sys.stderr)
