@@ -14,11 +14,11 @@ async function autoJoinMeetings() {
   const startedAt = Date.now();
   const now = new Date();
 
-  console.log(`\n[${now.toISOString()}] Starting auto-join meeting job...`);
+  console.log(`\n[${now.toISOString()}] ⏰ Starting auto-join meeting job...`);
 
   try {
     // Look for meetings that are scheduled/upcoming/in-progress and within their time window
-    // We will filter out those already triggered via metadata in code
+    // filter out those already triggered via metadata in code
     const candidates = await prisma.meeting.findMany({
       where: {
         status: { in: ['scheduled', 'upcoming', 'in-progress'] },

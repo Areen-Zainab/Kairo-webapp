@@ -3,3 +3,4 @@ node_modules
 /src/generated/prisma
 src/services/meeting_data/*
 !/src/services/meeting_data/.gitkeep
+

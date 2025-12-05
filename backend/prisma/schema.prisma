@@ -30,6 +30,8 @@ model User {
   receivedInvites      WorkspaceInvite[]     @relation("InvitedUser")
   createdMeetings      Meeting[]             @relation("MeetingCreator")
   meetingParticipants  MeetingParticipant[]  @relation("MeetingParticipants")
+  meetingNotes         MeetingNote[]
+  meetingFiles         MeetingFile[]
 
   @@map("users")
 }
@@ -127,17 +129,63 @@ model Meeting {
   reminderSent    Boolean             @default(false) @map("reminder_sent")
   transcriptUrl   String?             @map("transcript_url")
   recordingUrl    String?             @map("recording_url")
-  notes           String?
   agenda          String?
   meetingSource   String?             @default("kairo") @map("meeting_source") // 'kairo', 'google-calendar', 'outlook', 'zoom', etc.
   metadata        Json?               // Additional flexible data
   workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy       User                @relation("MeetingCreator", fields: [createdById], references: [id], onDelete: Cascade)
   participants    MeetingParticipant[]
+  notes           MeetingNote[]
+  files           MeetingFile[]
 
   @@index([workspaceId, startTime])
   @@index([status, startTime])
   @@map("meetings")
+}
+
+model MeetingNote {
+  id          Int      @id @default(autoincrement())
+  meetingId   Int      @map("meeting_id")
+  userId      Int      @map("user_id")
+  content     String
+  type        String   @default("manual") // 'manual' | 'timeline'
+  timestamp   Int      @default(0)        // seconds into recording; 0 for untimed
+  color       String   @default("#3b82f6")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Denormalize author name for convenience in UI and history
+  authorName  String?  @map("author_name")
+
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, timestamp])
+  @@index([userId])
+  @@map("meeting_notes")
+}
+
+model MeetingFile {
+  id          Int      @id @default(autoincrement())
+  meetingId   Int      @map("meeting_id")
+  userId      Int      @map("user_id")
+  filename    String   // Original filename
+  filepath    String   // Relative path from meeting_data base dir: {meetingId}_.../uploads/{filename}
+  fileSize    BigInt   @map("file_size") // Size in bytes
+  mimeType    String?  @map("mime_type")
+  fileType    String?  @map("file_type") // 'pdf', 'image', 'document', 'presentation', 'other'
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Denormalize uploader name for convenience
+  uploaderName String? @map("uploader_name")
+
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@index([userId])
+  @@map("meeting_files")
 }
 
 model MeetingParticipant {

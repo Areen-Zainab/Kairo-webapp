@@ -26,6 +26,8 @@ export interface MeetingDetailsData {
     minutesGenerated: number;
     slidesCount: number;
     participantsCount: number;
+    audioDurationSeconds?: number;
+    audioDurationMinutes?: number;
   };
 }
 
@@ -166,5 +168,7 @@ export interface FilesPanelProps {
   files: MeetingFile[];
   onFileClick: (file: MeetingFile) => void;
   onFileDownload: (file: MeetingFile) => void;
+  onFileUpload?: (file: File) => void;
+  onFileDelete?: (fileId: string) => void;
   currentTime: number;
 }

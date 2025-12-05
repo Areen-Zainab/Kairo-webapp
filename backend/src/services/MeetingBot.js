@@ -5,7 +5,10 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 const path = require('path');
 const AudioRecorder = require('./AudioRecorder');
-const { navigateToMeeting, enterBotName, disableCameraAndMic, clickJoinButton, leaveMeeting } = require('./joinMeeting');
+
+// Platform-specific handlers (modularized under bot-join)
+const meetPlatform = require('./bot-join/meetService');
+const zoomPlatform = require('./bot-join/zoomService');
 
 puppeteer.use(StealthPlugin());
 
@@ -17,7 +20,7 @@ if (!fs.existsSync(MEETING_DATA_BASE_DIR)) {
 
 class MeetingBot {
   constructor(config) {
-    this.config = config; // { meetUrl, botName, durationMinutes, meetingId, meetingTitle }
+    this.config = config;
     this.browser = null;
     this.page = null;
     this.audioRecorder = null;
@@ -25,9 +28,26 @@ class MeetingBot {
     this.chunksDir = null;
     this.monitorInterval = null;
     this.autoExitTimeout = null;
-    // Expose meetingId for compatibility
     this.meetingId = config.meetingId;
     this.success = false;
+    
+    // Detect platform and set handlers
+    this.platform = this.detectPlatform(config.meetUrl);
+    this.platformHandlers = this.platform === 'zoom' ? zoomPlatform : meetPlatform;
+    
+    console.log(`🎯 Detected platform: ${this.platform.toUpperCase()}`);
+  }
+
+  /**
+   * Detect meeting platform from URL
+   */
+  detectPlatform(url) {
+    if (url.includes('zoom.us')) {
+      return 'zoom';
+    } else if (url.includes('meet.google.com')) {
+      return 'meet';
+    }
+    throw new Error('Unsupported meeting platform. Only Google Meet and Zoom are supported.');
   }
 
   /**
@@ -93,28 +113,54 @@ class MeetingBot {
     console.log('📁 Meeting data directory:', path.resolve(this.meetingDataDir));
   }
 
+
   /**
    * Join the meeting using pure functions from joinMeeting.js
    */
   async joinMeeting() {
-    console.log('\n⏳ Loading meeting...');
-    await navigateToMeeting(this.page, this.config.meetUrl);
+    console.log(`\n⏳ Loading ${this.platform} meeting...`);
+    
+    const botName = this.config.botName || process.env.BOT_NAME || 'Kairo Bot';
+    
+    await this.platformHandlers.navigateToMeeting(this.page, this.config.meetUrl, botName);
     console.log('✅ Page loaded');
 
     console.log('\n⏳ Entering name...');
-    await enterBotName(this.page, this.config.botName || process.env.BOT_NAME || 'Kairo Bot');
+    await this.platformHandlers.enterBotName(this.page, botName);
     console.log('✅ Name entered');
 
     console.log('\n🔧 Disabling camera and microphone...');
-    await disableCameraAndMic(this.page);
+    await this.platformHandlers.disableCameraAndMic(this.page);
     console.log('✅ Camera and mic disabled');
 
     console.log('\n⏳ Joining meeting...');
-    await clickJoinButton(this.page);
+    await this.platformHandlers.clickJoinButton(this.page);
     console.log('✅ Join clicked');
 
-    // Wait for meeting to load
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    // Wait 2 seconds for meeting to load before proceeding
+    console.log('\n⏳ Waiting for meeting to load...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Check for join error screen (Google Meet specific) - check immediately
+    if (this.platform === 'meet' && this.platformHandlers.detectJoinError) {
+      const hasError = await this.platformHandlers.detectJoinError(this.page);
+      if (hasError) {
+        console.error('\n❌ [MeetingBot.joinMeeting] Detected "You can\'t join this video call" error screen');
+        throw new Error('Failed to join meeting: "You can\'t join this video call" error detected');
+      }
+    }
+
+    // Wait a bit more and check again (error screen might appear with delay)
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // Second check for error screen after delay
+    if (this.platform === 'meet' && this.platformHandlers.detectJoinError) {
+      const hasError = await this.platformHandlers.detectJoinError(this.page);
+      if (hasError) {
+        console.error('\n❌ [MeetingBot.joinMeeting] Detected "You can\'t join this video call" error screen (delayed check)');
+        throw new Error('Failed to join meeting: "You can\'t join this video call" error detected');
+      }
+    }
 
     // Check recording status
     let recordingStatus = { isRecording: false, hasTrack: false, chunks: 0 };
@@ -205,20 +251,91 @@ class MeetingBot {
    * Start the bot - initialize, join meeting, start recording
    */
   async start() {
-    await this.initialize();
+    const MAX_RETRY_ATTEMPTS = 3;
+    let attempt = 0;
+    let lastError = null;
 
-    // Create AudioRecorder instance
-    this.audioRecorder = new AudioRecorder(
-      this.page,
-      this.meetingDataDir,
-      this.chunksDir
-    );
+    while (attempt < MAX_RETRY_ATTEMPTS) {
+      attempt++;
+      
+      try {
+        // Initialize browser and page
+        if (attempt === 1) {
+          await this.initialize();
+        } else {
+          // For retries, re-initialize (creates new browser instance)
+          console.log(`\n🔄 [MeetingBot.start] Retry attempt ${attempt}/${MAX_RETRY_ATTEMPTS}...`);
+          // Clean up previous browser if it exists
+          if (this.browser) {
+            try {
+              await this.cleanup();
+            } catch (cleanupErr) {
+              console.error(`⚠️ Error cleaning up before retry:`, cleanupErr.message);
+            }
+          }
+          await this.initialize();
+        }
 
-    // Inject audio capture BEFORE navigating to meeting
-    await this.audioRecorder.injectAudioCapture();
+        // Create AudioRecorder instance
+        this.audioRecorder = new AudioRecorder(
+          this.page,
+          this.meetingDataDir,
+          this.chunksDir
+        );
 
-    // Join the meeting
-    await this.joinMeeting();
+        // Inject audio capture BEFORE navigating to meeting
+        await this.audioRecorder.injectAudioCapture();
+
+        // Join the meeting (waits 2 seconds after clicking join)
+        await this.joinMeeting();
+        
+        // If we get here, join was successful
+        break; // Exit retry loop
+        
+      } catch (error) {
+        lastError = error;
+        console.error(`❌ [MeetingBot.start] Attempt ${attempt}/${MAX_RETRY_ATTEMPTS} failed: ${error.message}`);
+        
+        // Close browser before retry
+        try {
+          await this.cleanup();
+        } catch (cleanupError) {
+          console.error(`⚠️ [MeetingBot.start] Error during cleanup after join failure:`, cleanupError.message);
+        }
+        
+        // If this was the last attempt, throw the error
+        if (attempt >= MAX_RETRY_ATTEMPTS) {
+          console.error(`❌ [MeetingBot.start] All ${MAX_RETRY_ATTEMPTS} attempts failed. Giving up.`);
+          throw lastError;
+        }
+        
+        // Wait a bit before retrying (exponential backoff)
+        const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+        console.log(`⏳ [MeetingBot.start] Waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+
+    // If we get here, join was successful - continue with recording setup
+    // Start audio recording
+    await this.audioRecorder.startRealtimeTranscription();
+
+    // Setup monitoring
+    await this.setupMonitoring();
+
+    // Setup auto-exit if duration specified
+    if (this.config.durationMinutes > 0) {
+      console.log(`\n⏰ Auto mode: Will record for ${this.config.durationMinutes} minutes`);
+      this.autoExitTimeout = setTimeout(() => {
+        console.log('\n\n⏰ Duration reached, stopping recording...');
+        this.stop();
+      }, this.config.durationMinutes * 60 * 1000);
+    } else {
+      console.log('\n💡 Recording in progress. Use stop() method to save recording.\n');
+    }
+
+    this.success = true;
+    return this;
 
     // Start audio recording
     await this.audioRecorder.startRealtimeTranscription();
@@ -300,6 +417,32 @@ class MeetingBot {
         console.log(`   ✅ Step 2 complete: saveCompleteRecording() finished`);
         console.log(`   Save result: ${saveResult ? 'success' : 'no recording saved or timed out'}`);
         
+        // Finalize transcription with complete audio file if available
+        if (this.audioRecorder.transcriptionService) {
+          try {
+            if (saveResult?.mp3Path) {
+              console.log(`\n🎭 [MeetingBot.stop] Finalizing transcription with diarization...`);
+              await this.audioRecorder.transcriptionService.finalize(saveResult.mp3Path);
+              console.log(`   ✅ Transcription finalization complete`);
+            } else {
+              console.log(`\n🎭 [MeetingBot.stop] Finalizing transcription without diarization (no complete audio)...`);
+              await this.audioRecorder.transcriptionService.finalize(null);
+              console.log(`   ✅ Transcription finalization complete (without diarization)`);
+            }
+          } catch (error) {
+            console.error(`   ⚠️  Transcription finalization failed: ${error.message}`);
+            console.error(`   Error stack:`, error.stack);
+          } finally {
+            // Cleanup transcription service after finalization (whether it succeeded or failed)
+            if (this.audioRecorder.transcriptionService) {
+              this.audioRecorder.transcriptionService.cleanup();
+              this.audioRecorder.transcriptionService = null;
+            }
+          }
+        } else {
+          console.log(`   ⚠️  No transcription service available to finalize`);
+        }
+        
         console.log(`\n🧹 [MeetingBot.stop] Step 3: Final audio cleanup...`);
         // 3. Final cleanup (close audio context)
         await this.audioRecorder.finalCleanup();
@@ -335,12 +478,11 @@ class MeetingBot {
     console.log(`   Page closed: ${this.page ? this.page.isClosed() : 'N/A'}`);
     console.log(`   Browser exists: ${!!this.browser}`);
 
-    // Leave meeting
+    // Leave meeting using platform-specific handler
     try {
       if (this.page && !this.page.isClosed()) {
-        console.log(`\n🚪 [MeetingBot.cleanup] Step 1: Leaving meeting...`);
-        await leaveMeeting(this.page);
-        // Give a moment for the leave action to complete
+        console.log(`\n🚪 [MeetingBot.cleanup] Step 1: Leaving ${this.platform} meeting...`);
+        await this.platformHandlers.leaveMeeting(this.page);
         await new Promise(resolve => setTimeout(resolve, 1000));
         console.log(`   ✅ Step 1 complete: Left meeting`);
       } else {
@@ -351,11 +493,10 @@ class MeetingBot {
       console.error(`   Error stack:`, err.stack);
     }
 
-    // Close browser
+    // Close browser 
     if (this.browser) {
       try {
         console.log(`\n🔒 [MeetingBot.cleanup] Step 2: Closing browser...`);
-        // Close all pages first
         const pages = await this.browser.pages();
         console.log(`   Found ${pages.length} page(s) to close`);
         for (const page of pages) {
@@ -370,13 +511,11 @@ class MeetingBot {
             console.error(`   ⚠️ Error closing individual page:`, e.message);
           }
         }
-        // Then close browser
         await this.browser.close();
         console.log(`   ✅ Step 2 complete: Browser closed`);
       } catch (err) {
         console.error(`❌ [MeetingBot.cleanup] Error closing browser:`, err && err.message ? err.message : err);
         console.error(`   Error stack:`, err.stack);
-        // Force close if normal close fails
         try {
           if (this.browser.process()) {
             console.log(`   🔄 Attempting force kill...`);
@@ -396,4 +535,3 @@ class MeetingBot {
 }
 
 module.exports = MeetingBot;
-

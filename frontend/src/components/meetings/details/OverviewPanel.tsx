@@ -122,23 +122,29 @@ const OverviewPanel: React.FC<OverviewPanelProps> = ({ meeting }) => {
       {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">Transcript</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400">Audio Length</div>
           <div className="text-lg font-semibold text-slate-900 dark:text-white">
-            {meeting.stats.transcriptLength} words
+            {meeting.stats.audioDurationMinutes 
+              ? `${meeting.stats.audioDurationMinutes} min`
+              : meeting.stats.audioDurationSeconds
+              ? `${Math.round(meeting.stats.audioDurationSeconds / 60)} min`
+              : 'N/A'}
           </div>
         </div>
         
         <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">Minutes</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400">Transcript Length</div>
+          <div className="text-lg font-semibold text-slate-900 dark:text-white">
+            {meeting.stats.transcriptLength > 0 
+              ? `${meeting.stats.transcriptLength.toLocaleString()} words`
+              : 'N/A'}
+          </div>
+        </div>
+        
+        <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
+          <div className="text-xs text-slate-600 dark:text-slate-400">Summary Items</div>
           <div className="text-lg font-semibold text-slate-900 dark:text-white">
             {meeting.stats.minutesGenerated}
-          </div>
-        </div>
-        
-        <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">Slides</div>
-          <div className="text-lg font-semibold text-slate-900 dark:text-white">
-            {meeting.stats.slidesCount}
           </div>
         </div>
         
