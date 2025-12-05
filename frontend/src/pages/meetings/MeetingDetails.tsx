@@ -11,7 +11,8 @@ import {
   type MeetingDetailsData,
   type MeetingMinute,
   type MeetingNote,
-  type MeetingFile
+  type MeetingFile,
+  type TranscriptEntry
 } from '../../components/meetings/details';
 
 const MeetingDetails: React.FC = () => {
@@ -77,12 +78,22 @@ const MeetingDetails: React.FC = () => {
         const m = resp.data.meeting;
 
         // Map backend meeting shape into MeetingDetailsData skeleton.
+        // Use actual audio duration from stats if available (convert seconds to minutes for display)
+        // Otherwise use scheduled duration
+        const actualDurationSeconds = m.stats?.audioDurationSeconds && m.stats.audioDurationSeconds > 0
+          ? m.stats.audioDurationSeconds
+          : (m.duration || 0) * 60; // Convert scheduled duration (minutes) to seconds
+        
+        // Store duration in seconds for exact precision, but convert to minutes for the duration field
+        // The duration field is used for display, so we'll calculate exact minutes+seconds when displaying
+        const actualDurationMinutes = Math.floor(actualDurationSeconds / 60) + (actualDurationSeconds % 60) / 60;
+        
         const baseMeeting: MeetingDetailsData = {
           id: String(m.id),
           title: m.title,
           date: new Date(m.startTime).toISOString().slice(0, 10),
           time: new Date(m.startTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          duration: m.duration || 0,
+          duration: actualDurationMinutes, // This will be used for display, but we'll format it exactly
           status: (m.status === 'completed' ? 'completed' : m.status === 'scheduled' ? 'scheduled' : 'recorded') as any,
           organizer: {
             id: String(m.createdBy?.id ?? m.createdById),
@@ -162,10 +173,38 @@ const MeetingDetails: React.FC = () => {
           }));
         }
 
+        // Load transcript from transcript endpoint
+        let transcript: TranscriptEntry[] = [];
+        if (m.status === 'completed' || m.status === 'in-progress') {
+          try {
+            const transcriptResp = await apiService.getTranscript(m.id);
+            if (transcriptResp.data?.transcript) {
+              transcript = transcriptResp.data.transcript
+                .map((entry: any) => ({
+                  id: entry.id || `entry_${entry.timestamp}`,
+                  timestamp: entry.timestamp || entry.startTime || 0,
+                  startTime: entry.startTime,
+                  endTime: entry.endTime,
+                  speaker: entry.speaker || 'Unknown',
+                  text: entry.text || '',
+                  confidence: entry.confidence || 1.0,
+                  chunk: entry.chunk,
+                  audioFile: entry.audioFile,
+                  rawTimestamp: entry.rawTimestamp,
+                }))
+                .sort((a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)); // Ensure sorted by start time
+            }
+          } catch (error: any) {
+            console.error('Error loading transcript:', error);
+            // Don't show error toast, just log it - transcript might not be available yet
+          }
+        }
+
         setMeeting({
           ...baseMeeting,
           notes,
           files,
+          transcript,
         });
       } catch (e: any) {
         console.error('Failed to load meeting details', e);

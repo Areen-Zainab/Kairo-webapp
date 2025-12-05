@@ -30,10 +30,26 @@ const MeetingHeader: React.FC<MeetingHeaderProps> = ({
     }
   };
 
-  const formatDuration = (minutes: number) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  // Format duration for display (exact time, not rounded)
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    if (mins === 0) {
+      return `${secs} second${secs !== 1 ? 's' : ''}`;
+    } else if (secs === 0) {
+      return `${mins} minute${mins !== 1 ? 's' : ''}`;
+    } else {
+      return `${mins} minute${mins !== 1 ? 's' : ''} ${secs} second${secs !== 1 ? 's' : ''}`;
+    }
+  };
+
+  // Get actual audio duration in seconds, fallback to scheduled duration
+  const getActualDurationSeconds = () => {
+    if (meeting.stats?.audioDurationSeconds && meeting.stats.audioDurationSeconds > 0) {
+      return meeting.stats.audioDurationSeconds;
+    }
+    // Fallback to scheduled duration (convert minutes to seconds)
+    return (meeting.duration || 0) * 60;
   };
 
   return (
@@ -63,7 +79,7 @@ const MeetingHeader: React.FC<MeetingHeaderProps> = ({
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>{formatDuration(meeting.duration)}</span>
+                <span>{formatDuration(getActualDurationSeconds())}</span>
               </div>
               
               <div className="flex items-center gap-1">

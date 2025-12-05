@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, X, ChevronDown, ChevronUp, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1 } from 'lucide-react';
+import { Search, X, ChevronDown, ChevronUp, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Clock } from 'lucide-react';
 import type { MeetingDetailsData, TranscriptEntry, Slide, MeetingNote } from './types';
 
 interface TranscriptPanelProps {
@@ -42,6 +42,9 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [progressHoverPosition, setProgressHoverPosition] = useState<number | null>(null);
   const [mediaCurrentTime, setMediaCurrentTime] = useState(0); // Local state for current playback time
   const [isHoveringPlayer, setIsHoveringPlayer] = useState(false); // Track hover state for controls visibility
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [hoveredEntryIndex, setHoveredEntryIndex] = useState<number | null>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const hideControlsTimeoutRef = useRef<number | null>(null);
   const audioObjectUrlRef = useRef<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -49,13 +52,124 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const volumeSliderRef = useRef<HTMLDivElement>(null);
   const speedMenuRef = useRef<HTMLDivElement>(null);
+  const isUserScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
 
-  // Filter transcript based on search query
-  const filteredTranscript = meeting.transcript.filter(entry =>
-    entry.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    entry.speaker.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter transcript based on search query and ensure it's sorted by start time (or timestamp for backwards compatibility)
+  const filteredTranscript = meeting.transcript
+    .filter(entry =>
+      entry.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      entry.speaker.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort((a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)); // Always sort by start time
+
+  // Find the active entry based on current time using timestamp field (start_time from JSON)
+  // Uses timestamp field which is the start_time field directly from transcript_diarized.json
+  const getActiveEntryIndex = () => {
+    // If no transcript entries, return -1
+    if (filteredTranscript.length === 0) {
+      return -1;
+    }
+
+    // If currentTime is negative or 0, don't highlight anything
+    // Only highlight when audio has actually started playing
+    if (currentTime <= 0) {
+      return -1;
+    }
+
+    // Find the entry where currentTime falls within its range
+    // Iterate backwards to find the most recent matching entry
+    for (let i = filteredTranscript.length - 1; i >= 0; i--) {
+      const entry = filteredTranscript[i];
+      const nextEntry = filteredTranscript[i + 1];
+      
+      // Use timestamp field (start_time from JSON) for accurate syncing
+      const entryStartTime = entry.timestamp;
+      // End time is either next entry's timestamp or a default duration
+      const entryEndTime = nextEntry 
+        ? nextEntry.timestamp 
+        : entry.timestamp + 10; // Default 10s if no next entry
+      
+      // Only match if currentTime is within the entry's time range
+      // Use strict < for end time to avoid matching multiple entries at boundaries
+      if (currentTime >= entryStartTime && currentTime < entryEndTime) {
+        return i;
+      }
+    }
+    
+    // If no match found, return -1 (don't highlight anything)
+    return -1;
+  };
+
+  const activeEntryIndex = getActiveEntryIndex();
+
+  // Extract unique speakers for legend
+  const uniqueSpeakers = React.useMemo(() => {
+    const speakers = new Map<string, { count: number; color: string }>();
+    filteredTranscript.forEach(entry => {
+      if (!speakers.has(entry.speaker)) {
+        const speakerNum = entry.speaker.match(/\d+/)?.[0];
+        const colors = [
+          'from-blue-500 via-blue-600 to-blue-700',
+          'from-purple-500 via-purple-600 to-purple-700',
+          'from-emerald-500 via-emerald-600 to-emerald-700',
+          'from-amber-500 via-amber-600 to-amber-700',
+          'from-rose-500 via-rose-600 to-rose-700',
+          'from-indigo-500 via-indigo-600 to-indigo-700',
+        ];
+        const color = entry.speaker === 'UNKNOWN' 
+          ? 'from-slate-400 to-slate-500'
+          : colors[parseInt(speakerNum || '0') % colors.length] || colors[0];
+        speakers.set(entry.speaker, { count: 0, color });
+      }
+      const speaker = speakers.get(entry.speaker)!;
+      speaker.count++;
+    });
+    return Array.from(speakers.entries()).map(([name, data]) => ({ name, ...data }));
+  }, [filteredTranscript]);
+
+  // Get speaker color function
+  const getSpeakerColor = (speaker: string) => {
+    if (speaker === 'UNKNOWN') {
+      return 'bg-gradient-to-br from-slate-400 to-slate-500';
+    }
+    const speakerNum = speaker.match(/\d+/)?.[0];
+    const colors = [
+      'bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700',
+      'bg-gradient-to-br from-purple-500 via-purple-600 to-purple-700',
+      'bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-700',
+      'bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700',
+      'bg-gradient-to-br from-rose-500 via-rose-600 to-rose-700',
+      'bg-gradient-to-br from-indigo-500 via-indigo-600 to-indigo-700',
+    ];
+    return colors[parseInt(speakerNum || '0') % colors.length] || colors[0];
+  };
+
+  const getSpeakerBorderColor = (speaker: string) => {
+    if (speaker === 'UNKNOWN') {
+      return 'border-slate-400';
+    }
+    const speakerNum = speaker.match(/\d+/)?.[0];
+    const colors = [
+      'border-blue-500',
+      'border-purple-500',
+      'border-emerald-500',
+      'border-amber-500',
+      'border-rose-500',
+      'border-indigo-500',
+    ];
+    return colors[parseInt(speakerNum || '0') % colors.length] || colors[0];
+  };
+
+  // Calculate scroll progress
+  const handleScrollProgress = () => {
+    if (transcriptScrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = transcriptScrollRef.current;
+      const progress = (scrollTop / (scrollHeight - clientHeight)) * 100;
+      setScrollProgress(isNaN(progress) ? 0 : progress);
+    }
+  };
 
 
   // Always prefer audio for playback when audioUrl is available (complete recording from meeting folder)
@@ -332,12 +446,46 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     return meeting.duration * 60;
   };
 
+  // Scroll to active entry (when audio plays or entry is clicked)
+  const scrollToEntry = (entry: TranscriptEntry) => {
+    if (!entry || isUserScrollingRef.current) return;
+    // Use timestamp field (start_time from JSON) for accurate syncing
+    const entryTime = entry.timestamp;
+    const currentEntry = document.querySelector(`[data-timestamp="${entryTime}"]`);
+    if (currentEntry && transcriptRef.current) {
+      // Check if entry is already in viewport to avoid unnecessary scrolling
+      const container = transcriptRef.current.parentElement;
+      if (container) {
+        const entryRect = currentEntry.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        // Check if entry is at least partially visible in the center area
+        const entryCenter = entryRect.top + entryRect.height / 2;
+        const containerCenter = containerRect.top + containerRect.height / 2;
+        const distanceFromCenter = Math.abs(entryCenter - containerCenter);
+        const threshold = containerRect.height * 0.3; // 30% of container height
+        
+        // Only scroll if entry is not near the center
+        if (distanceFromCenter > threshold) {
+          currentEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } else {
+        currentEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  };
+
   // Handle timestamp click (works for both video and audio)
-  const handleTimestampClick = (timestamp: number) => {
+  const handleTimestampClick = (timestamp: number, entry?: TranscriptEntry) => {
     const mediaElement = useAudio ? audioRef.current : videoRef.current;
     if (mediaElement) {
-      mediaElement.currentTime = timestamp;
-      onTimestampClick(timestamp);
+      // Use timestamp field (calculated from ISO timestamp) for accurate seeking
+      const seekTime = entry ? entry.timestamp : timestamp;
+      mediaElement.currentTime = seekTime;
+      onTimestampClick(seekTime);
+      // Scroll to the clicked entry immediately
+      if (entry) {
+        setTimeout(() => scrollToEntry(entry), 100); // Small delay to ensure DOM is updated
+      }
     }
   };
 
@@ -421,21 +569,57 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     };
   }, [isPlaying, isHoveringPlayer]);
 
-  // Scroll to current time in transcript
+  // Scroll to current time in transcript as audio plays (only if user isn't manually scrolling)
   useEffect(() => {
-    if (transcriptRef.current) {
-      const currentEntry = document.querySelector(`[data-timestamp="${Math.floor(currentTime)}"]`);
-      if (currentEntry) {
-        currentEntry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (transcriptRef.current && activeEntryIndex >= 0 && !isUserScrollingRef.current) {
+      const activeEntry = filteredTranscript[activeEntryIndex];
+      if (activeEntry) {
+        scrollToEntry(activeEntry);
       }
     }
-  }, [currentTime]);
+  }, [currentTime, activeEntryIndex, filteredTranscript]);
+
+  // Handle manual scrolling - disable auto-scroll temporarily when user scrolls
+  const handleTranscriptScroll = () => {
+    isUserScrollingRef.current = true;
+    handleScrollProgress();
+    // Clear existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    // Re-enable auto-scroll after 3 seconds of no scrolling
+    scrollTimeoutRef.current = setTimeout(() => {
+      isUserScrollingRef.current = false;
+    }, 3000);
+  };
+
+  // Cleanup scroll timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Format time for display
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Format duration for display (exact time, not rounded)
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    if (mins === 0) {
+      return `${secs} second${secs !== 1 ? 's' : ''}`;
+    } else if (secs === 0) {
+      return `${mins} minute${mins !== 1 ? 's' : ''}`;
+    } else {
+      return `${mins} minute${mins !== 1 ? 's' : ''} ${secs} second${secs !== 1 ? 's' : ''}`;
+    }
   };
 
   return (
@@ -777,7 +961,13 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                   Transcript
                 </h3>
                 <p className="text-slate-600 dark:text-slate-400 mt-1">
-                  {meeting.transcript.length} entries • {meeting.duration} minutes
+                  {meeting.transcript.length} entries • {(() => {
+                    // Use actual audio duration from stats if available, otherwise use meeting.duration
+                    const durationSeconds = meeting.stats?.audioDurationSeconds && meeting.stats.audioDurationSeconds > 0
+                      ? meeting.stats.audioDurationSeconds
+                      : (meeting.duration || 0) * 60;
+                    return formatDuration(durationSeconds);
+                  })()}
                 </p>
               </div>
               <div className="flex items-center space-x-3">
@@ -833,7 +1023,13 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 </span>
                 <span className="flex items-center space-x-2">
                   <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span>Duration: {meeting.duration} minutes</span>
+                  <span>Duration: {(() => {
+                    // Use actual audio duration from stats if available, otherwise use meeting.duration
+                    const durationSeconds = meeting.stats?.audioDurationSeconds && meeting.stats.audioDurationSeconds > 0
+                      ? meeting.stats.audioDurationSeconds
+                      : (meeting.duration || 0) * 60;
+                    return formatDuration(durationSeconds);
+                  })()}</span>
                 </span>
                 <span className="flex items-center space-x-2">
                   <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
@@ -844,46 +1040,229 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           </div>
 
           {/* Transcript Content */}
-          <div className="flex-1 overflow-y-auto scrollbar-hide">
-            <div ref={transcriptRef} className="p-6 space-y-4">
-              {filteredTranscript.map((entry) => (
-                <div
-                  key={entry.id}
-                  data-timestamp={entry.timestamp}
-                  className={`p-5 rounded-xl cursor-pointer transition-all border-l-4 shadow-sm ${
-                    Math.floor(currentTime) === entry.timestamp
-                      ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 shadow-md'
-                      : 'hover:bg-slate-50 dark:hover:bg-slate-700/50 border-transparent hover:shadow-md'
-                  }`}
-                  onClick={() => handleTimestampClick(entry.timestamp)}
-                  onMouseEnter={() => handleTranscriptHover(entry)}
-                >
-                  <div className="flex items-start space-x-4">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTimestampClick(entry.timestamp);
-                      }}
-                      className="text-sm text-blue-600 dark:text-blue-400 font-mono hover:underline flex-shrink-0 mt-1 bg-blue-100 dark:bg-blue-900/30 px-3 py-2 rounded-lg font-medium"
-                    >
-                      {formatTime(entry.timestamp)}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-3 mb-3">
-                        <span className="font-bold text-slate-900 dark:text-white text-lg">
-                          {entry.speaker}
-                        </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-full font-medium">
-                          {Math.round(entry.confidence * 100)}% confidence
-                        </span>
+          <div 
+            ref={transcriptScrollRef}
+            className="flex-1 overflow-y-auto scrollbar-hide relative"
+            onScroll={handleTranscriptScroll}
+          >
+            {/* Scroll progress indicator */}
+            <div className="sticky top-0 z-50 h-1 bg-slate-200/50 dark:bg-slate-700/50">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-150"
+                style={{ width: `${scrollProgress}%` }}
+              />
+            </div>
+
+            {/* Gradient fade at top */}
+            <div className="sticky top-0 z-40 h-8 bg-gradient-to-b from-white dark:from-slate-800 to-transparent pointer-events-none" />
+
+            <div ref={transcriptRef} className="relative px-8 py-10">
+              {/* Subtle background pattern - lighter */}
+              <div className="absolute inset-0 opacity-[0.008] dark:opacity-[0.015] pointer-events-none" 
+                style={{
+                  backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 10px, currentColor 10px, currentColor 20px)`,
+                }}
+              />
+
+              {/* Enhanced Vertical timeline with markers and timestamps */}
+              <div className="absolute left-16 top-8 bottom-8 w-1 bg-gradient-to-b from-blue-200/30 via-blue-400/50 to-blue-200/30 dark:from-blue-800/30 dark:via-blue-600/50 dark:to-blue-800/30 transition-all duration-300">
+                {/* Timeline markers for speaker changes */}
+                {filteredTranscript.map((entry, index) => {
+                  if (index === 0 || entry.speaker !== filteredTranscript[index - 1].speaker) {
+                    const totalDuration = filteredTranscript[filteredTranscript.length - 1]?.timestamp || 0;
+                    const position = totalDuration > 0 ? (entry.timestamp / totalDuration) * 100 : 0;
+                    return (
+                      <div
+                        key={`marker-${index}`}
+                        className="absolute w-3 h-3 rounded-full -left-1 border-2 border-white dark:border-slate-800"
+                        style={{ 
+                          top: `${position}%`,
+                          backgroundColor: getSpeakerBorderColor(entry.speaker).replace('border-', ''),
+                        }}
+                      />
+                    );
+                  }
+                  return null;
+                })}
+
+                {/* Timeline timestamps every 5 minutes */}
+                {(() => {
+                  const totalDuration = filteredTranscript[filteredTranscript.length - 1]?.timestamp || 0;
+                  const timestamps = [];
+                  for (let i = 0; i <= totalDuration; i += 300) { // Every 5 minutes (300 seconds)
+                    const position = totalDuration > 0 ? (i / totalDuration) * 100 : 0;
+                    timestamps.push(
+                      <div
+                        key={`time-${i}`}
+                        className="absolute -left-12 text-xs text-slate-400 dark:text-slate-500 font-light whitespace-nowrap"
+                        style={{ top: `${position}%` }}
+                      >
+                        {formatTime(i)}
                       </div>
-                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed text-base">
-                        {entry.text}
-                      </p>
-                    </div>
+                    );
+                  }
+                  return timestamps;
+                })()}
+              </div>
+
+              {/* Speaker Legend */}
+              {uniqueSpeakers.length > 0 && (
+                <div className="mb-6 pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
+                  <div className="flex flex-wrap gap-3 items-center">
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Speakers:</span>
+                    {uniqueSpeakers.map(({ name, color, count }) => (
+                      <div key={name} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/60 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50">
+                        <div className={`w-3 h-3 rounded-full bg-gradient-to-br ${color}`} />
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                          {name.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">({count})</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              <div className="space-y-3">
+                {filteredTranscript.map((entry, index) => {
+                  // Only highlight if activeEntryIndex is valid (>= 0) and matches this entry
+                  const isActive = activeEntryIndex >= 0 && index === activeEntryIndex;
+                  const isHovered = hoveredEntryIndex === index;
+                  const speakerInitials = entry.speaker.replace(/[^A-Z0-9]/g, '').substring(0, 2) || entry.speaker.substring(0, 2).toUpperCase();
+                  const isAlternate = index % 2 === 0;
+                  
+                  return (
+                    <div
+                      key={entry.id}
+                      data-timestamp={entry.timestamp}
+                      className={`relative flex items-start gap-5 group transition-all duration-300 ${
+                        isActive ? 'scale-[1.005]' : ''
+                      }`}
+                      onClick={() => {
+                        handleTimestampClick(entry.timestamp, entry);
+                      }}
+                      onMouseEnter={() => {
+                        handleTranscriptHover(entry);
+                        setHoveredEntryIndex(index);
+                      }}
+                      onMouseLeave={() => setHoveredEntryIndex(null)}
+                    >
+                      {/* Speaker-colored left border */}
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${getSpeakerBorderColor(entry.speaker)} opacity-30 group-hover:opacity-60 transition-opacity rounded-l-lg`} />
+
+                      {/* Timeline dot with enhanced styling */}
+                      <div className="relative flex-shrink-0 z-10 mt-1">
+                        <div className={`w-6 h-6 rounded-full border-2 transition-all duration-300 ${
+                          isActive 
+                            ? `bg-blue-500 border-blue-50 dark:border-blue-950 shadow-lg shadow-blue-500/40 scale-110 ring-2 ring-blue-300/50 dark:ring-blue-700/50` 
+                            : `bg-white dark:bg-slate-800 ${getSpeakerBorderColor(entry.speaker)} group-hover:scale-105 group-hover:shadow-md`
+                        }`}></div>
+                        {/* Subtle glow for active entry */}
+                        {isActive && (
+                          <div className="absolute inset-0 rounded-full bg-blue-400/20 animate-pulse blur-sm"></div>
+                        )}
+                      </div>
+
+                      {/* Enhanced content card */}
+                      <div className={`flex-1 min-w-0 rounded-lg transition-all duration-300 ${
+                        isActive
+                          ? 'bg-gradient-to-br from-blue-50/80 via-white to-white dark:from-blue-950/30 dark:via-slate-800/50 dark:to-slate-800/60 border border-blue-400/40 dark:border-blue-600/40 shadow-lg shadow-blue-500/10 ring-1 ring-blue-200/30 dark:ring-blue-800/30'
+                          : `bg-white/70 dark:bg-slate-800/40 border border-slate-200/40 dark:border-slate-700/40 group-hover:border-slate-300/60 dark:group-hover:border-slate-600/60 group-hover:shadow-md group-hover:bg-white/90 dark:group-hover:bg-slate-800/60 ${isAlternate ? 'bg-slate-50/30 dark:bg-slate-900/20' : ''}`
+                      }`}>
+                        <div className="p-4">
+                          {/* Header: Speaker and Timestamp */}
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-3">
+                              {/* Enhanced speaker avatar */}
+                              <div className={`w-10 h-10 rounded-lg ${getSpeakerColor(entry.speaker)} flex items-center justify-center text-white font-bold text-xs shadow-md ring-1 ring-white/20 dark:ring-slate-700/30 flex-shrink-0 transition-transform duration-300 ${
+                                isActive ? 'scale-105 ring-2 ring-blue-200/50 dark:ring-blue-800/50' : 'group-hover:scale-105'
+                              }`}>
+                                {speakerInitials}
+                              </div>
+                              <div>
+                                {/* Speaker name badge */}
+                                <div className={`font-bold text-slate-900 dark:text-white text-sm tracking-tight ${
+                                  isActive ? 'text-blue-700 dark:text-blue-300' : ''
+                                }`}>
+                                  {entry.speaker.replace(/_/g, ' ')}
+                                </div>
+                                {/* Confidence as progress bar */}
+                                {entry.confidence < 1.0 && (
+                                  <div className="mt-1.5 flex items-center gap-2">
+                                    <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                      <div 
+                                        className="h-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all duration-300"
+                                        style={{ width: `${entry.confidence * 100}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 font-light">
+                                      {Math.round(entry.confidence * 100)}%
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {/* Enhanced timestamp button with jump icon on hover */}
+                            <div className="flex items-center gap-2">
+                              {isHovered && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleTimestampClick(entry.timestamp, entry);
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                                  title="Jump to time"
+                                >
+                                  <Clock className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleTimestampClick(entry.timestamp, entry);
+                                }}
+                                className={`flex-shrink-0 px-3 py-1.5 rounded-lg font-mono text-xs font-medium transition-all duration-300 ${
+                                  isActive
+                                    ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30 hover:bg-blue-600'
+                                    : 'bg-slate-100/80 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                                }`}
+                              >
+                                {formatTime(entry.timestamp)}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Enhanced transcript text with serif font */}
+                          <p className={`font-serif leading-[1.75] text-sm ${
+                            isActive 
+                              ? 'text-blue-900 dark:text-blue-100 font-medium' 
+                              : 'text-slate-700 dark:text-slate-300 font-normal'
+                          } ${isActive ? 'drop-shadow-sm' : ''}`}>
+                            {searchQuery ? (
+                              // Highlight search keywords
+                              entry.text.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) => 
+                                part.toLowerCase() === searchQuery.toLowerCase() ? (
+                                  <mark key={i} className="bg-yellow-200 dark:bg-yellow-900/40 px-0.5 rounded">
+                                    {part}
+                                  </mark>
+                                ) : (
+                                  part
+                                )
+                              )
+                            ) : (
+                              entry.text
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Gradient fade at bottom */}
+              <div className="sticky bottom-0 z-40 h-8 bg-gradient-to-t from-white dark:from-slate-800 to-transparent pointer-events-none" />
             </div>
           </div>
         </div>

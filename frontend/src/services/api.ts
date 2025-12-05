@@ -639,6 +639,10 @@ class ApiService {
     return this.request<{ entries: any[]; latestTimestamp: string; hasMore: boolean }>(`/meetings/${meetingId}/transcript/live${query}`);
   }
 
+  async getTranscript(meetingId: number): Promise<ApiResponse<{ transcript: any[] }>> {
+    return this.request<{ transcript: any[] }>(`/meetings/${meetingId}/transcript`);
+  }
+
   async getPendingActionItems(meetingId: number): Promise<ApiResponse<{ actionItems: any[] }>> {
     return this.request<{ actionItems: any[] }>(`/action-items/meetings/${meetingId}/pending`);
   }

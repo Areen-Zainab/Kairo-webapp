@@ -256,6 +256,166 @@ function getLiveTranscriptEntries(meetingId, since = null) {
   }
 }
 
+/**
+ * Parse diarized transcript JSON file and return entries
+ * @param {number} meetingId - Meeting ID
+ * @returns {Array} Array of transcript entries with id, timestamp, speaker, text, confidence, startTime, endTime
+ */
+function getDiarizedTranscript(meetingId) {
+  const meetingDir = findMeetingDirectory(meetingId);
+  if (!meetingDir) {
+    return [];
+  }
+
+  // Try JSON file first, fallback to TXT for backwards compatibility
+  const diarizedJsonPath = path.join(meetingDir, 'transcript_diarized.json');
+  const diarizedTxtPath = path.join(meetingDir, 'transcript_diarized.txt');
+  
+  // Prefer JSON file
+  if (fs.existsSync(diarizedJsonPath)) {
+    try {
+      const content = fs.readFileSync(diarizedJsonPath, 'utf8');
+      const data = JSON.parse(content);
+      
+      if (!data.utterances || !Array.isArray(data.utterances)) {
+        console.error(`Invalid JSON structure in transcript_diarized.json for meeting ${meetingId}`);
+        return [];
+      }
+
+      const entries = data.utterances.map((utterance, index) => {
+        // Use start_time field directly from JSON for accurate syncing with audio
+        const timestamp = utterance.start_time !== undefined ? utterance.start_time : 0;
+        
+        // Use diarized timestamps if available (more precise), otherwise use start_time/end_time
+        const startTime = utterance.diarized_start !== undefined 
+          ? utterance.diarized_start 
+          : utterance.start_time;
+        const endTime = utterance.diarized_end !== undefined 
+          ? utterance.diarized_end 
+          : utterance.end_time;
+
+        return {
+          id: `entry_${index}`,
+          timestamp: timestamp, // Use start_time field directly from JSON for accurate syncing
+          startTime: startTime,
+          endTime: endTime,
+          speaker: utterance.speaker || 'UNKNOWN',
+          text: utterance.text || '',
+          confidence: 1.0, // Could be enhanced if confidence is available in JSON
+          chunk: utterance.chunk,
+          audioFile: utterance.audioFile,
+          rawTimestamp: utterance.timestamp // ISO timestamp string
+        };
+      });
+
+      // Sort by timestamp (relative to meeting start) to ensure chronological order
+      entries.sort((a, b) => a.timestamp - b.timestamp);
+      return entries;
+    } catch (error) {
+      console.error(`Error parsing diarized transcript JSON for meeting ${meetingId}:`, error.message);
+      return [];
+    }
+  }
+  
+  // Fallback to TXT file for backwards compatibility
+  if (fs.existsSync(diarizedTxtPath)) {
+    try {
+      const content = fs.readFileSync(diarizedTxtPath, 'utf8');
+      const lines = content.split('\n');
+      const entries = [];
+      let currentSpeaker = null;
+      let currentTimeRange = null;
+      let currentText = '';
+      let entryIndex = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        // Skip empty lines
+        if (!line) {
+          // If we have accumulated text, save the previous entry
+          if (currentSpeaker && currentText.trim()) {
+            const [startTime, endTime] = currentTimeRange ? currentTimeRange.split(' - ') : ['0', '10'];
+            const startSeconds = parseFloat(startTime.replace('s', ''));
+            const endSeconds = parseFloat(endTime.replace('s', ''));
+            
+            entries.push({
+              id: `entry_${entryIndex++}`,
+              timestamp: startSeconds,
+              startTime: startSeconds,
+              endTime: endSeconds,
+              speaker: currentSpeaker,
+              text: currentText.trim(),
+              confidence: 1.0
+            });
+            currentText = '';
+          }
+          continue;
+        }
+
+        // Check if this line is a speaker header (e.g., "SPEAKER_00 [15.0s - 18.0s]:" or "SPEAKER_00 [15.0s - 18.0s]: Text here")
+        const speakerMatch = line.match(/^([A-Z_0-9]+)\s+\[([\d.]+)s\s+-\s+([\d.]+)s\]\s*:?\s*(.*)$/);
+        if (speakerMatch) {
+          // Save previous entry if exists
+          if (currentSpeaker && currentText.trim()) {
+            const [startTime, endTime] = currentTimeRange ? currentTimeRange.split(' - ') : ['0', '10'];
+            const startSeconds = parseFloat(startTime.replace('s', ''));
+            const endSeconds = parseFloat(endTime.replace('s', ''));
+            
+            entries.push({
+              id: `entry_${entryIndex++}`,
+              timestamp: startSeconds,
+              startTime: startSeconds,
+              endTime: endSeconds,
+              speaker: currentSpeaker,
+              text: currentText.trim(),
+              confidence: 1.0
+            });
+          }
+          
+          // Start new entry
+          currentSpeaker = speakerMatch[1];
+          currentTimeRange = `${speakerMatch[2]}s - ${speakerMatch[3]}s`;
+          // If there's text on the same line (after the colon), use it
+          currentText = speakerMatch[4] ? speakerMatch[4].trim() : '';
+        } else {
+          // This is text content, append to current text
+          if (currentText) {
+            currentText += ' ' + line;
+          } else {
+            currentText = line;
+          }
+        }
+      }
+
+      // Save last entry if exists
+      if (currentSpeaker && currentText.trim()) {
+        const [startTime, endTime] = currentTimeRange ? currentTimeRange.split(' - ') : ['0', '10'];
+        const startSeconds = parseFloat(startTime.replace('s', ''));
+        const endSeconds = parseFloat(endTime.replace('s', ''));
+        
+        entries.push({
+          id: `entry_${entryIndex++}`,
+          timestamp: startSeconds,
+          startTime: startSeconds,
+          endTime: endSeconds,
+          speaker: currentSpeaker,
+          text: currentText.trim(),
+          confidence: 1.0
+        });
+      }
+
+      entries.sort((a, b) => a.timestamp - b.timestamp);
+      return entries;
+    } catch (error) {
+      console.error(`Error parsing diarized transcript TXT for meeting ${meetingId}:`, error.message);
+      return [];
+    }
+  }
+
+  return [];
+}
+
 module.exports = {
   findMeetingDirectory,
   ensureUploadsDirectory,
@@ -265,6 +425,7 @@ module.exports = {
   getFileBuffer,
   detectFileType,
   findCompleteAudioFile,
-  getLiveTranscriptEntries
+  getLiveTranscriptEntries,
+  getDiarizedTranscript
 };
 

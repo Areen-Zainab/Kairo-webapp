@@ -9,7 +9,7 @@ const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
 const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
 const multer = require('multer');
-const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile, getLiveTranscriptEntries } = require("../utils/meetingFileStorage");
+const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile, getLiveTranscriptEntries, getDiarizedTranscript } = require("../utils/meetingFileStorage");
 const { getMeetingStats } = require("../utils/meetingStats");
 
 const router = express.Router();
@@ -382,18 +382,18 @@ router.get("/:id", authenticateToken, async (req, res) => {
     // Only check for audio file if meeting is completed (live meetings don't need audio playback)
     let audioUrl = null;
     if (meeting.status === 'completed') {
-      const audioPath = findCompleteAudioFile(meetingId);
-      console.log(`[Meeting ${meetingId}] Audio file check:`, {
-        audioPath,
-        found: !!audioPath,
-        meetingStatus: meeting.status
-      });
-      if (audioPath) {
-        // Construct URL for audio file
-        audioUrl = `/api/meetings/${meetingId}/audio`;
-        console.log(`[Meeting ${meetingId}] Audio URL set to:`, audioUrl);
-      } else {
-        console.log(`[Meeting ${meetingId}] No audio file found, audioUrl will be null`);
+    const audioPath = findCompleteAudioFile(meetingId);
+    console.log(`[Meeting ${meetingId}] Audio file check:`, {
+      audioPath,
+      found: !!audioPath,
+      meetingStatus: meeting.status
+    });
+    if (audioPath) {
+      // Construct URL for audio file
+      audioUrl = `/api/meetings/${meetingId}/audio`;
+      console.log(`[Meeting ${meetingId}] Audio URL set to:`, audioUrl);
+    } else {
+      console.log(`[Meeting ${meetingId}] No audio file found, audioUrl will be null`);
       }
     }
 
@@ -1430,6 +1430,46 @@ router.get("/:id/transcript/live", authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error("Get live transcript error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get diarized transcript for a completed meeting
+router.get("/:id/transcript", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    // Get diarized transcript entries
+    const entries = getDiarizedTranscript(meetingId);
+
+    res.json({
+      transcript: entries
+    });
+  } catch (error) {
+    console.error("Get transcript error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

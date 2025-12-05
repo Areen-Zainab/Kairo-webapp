@@ -286,10 +286,10 @@ class TranscriptionService {
       if (ModelPreloader.isPreloadInProgress(meetingIdNum)) {
         console.log(`⏳ Preload in progress for meeting ${this.meetingId}, waiting for completion...`);
         const preloaded = await ModelPreloader.waitForPreload(meetingIdNum);
-        if (preloaded && preloaded.process) {
-          const proc = preloaded.process;
-          // Check if preloaded process is still alive
-          if (proc && !proc.killed && proc.exitCode === null && proc.stdin && !proc.stdin.destroyed) {
+      if (preloaded && preloaded.process) {
+        const proc = preloaded.process;
+        // Check if preloaded process is still alive
+        if (proc && !proc.killed && proc.exitCode === null && proc.stdin && !proc.stdin.destroyed) {
             console.log(`✅ Reusing preloaded model for meeting ${this.meetingId} (looked up as ${meetingIdNum}) after waiting`);
             
             // Transfer ownership from preloader to TranscriptionService (removes from Map without killing process)

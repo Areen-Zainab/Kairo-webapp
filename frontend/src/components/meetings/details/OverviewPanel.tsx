@@ -6,10 +6,26 @@ interface OverviewPanelProps {
 }
 
 const OverviewPanel: React.FC<OverviewPanelProps> = ({ meeting }) => {
-  const formatDuration = (minutes: number) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  // Format duration for display (exact time, not rounded)
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    if (mins === 0) {
+      return `${secs} second${secs !== 1 ? 's' : ''}`;
+    } else if (secs === 0) {
+      return `${mins} minute${mins !== 1 ? 's' : ''}`;
+    } else {
+      return `${mins} minute${mins !== 1 ? 's' : ''} ${secs} second${secs !== 1 ? 's' : ''}`;
+    }
+  };
+
+  // Get actual audio duration in seconds, fallback to scheduled duration
+  const getActualDurationSeconds = () => {
+    if (meeting.stats?.audioDurationSeconds && meeting.stats.audioDurationSeconds > 0) {
+      return meeting.stats.audioDurationSeconds;
+    }
+    // Fallback to scheduled duration (convert minutes to seconds)
+    return (meeting.duration || 0) * 60;
   };
 
   const getMeetingTypeColor = (type: string) => {
@@ -78,7 +94,7 @@ const OverviewPanel: React.FC<OverviewPanelProps> = ({ meeting }) => {
         <div>
           <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-2">Duration</h4>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            {formatDuration(meeting.duration)}
+            {formatDuration(getActualDurationSeconds())}
           </p>
         </div>
 
@@ -124,10 +140,8 @@ const OverviewPanel: React.FC<OverviewPanelProps> = ({ meeting }) => {
         <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
           <div className="text-xs text-slate-600 dark:text-slate-400">Audio Length</div>
           <div className="text-lg font-semibold text-slate-900 dark:text-white">
-            {meeting.stats.audioDurationMinutes 
-              ? `${meeting.stats.audioDurationMinutes} min`
-              : meeting.stats.audioDurationSeconds
-              ? `${Math.round(meeting.stats.audioDurationSeconds / 60)} min`
+            {getActualDurationSeconds() > 0 
+              ? formatDuration(getActualDurationSeconds())
               : 'N/A'}
           </div>
         </div>

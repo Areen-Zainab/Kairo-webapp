@@ -44,12 +44,17 @@ export interface Participant {
 
 export interface TranscriptEntry {
   id: string;
-  timestamp: number; // in seconds
+  timestamp: number; // in seconds (start time, for backwards compatibility)
+  startTime?: number; // in seconds (precise start time)
+  endTime?: number; // in seconds (precise end time)
   speaker: string;
   text: string;
   confidence: number;
   slideId?: string;
   imageId?: string;
+  chunk?: number;
+  audioFile?: string;
+  rawTimestamp?: string; // ISO timestamp string
 }
 
 export interface Slide {
