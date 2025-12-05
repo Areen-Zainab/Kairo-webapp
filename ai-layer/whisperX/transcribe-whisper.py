@@ -4,6 +4,14 @@
 #   Command-line mode: python transcribe-whisper.py path/to/file.mp3
 #   Streaming mode: python transcribe-whisper.py (reads file paths from stdin)
 
+# ============================================================================
+# FIX: Prevent PyTorch resource deadlock on Windows
+# ============================================================================
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
+# Set threading before importing torch/transformers
 import sys
 import os
 import io
