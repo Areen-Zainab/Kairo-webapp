@@ -16,11 +16,11 @@ import sys
 from typing import Any, Dict
 
 # Local imports (this file lives alongside the agent modules)
-from topic_segmentation_agent import TopicSegmentationAgent
-from decision_extraction_agent import DecisionExtractionAgent
-from action_item_agent import ActionItemAgent
-from sentiment_analysis_agent import SentimentAnalysisAgent
-from summary_agent import SummaryAgent
+from .topic_segmentation_agent import TopicSegmentationAgent
+from .decision_extraction_agent import DecisionExtractionAgent
+from .action_item_agent import ActionItemAgent
+from .sentiment_analysis_agent import SentimentAnalysisAgent
+from .summary_agent import SummaryAgent
 
 
 def run_all(transcript: str) -> Dict[str, Any]:
