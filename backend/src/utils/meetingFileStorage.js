@@ -282,29 +282,49 @@ function getDiarizedTranscript(meetingId) {
         return [];
       }
 
-      const entries = data.utterances.map((utterance, index) => {
-        // Use start_time field directly from JSON for accurate syncing with audio
-        const timestamp = utterance.start_time !== undefined ? utterance.start_time : 0;
-        
-        // Use diarized timestamps if available (more precise), otherwise use start_time/end_time
+      // Find the minimum start time to normalize timestamps (handle cases where first entry doesn't start at 0)
+      let minStartTime = Infinity;
+      data.utterances.forEach(utterance => {
         const startTime = utterance.diarized_start !== undefined 
           ? utterance.diarized_start 
-          : utterance.start_time;
-        const endTime = utterance.diarized_end !== undefined 
+          : (utterance.start_time !== undefined ? utterance.start_time : 0);
+        if (startTime < minStartTime) {
+          minStartTime = startTime;
+        }
+      });
+      
+      // If minStartTime is > 0, we need to normalize (subtract offset) so first entry starts at 0
+      // This ensures transcript timestamps match audio file timeline starting from 0:00
+      const timeOffset = minStartTime > 0 ? minStartTime : 0;
+
+      const entries = data.utterances.map((utterance, index) => {
+        // PRIORITY: Use diarized_start if available (actual audio time from diarization)
+        // Otherwise fall back to start_time (chunk-based, less accurate)
+        const actualStartTime = utterance.diarized_start !== undefined 
+          ? utterance.diarized_start 
+          : (utterance.start_time !== undefined ? utterance.start_time : 0);
+        const actualEndTime = utterance.diarized_end !== undefined 
           ? utterance.diarized_end 
-          : utterance.end_time;
+          : (utterance.end_time !== undefined ? utterance.end_time : actualStartTime + 3);
+        
+        // Normalize timestamps: subtract offset so first entry starts at 0
+        // This ensures sync with audio/video playback which starts at 0:00
+        const normalizedStartTime = actualStartTime - timeOffset;
+        const normalizedEndTime = actualEndTime - timeOffset;
 
         return {
           id: `entry_${index}`,
-          timestamp: timestamp, // Use start_time field directly from JSON for accurate syncing
-          startTime: startTime,
-          endTime: endTime,
+          timestamp: normalizedStartTime, // Normalized to start from 0 for audio sync
+          startTime: normalizedStartTime, // Use normalized time for consistency
+          endTime: normalizedEndTime,
           speaker: utterance.speaker || 'UNKNOWN',
           text: utterance.text || '',
           confidence: 1.0, // Could be enhanced if confidence is available in JSON
           chunk: utterance.chunk,
           audioFile: utterance.audioFile,
-          rawTimestamp: utterance.timestamp // ISO timestamp string
+          rawTimestamp: utterance.timestamp, // ISO timestamp string
+          originalStartTime: actualStartTime, // Keep original for reference
+          timeOffset: timeOffset // Store offset for debugging/reference
         };
       });
 

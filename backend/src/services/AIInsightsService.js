@@ -77,9 +77,10 @@ class AIInsightsService {
       }
 
       // Also check the meetings table flag if it exists (Option 1)
+      // Note: meetings.id is INT, so we use parseInt for explicit type conversion
       try {
         const meetingResult = await prisma.$queryRaw`
-          SELECT ai_insights_generated FROM meetings WHERE id = ${meetingIdStr}
+          SELECT ai_insights_generated FROM meetings WHERE id = ${parseInt(meetingIdStr)}
         `;
         if (meetingResult && meetingResult.length > 0 && meetingResult[0].ai_insights_generated) {
           return true;
@@ -464,11 +465,12 @@ print(json.dumps(result, ensure_ascii=False))
       }
 
       // Mark meeting as insights generated (if field exists)
+      // Note: meetings.id is INT, so we use parseInt for explicit type conversion
       try {
         await tx.$executeRaw`
           UPDATE meetings 
           SET ai_insights_generated = TRUE, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${meetingIdStr}
+          WHERE id = ${parseInt(meetingIdStr)}
         `;
       } catch (error) {
         // Field might not exist yet - log but don't fail

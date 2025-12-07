@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Clock } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Clock, Captions } from 'lucide-react';
 import type { MeetingDetailsData, TranscriptEntry, Slide, MeetingNote } from './types';
 
 interface TranscriptPanelProps {
@@ -56,6 +56,10 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const [showCaptions, setShowCaptions] = useState(true); // Caption overlay toggle
+  const [isSeeking, setIsSeeking] = useState(false); // Track if user is seeking
+  const seekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSyncedTimeRef = useRef<number>(0); // Track last synced time for better accuracy
 
   // Filter transcript based on search query and ensure it's sorted by start time (or timestamp for backwards compatibility)
   const filteredTranscript = meeting.transcript
@@ -65,19 +69,23 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     )
     .sort((a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)); // Always sort by start time
 
-  // Find the active entry based on current time using timestamp field (start_time from JSON)
-  // Uses timestamp field which is the start_time field directly from transcript_diarized.json
-  const getActiveEntryIndex = () => {
+  // Find the active entry based on current time using timestamp field
+  // Timestamps are now normalized to start from 0 to match audio/video playback
+  // Improved with better time synchronization and tolerance
+  const getActiveEntryIndex = useCallback(() => {
     // If no transcript entries, return -1
     if (filteredTranscript.length === 0) {
       return -1;
     }
 
-    // If currentTime is negative or 0, don't highlight anything
-    // Only highlight when audio has actually started playing
-    if (currentTime <= 0) {
+    // If currentTime is negative, don't highlight anything
+    // Allow 0 to match first entry if it starts at 0
+    if (currentTime < 0) {
       return -1;
     }
+
+    // Use a small tolerance for better synchronization (0.2 seconds)
+    const tolerance = 0.2;
 
     // Find the entry where currentTime falls within its range
     // Iterate backwards to find the most recent matching entry
@@ -85,25 +93,32 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       const entry = filteredTranscript[i];
       const nextEntry = filteredTranscript[i + 1];
       
-      // Use timestamp field (start_time from JSON) for accurate syncing
-      const entryStartTime = entry.timestamp;
-      // End time is either next entry's timestamp or a default duration
-      const entryEndTime = nextEntry 
-        ? nextEntry.timestamp 
-        : entry.timestamp + 10; // Default 10s if no next entry
+      // Use timestamp field (normalized to start from 0) for accurate syncing with audio
+      // Prefer startTime if available (more precise), otherwise use timestamp
+      const entryStartTime = entry.startTime !== undefined ? entry.startTime : entry.timestamp;
       
-      // Only match if currentTime is within the entry's time range
-      // Use strict < for end time to avoid matching multiple entries at boundaries
-      if (currentTime >= entryStartTime && currentTime < entryEndTime) {
+      // End time: prefer endTime, then next entry's start, then estimate
+      const entryEndTime = entry.endTime !== undefined 
+        ? entry.endTime 
+        : (nextEntry 
+          ? (nextEntry.startTime !== undefined ? nextEntry.startTime : nextEntry.timestamp)
+          : entryStartTime + (entry.text.length / 10)); // Estimate based on text length if no endTime
+      
+      // Match if currentTime is within the entry's time range (with tolerance)
+      // Use >= for start (inclusive) and < for end (exclusive) to avoid double-matching
+      if (currentTime >= (entryStartTime - tolerance) && currentTime < (entryEndTime + tolerance)) {
         return i;
       }
     }
     
     // If no match found, return -1 (don't highlight anything)
     return -1;
-  };
+  }, [filteredTranscript, currentTime]);
 
   const activeEntryIndex = getActiveEntryIndex();
+  
+  // Get current active transcript entry for captions
+  const activeEntry = activeEntryIndex >= 0 ? filteredTranscript[activeEntryIndex] : null;
 
   // Extract unique speakers for legend
   const uniqueSpeakers = React.useMemo(() => {
@@ -317,14 +332,20 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   }, []);
 
   // Handle media time updates (works for both video and audio)
-  const handleTimeUpdate = () => {
+  // Improved with better synchronization and seeking detection
+  const handleTimeUpdate = useCallback(() => {
     const mediaElement = useAudio ? audioRef.current : videoRef.current;
-    if (mediaElement) {
+    if (mediaElement && !isSeeking) {
       const newTime = mediaElement.currentTime;
-      setMediaCurrentTime(newTime); // Update local state for display
-      onTimeUpdate(newTime); // Also update parent component
+      
+      // Only update if time has changed significantly (avoid micro-updates)
+      if (Math.abs(newTime - lastSyncedTimeRef.current) > 0.1) {
+        setMediaCurrentTime(newTime); // Update local state for display
+        onTimeUpdate(newTime); // Also update parent component
+        lastSyncedTimeRef.current = newTime;
+      }
     }
-  };
+  }, [useAudio, isSeeking, onTimeUpdate]);
 
   // Handle play/pause (works for both video and audio)
   const handlePlayPause = async () => {
@@ -401,19 +422,34 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   };
 
   // Handle seek (progress bar click)
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+  // Improved with visual feedback and smooth seeking
+  const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const mediaElement = useAudio ? audioRef.current : videoRef.current;
-    if (!mediaElement) return;
+    if (!mediaElement || !mediaElement.duration) return;
 
+    setIsSeeking(true);
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const percentage = x / rect.width;
+    const percentage = Math.max(0, Math.min(1, x / rect.width));
     const newTime = percentage * mediaElement.duration;
+    
+    // Update immediately for responsive UI
     mediaElement.currentTime = newTime;
-    setMediaCurrentTime(newTime); // Update immediately
+    setMediaCurrentTime(newTime);
+    lastSyncedTimeRef.current = newTime;
     setProgressHoverPosition(null);
-    handleTimeUpdate(); // Trigger update
-  };
+    
+    // Clear any existing timeout
+    if (seekTimeoutRef.current) {
+      clearTimeout(seekTimeoutRef.current);
+    }
+    
+    // Mark seeking as complete after a short delay
+    seekTimeoutRef.current = setTimeout(() => {
+      setIsSeeking(false);
+      onTimeUpdate(newTime);
+    }, 100);
+  }, [useAudio, onTimeUpdate]);
 
   // Handle progress bar hover
   const handleProgressHover = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -476,19 +512,34 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   };
 
   // Handle timestamp click (works for both video and audio)
-  const handleTimestampClick = (timestamp: number, entry?: TranscriptEntry) => {
+  // Improved with smooth seeking and visual feedback
+  const handleTimestampClick = useCallback((timestamp: number, entry?: TranscriptEntry) => {
     const mediaElement = useAudio ? audioRef.current : videoRef.current;
     if (mediaElement) {
+      setIsSeeking(true);
       // Use timestamp field (calculated from ISO timestamp) for accurate seeking
       const seekTime = entry ? entry.timestamp : timestamp;
       mediaElement.currentTime = seekTime;
+      setMediaCurrentTime(seekTime);
+      lastSyncedTimeRef.current = seekTime;
       onTimestampClick(seekTime);
+      
+      // Clear any existing timeout
+      if (seekTimeoutRef.current) {
+        clearTimeout(seekTimeoutRef.current);
+      }
+      
+      // Mark seeking as complete
+      seekTimeoutRef.current = setTimeout(() => {
+        setIsSeeking(false);
+      }, 100);
+      
       // Scroll to the clicked entry immediately
       if (entry) {
-        setTimeout(() => scrollToEntry(entry), 100); // Small delay to ensure DOM is updated
+        setTimeout(() => scrollToEntry(entry), 150); // Small delay to ensure DOM is updated
       }
     }
-  };
+  }, [useAudio, onTimestampClick]);
 
   // Handle transcript hover
   const handleTranscriptHover = (entry: TranscriptEntry) => {
@@ -600,8 +651,69 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
+      if (seekTimeoutRef.current) {
+        clearTimeout(seekTimeoutRef.current);
+      }
     };
   }, []);
+
+  // Keyboard shortcuts for playback control
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const mediaElement = useAudio ? audioRef.current : videoRef.current;
+      if (!mediaElement) return;
+
+      switch (e.key) {
+        case ' ': // Spacebar - Play/Pause
+          e.preventDefault();
+          handlePlayPause();
+          break;
+        case 'ArrowLeft': // Left arrow - Rewind 10 seconds
+          e.preventDefault();
+          handleSkipBackward();
+          break;
+        case 'ArrowRight': // Right arrow - Forward 10 seconds
+          e.preventDefault();
+          handleSkipForward();
+          break;
+        case 'ArrowUp': // Up arrow - Increase volume
+          e.preventDefault();
+          handleVolumeChange(Math.min(1, volume + 0.1));
+          break;
+        case 'ArrowDown': // Down arrow - Decrease volume
+          e.preventDefault();
+          handleVolumeChange(Math.max(0, volume - 0.1));
+          break;
+        case 'm': // M key - Mute/Unmute
+        case 'M':
+          e.preventDefault();
+          handleMuteToggle();
+          break;
+        case 'f': // F key - Fullscreen (video only)
+        case 'F':
+          if (!useAudio) {
+            e.preventDefault();
+            setIsFullscreen(!isFullscreen);
+          }
+          break;
+        case 'c': // C key - Toggle captions
+        case 'C':
+          e.preventDefault();
+          setShowCaptions(!showCaptions);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => {
+      window.removeEventListener('keydown', handleKeyPress);
+    };
+  }, [useAudio, isPlaying, volume, isFullscreen, showCaptions]);
 
   // Format time for display
   const formatTime = (seconds: number) => {
@@ -716,30 +828,75 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
             </div>
           </div>
         ) : (
-          // Video Player
-          <video
-            ref={videoRef}
-            className="w-full h-80 object-cover"
-            onTimeUpdate={handleTimeUpdate}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onLoadedMetadata={() => {
-              if (videoRef.current) {
-                videoRef.current.volume = volume;
-                videoRef.current.muted = isMuted;
-                videoRef.current.playbackRate = playbackRate;
-              }
-            }}
-            onError={() => {
-              // If video fails to load, switch to audio
-              setUseAudio(true);
-            }}
-            controls={false}
-          >
-            <source src={meeting.recordingUrl || meeting.audioUrl} type="video/mp4" />
-            <source src={meeting.recordingUrl || meeting.audioUrl} type="video/webm" />
-            Your browser does not support the video tag.
-          </video>
+          // Video Player with Caption Overlay
+          <div className="relative w-full h-80 bg-black">
+            <video
+              ref={videoRef}
+              className="w-full h-full object-contain"
+              onTimeUpdate={handleTimeUpdate}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onLoadedMetadata={() => {
+                if (videoRef.current) {
+                  videoRef.current.volume = volume;
+                  videoRef.current.muted = isMuted;
+                  videoRef.current.playbackRate = playbackRate;
+                }
+              }}
+              onSeeked={() => {
+                setIsSeeking(false);
+                handleTimeUpdate();
+              }}
+              onError={() => {
+                // If video fails to load, switch to audio
+                setUseAudio(true);
+              }}
+              controls={false}
+            >
+              <source src={meeting.recordingUrl || meeting.audioUrl} type="video/mp4" />
+              <source src={meeting.recordingUrl || meeting.audioUrl} type="video/webm" />
+              Your browser does not support the video tag.
+            </video>
+            
+            {/* Caption Overlay - YouTube-style */}
+            {showCaptions && activeEntry && (
+              <div className="absolute bottom-20 left-0 right-0 px-4 pointer-events-none z-10">
+                <div className="max-w-4xl mx-auto">
+                  <div className="bg-black/75 backdrop-blur-sm rounded-lg px-6 py-4 border border-white/10 shadow-2xl">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`w-8 h-8 rounded-full ${getSpeakerColor(activeEntry.speaker)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                        {activeEntry.speaker.replace(/[^A-Z0-9]/g, '').substring(0, 2) || activeEntry.speaker.substring(0, 2).toUpperCase()}
+                      </div>
+                      <span className="text-white/90 font-semibold text-sm">
+                        {activeEntry.speaker.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <p className="text-white text-lg font-medium leading-relaxed">
+                      {activeEntry.text}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Video Play/Pause Overlay Button */}
+            <div 
+              className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-200 ${
+                isHoveringPlayer || !isPlaying ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              <button
+                onClick={handlePlayPause}
+                className="bg-black/50 hover:bg-black/70 rounded-full p-6 transition-all backdrop-blur-sm pointer-events-auto shadow-2xl"
+              >
+                {isPlaying ? (
+                  <Pause className="w-12 h-12 text-white drop-shadow-lg" />
+                ) : (
+                  <Play className="w-12 h-12 text-white drop-shadow-lg ml-1" />
+                )}
+              </button>
+            </div>
+          </div>
         )}
         
         {/* Media Overlay Controls - More compact, YouTube-style */}
@@ -772,7 +929,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
             setIsHoveringPlayer(true);
           }}
         >
-          {/* Enhanced Progress Bar */}
+          {/* Enhanced Progress Bar with Better Seeking */}
           <div className="mb-4 relative group">
             <div
               ref={progressBarRef}
@@ -780,42 +937,89 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               onMouseMove={handleProgressHover}
               onMouseLeave={() => setProgressHoverPosition(null)}
               className={`bg-white/20 rounded-full cursor-pointer transition-all relative ${
-                isHoveringPlayer ? 'h-2.5' : 'h-1'
-              }`}
+                isHoveringPlayer ? 'h-3' : 'h-1.5'
+              } ${isSeeking ? 'ring-2 ring-blue-400' : ''}`}
             >
               {/* Progress */}
               <div
-                className="h-full bg-blue-500 rounded-full transition-all group-hover:bg-blue-400 relative"
+                className={`h-full bg-blue-500 rounded-full transition-all group-hover:bg-blue-400 relative ${
+                  isSeeking ? 'bg-blue-400' : ''
+                }`}
                 style={{
                   width: `${(mediaCurrentTime / getCurrentDuration()) * 100}%`
                 }}
               >
-                {/* Progress indicator dot */}
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" />
+                {/* Progress indicator dot - always visible when hovering */}
+                <div className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-4 h-4 bg-blue-500 rounded-full transition-all shadow-lg ${
+                  isHoveringPlayer || isSeeking ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+                }`} />
               </div>
               
-              {/* Hover indicator */}
+              {/* Hover indicator - thicker and more visible */}
               {progressHoverPosition !== null && (
                 <div
-                  className="absolute top-1/2 -translate-y-1/2 w-1 h-4 bg-white rounded-full pointer-events-none"
+                  className="absolute top-1/2 -translate-y-1/2 w-1.5 h-6 bg-white rounded-full pointer-events-none shadow-lg"
                   style={{
                     left: `${(progressHoverPosition / getCurrentDuration()) * 100}%`,
                     transform: 'translate(-50%, -50%)'
                   }}
                 />
               )}
+              
+              {/* Transcript markers on progress bar (speaker changes) */}
+              {filteredTranscript.length > 0 && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {filteredTranscript.map((entry, index) => {
+                    if (index === 0 || entry.speaker !== filteredTranscript[index - 1]?.speaker) {
+                      const duration = getCurrentDuration();
+                      const position = duration > 0 ? (entry.timestamp / duration) * 100 : 0;
+                      return (
+                        <div
+                          key={`marker-${index}`}
+                          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/40 rounded-full"
+                          style={{
+                            left: `${position}%`,
+                            transform: 'translate(-50%, -50%)'
+                          }}
+                        />
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              )}
             </div>
             
-            {/* Hover time tooltip */}
+            {/* Hover time tooltip with transcript preview */}
             {progressHoverPosition !== null && progressBarRef.current && (
               <div
-                className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded pointer-events-none whitespace-nowrap"
+                className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-3 py-2 rounded-lg pointer-events-none whitespace-nowrap shadow-xl border border-white/10"
                 style={{
                   left: `${(progressHoverPosition / getCurrentDuration()) * 100}%`,
                   transform: 'translate(-50%, 0)'
                 }}
               >
-                {formatTime(progressHoverPosition)}
+                <div className="font-mono font-semibold mb-1">
+                  {formatTime(progressHoverPosition)}
+                </div>
+                {(() => {
+                  // Find transcript entry at hover position
+                  const hoverEntry = filteredTranscript.find((entry, index) => {
+                    const nextEntry = filteredTranscript[index + 1];
+                    const entryEnd = nextEntry ? nextEntry.timestamp : entry.timestamp + 10;
+                    return progressHoverPosition >= entry.timestamp && progressHoverPosition < entryEnd;
+                  });
+                  
+                  if (hoverEntry) {
+                    return (
+                      <div className="text-white/70 text-[10px] max-w-[200px] truncate">
+                        {hoverEntry.speaker.replace(/_/g, ' ')}: {hoverEntry.text.substring(0, 50)}
+                        {hoverEntry.text.length > 50 ? '...' : ''}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             )}
           </div>
@@ -855,15 +1059,20 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 <SkipForward className="w-4 h-4" />
               </button>
 
-              {/* Time Display - Clean and simple */}
+              {/* Time Display - Clean and simple with seeking indicator */}
               <div className="ml-4 flex items-center space-x-2">
-                <span className="text-sm font-mono font-medium text-white">
+                <span className={`text-sm font-mono font-medium transition-all ${
+                  isSeeking ? 'text-blue-400 scale-110' : 'text-white'
+                }`}>
                   {formatTime(mediaCurrentTime)}
                 </span>
                 <span className="text-white/50">/</span>
                 <span className="text-sm font-mono font-medium text-white/70">
                   {formatTime(getCurrentDuration())}
                 </span>
+                {isSeeking && (
+                  <span className="text-xs text-blue-400 animate-pulse">Seeking...</span>
+                )}
               </div>
             </div>
 
@@ -935,12 +1144,47 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 )}
               </div>
 
+              {/* Captions Toggle (only for video) */}
+              {!useAudio && (
+                <button
+                  onClick={() => setShowCaptions(!showCaptions)}
+                  className={`hover:bg-white hover:bg-opacity-10 rounded-lg p-2 transition-all ${
+                    showCaptions ? 'bg-white/10' : ''
+                  }`}
+                  title={`${showCaptions ? 'Hide' : 'Show'} captions (C)`}
+                >
+                  <Captions className={`w-5 h-5 ${showCaptions ? 'text-blue-400' : ''}`} />
+                </button>
+              )}
+
               {/* Fullscreen (only for video) */}
               {!useAudio && (
                 <button 
-                  onClick={() => setIsFullscreen(!isFullscreen)}
+                  onClick={() => {
+                    const video = videoRef.current;
+                    if (!video) return;
+                    
+                    if (!isFullscreen) {
+                      if (video.requestFullscreen) {
+                        video.requestFullscreen();
+                      } else if ((video as any).webkitRequestFullscreen) {
+                        (video as any).webkitRequestFullscreen();
+                      } else if ((video as any).mozRequestFullScreen) {
+                        (video as any).mozRequestFullScreen();
+                      }
+                    } else {
+                      if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                      } else if ((document as any).webkitExitFullscreen) {
+                        (document as any).webkitExitFullscreen();
+                      } else if ((document as any).mozCancelFullScreen) {
+                        (document as any).mozCancelFullScreen();
+                      }
+                    }
+                    setIsFullscreen(!isFullscreen);
+                  }}
                   className="hover:bg-white hover:bg-opacity-10 rounded-lg p-2 transition-all"
-                  title="Fullscreen"
+                  title="Fullscreen (F)"
                 >
                   <Maximize2 className="w-5 h-5" />
                 </button>
@@ -990,6 +1234,12 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                     <ChevronDown className="w-5 h-5 text-slate-600 dark:text-slate-400" />
                   )}
                 </button>
+                {/* Keyboard Shortcuts Hint */}
+                {isControlsExpanded && (
+                  <div className="text-xs text-slate-500 dark:text-slate-400 px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg">
+                    <span className="font-semibold">Shortcuts:</span> Space (play/pause), ←→ (seek), ↑↓ (volume), M (mute), C (captions), F (fullscreen)
+                  </div>
+                )}
               </div>
             </div>
 

@@ -182,8 +182,10 @@ const MeetingDetails: React.FC = () => {
               transcript = transcriptResp.data.transcript
                 .map((entry: any) => ({
                   id: entry.id || `entry_${entry.timestamp}`,
-                  timestamp: entry.timestamp || entry.startTime || 0,
-                  startTime: entry.startTime,
+                  // Use normalized timestamp (starts from 0) for audio sync
+                  // Prefer startTime if available (more precise), otherwise use timestamp
+                  timestamp: entry.startTime !== undefined ? entry.startTime : (entry.timestamp || 0),
+                  startTime: entry.startTime !== undefined ? entry.startTime : (entry.timestamp || 0),
                   endTime: entry.endTime,
                   speaker: entry.speaker || 'Unknown',
                   text: entry.text || '',
@@ -191,6 +193,8 @@ const MeetingDetails: React.FC = () => {
                   chunk: entry.chunk,
                   audioFile: entry.audioFile,
                   rawTimestamp: entry.rawTimestamp,
+                  originalStartTime: entry.originalStartTime, // Keep for reference
+                  timeOffset: entry.timeOffset, // Keep for debugging
                 }))
                 .sort((a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)); // Ensure sorted by start time
             }

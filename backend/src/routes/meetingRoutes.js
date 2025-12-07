@@ -1638,11 +1638,26 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
     // Trigger insights regeneration
     const AIInsightsService = require('../services/AIInsightsService');
     
-    // Delete existing insights first
+    // Delete existing insights and reset flag in a transaction
     const meetingIdStr = String(meetingId);
-    await prisma.$executeRaw`
-      DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
-    `;
+    await prisma.$transaction(async (tx) => {
+      // Delete existing insights
+      await tx.$executeRaw`
+        DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
+      `;
+      
+      // Reset the flag to allow regeneration
+      try {
+        await tx.$executeRaw`
+          UPDATE meetings 
+          SET ai_insights_generated = FALSE, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${meetingId}
+        `;
+      } catch (error) {
+        // Field might not exist yet - that's okay, log but don't fail
+        console.warn(`Note: Could not reset ai_insights_generated flag (field may not exist): ${error.message}`);
+      }
+    });
 
     // Generate new insights (async, don't wait for completion)
     AIInsightsService.generateInsights(meetingId)

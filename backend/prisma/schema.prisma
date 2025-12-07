@@ -307,3 +307,16 @@ model Notification {
 
   @@map("notifications")
 }
+
+model AiInsight {
+  id              String   @id @default(uuid())
+  meetingId       String   @map("meeting_id")
+  insightType    String   @map("insight_type") // 'summary', 'action_items', 'decisions', 'topics', 'sentiment', 'other'
+  content         String   @db.Text
+  confidenceScore Float?   @map("confidence_score")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([meetingId])
+  @@index([insightType])
+  @@map("ai_insights")
+}
