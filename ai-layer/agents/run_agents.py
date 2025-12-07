@@ -20,12 +20,11 @@ import os
 from typing import Any, Dict
 
 # Local imports (this file lives alongside the agent modules)
-from topic_segmentation_agent import TopicSegmentationAgent
-from decision_extraction_agent import DecisionExtractionAgent
-from action_item_agent import ActionItemAgent
-from sentiment_analysis_agent import SentimentAnalysisAgent
-from summary_agent import SummaryAgent
-from participant_analysis_agent import ParticipantAnalysisAgent
+from .topic_segmentation_agent import TopicSegmentationAgent
+from .decision_extraction_agent import DecisionExtractionAgent
+from .action_item_agent import ActionItemAgent
+from .sentiment_analysis_agent import SentimentAnalysisAgent
+from .summary_agent import SummaryAgent
 
 
 def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> Dict[str, Any]:
