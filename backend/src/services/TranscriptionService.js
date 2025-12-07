@@ -1098,7 +1098,36 @@ class TranscriptionService {
       fs.writeFileSync(statsPath, JSON.stringify(stats, null, 2));
       console.log(`✅ Statistics saved: ${path.basename(statsPath)}`);
       
-      // 3. Verify all output files exist
+      // 3. Trigger AI insights generation (async, non-blocking)
+      // This runs after diarized transcript is saved, but doesn't block finalization
+      if (this.meetingId) {
+        try {
+          const AIInsightsService = require('./AIInsightsService');
+          console.log(`\n🧠 [TranscriptionService.finalize] Triggering AI insights generation for meeting ${this.meetingId}...`);
+          // Run asynchronously - don't block transcription finalization
+          AIInsightsService.generateInsights(this.meetingId)
+            .then((result) => {
+              if (result.success) {
+                if (result.skipped) {
+                  console.log(`ℹ️  [TranscriptionService.finalize] AI insights already exist for meeting ${this.meetingId}`);
+                } else {
+                  console.log(`✅ [TranscriptionService.finalize] AI insights generation completed for meeting ${this.meetingId}`);
+                }
+              } else {
+                console.error(`⚠️  [TranscriptionService.finalize] AI insights generation failed for meeting ${this.meetingId}: ${result.error}`);
+              }
+            })
+            .catch((err) => {
+              console.error(`⚠️  [TranscriptionService.finalize] AI insights generation error for meeting ${this.meetingId}:`, err.message);
+            });
+        } catch (error) {
+          console.error(`⚠️  [TranscriptionService.finalize] Failed to trigger AI insights for meeting ${this.meetingId}:`, error.message);
+        }
+      } else {
+        console.log(`⚠️  [TranscriptionService.finalize] No meeting ID available, skipping AI insights generation`);
+      }
+      
+      // 4. Verify all output files exist
       const outputFiles = {
         'Complete transcript': this.completeTranscriptPath,
         'Diarized JSON': this.diarizedJsonPath,

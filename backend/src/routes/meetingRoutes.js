@@ -1474,5 +1474,199 @@ router.get("/:id/transcript", authenticateToken, async (req, res) => {
   }
 });
 
+// Get AI insights for a meeting
+router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    // Convert meetingId to string for database query
+    const meetingIdStr = String(meetingId);
+
+    // Fetch all insights for this meeting
+    const insightsRows = await prisma.$queryRaw`
+      SELECT insight_type, content, confidence_score, created_at
+      FROM ai_insights
+      WHERE meeting_id = ${meetingIdStr}
+      ORDER BY created_at DESC
+    `;
+
+    // If no insights found, return empty structure
+    if (!insightsRows || insightsRows.length === 0) {
+      return res.json({
+        summary: null,
+        keyDecisions: [],
+        actionItems: [],
+        sentiment: null,
+        topics: [],
+        participants: [],
+        generated: false
+      });
+    }
+
+    // Parse and organize insights by type
+    const insights = {
+      summary: null,
+      keyDecisions: [],
+      actionItems: [],
+      sentiment: null,
+      topics: [],
+      participants: [],
+      generated: true
+    };
+
+    for (const row of insightsRows) {
+      try {
+        const content = typeof row.content === 'string' 
+          ? JSON.parse(row.content) 
+          : row.content;
+
+        switch (row.insight_type) {
+          case 'summary':
+            insights.summary = content;
+            break;
+          case 'decisions':
+            // Handle both array and single decision
+            if (Array.isArray(content)) {
+              insights.keyDecisions = content;
+            } else if (content.decisions && Array.isArray(content.decisions)) {
+              insights.keyDecisions = content.decisions;
+            } else {
+              insights.keyDecisions = [content];
+            }
+            break;
+          case 'action_items':
+            // Handle both array and single action item
+            if (Array.isArray(content)) {
+              insights.actionItems = content;
+            } else if (content.action_items && Array.isArray(content.action_items)) {
+              insights.actionItems = content.action_items;
+            } else {
+              insights.actionItems = [content];
+            }
+            break;
+          case 'sentiment':
+            insights.sentiment = content;
+            break;
+          case 'topics':
+            // Handle both array and single topic
+            if (Array.isArray(content)) {
+              insights.topics = content;
+            } else if (content.topics && Array.isArray(content.topics)) {
+              insights.topics = content.topics;
+            } else {
+              insights.topics = [content];
+            }
+            break;
+          case 'other':
+            // 'other' type is used for participants
+            if (Array.isArray(content)) {
+              insights.participants = content;
+            } else if (content.participants && Array.isArray(content.participants)) {
+              insights.participants = content.participants;
+            } else {
+              insights.participants = [content];
+            }
+            break;
+        }
+      } catch (parseError) {
+        console.error(`Error parsing insight content for type ${row.insight_type}:`, parseError);
+        // Continue with other insights even if one fails to parse
+      }
+    }
+
+    res.json(insights);
+  } catch (error) {
+    console.error("Get AI insights error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Regenerate AI insights for a meeting
+router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    // Check if user has permission (optional: only organizer or admin)
+    // For now, any workspace member can regenerate
+
+    // Trigger insights regeneration
+    const AIInsightsService = require('../services/AIInsightsService');
+    
+    // Delete existing insights first
+    const meetingIdStr = String(meetingId);
+    await prisma.$executeRaw`
+      DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
+    `;
+
+    // Generate new insights (async, don't wait for completion)
+    AIInsightsService.generateInsights(meetingId)
+      .then((result) => {
+        if (result.success) {
+          console.log(`✅ AI insights regeneration completed for meeting ${meetingId}`);
+        } else {
+          console.error(`⚠️ AI insights regeneration failed for meeting ${meetingId}: ${result.error}`);
+        }
+      })
+      .catch((err) => {
+        console.error(`⚠️ AI insights regeneration error for meeting ${meetingId}:`, err.message);
+      });
+
+    // Return immediately (regeneration happens in background)
+    res.json({
+      success: true,
+      message: "AI insights regeneration started. Please refresh the page in a few moments to see updated insights."
+    });
+  } catch (error) {
+    console.error("Regenerate AI insights error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 module.exports = router;
 

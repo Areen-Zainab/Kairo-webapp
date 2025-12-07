@@ -68,6 +68,7 @@ CREATE TABLE meetings (
     location VARCHAR(255),
     meeting_url VARCHAR(500),
     recording_url VARCHAR(500),
+    ai_insights_generated BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -432,6 +433,7 @@ CREATE INDEX idx_meetings_workspace ON meetings(workspace_id);
 CREATE INDEX idx_meetings_organizer ON meetings(organizer_id);
 CREATE INDEX idx_meetings_scheduled_date ON meetings(scheduled_date);
 CREATE INDEX idx_meetings_status ON meetings(status);
+CREATE INDEX idx_meetings_ai_insights_generated ON meetings(ai_insights_generated);
 
 -- Task indexes
 CREATE INDEX idx_tasks_workspace ON tasks(workspace_id);

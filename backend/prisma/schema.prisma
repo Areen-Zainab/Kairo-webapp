@@ -133,6 +133,7 @@ model Meeting {
   recordingUrl    String?             @map("recording_url")
   agenda          String?
   meetingSource   String?             @default("kairo") @map("meeting_source") // 'kairo', 'google-calendar', 'outlook', 'zoom', etc.
+  aiInsightsGenerated Boolean         @default(false) @map("ai_insights_generated")
   metadata        Json?               // Additional flexible data
   workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy       User                @relation("MeetingCreator", fields: [createdById], references: [id], onDelete: Cascade)
@@ -143,6 +144,7 @@ model Meeting {
 
   @@index([workspaceId, startTime])
   @@index([status, startTime])
+  @@index([aiInsightsGenerated])
   @@map("meetings")
 }
 
