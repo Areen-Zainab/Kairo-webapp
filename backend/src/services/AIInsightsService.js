@@ -64,6 +64,7 @@ class AIInsightsService {
       // Convert meetingId to string for VARCHAR comparison
       const meetingIdStr = String(meetingId);
       
+      // First check the ai_insights table (Option 2)
       const result = await prisma.$queryRaw`
         SELECT COUNT(*) as count 
         FROM ai_insights 
@@ -71,7 +72,24 @@ class AIInsightsService {
       `;
       
       const insightCount = Number(result[0]?.count || 0);
-      return insightCount > 0;
+      if (insightCount > 0) {
+        return true;
+      }
+
+      // Also check the meetings table flag if it exists (Option 1)
+      try {
+        const meetingResult = await prisma.$queryRaw`
+          SELECT ai_insights_generated FROM meetings WHERE id = ${meetingIdStr}
+        `;
+        if (meetingResult && meetingResult.length > 0 && meetingResult[0].ai_insights_generated) {
+          return true;
+        }
+      } catch (error) {
+        // Field might not exist yet - that's okay, we'll rely on ai_insights table check
+        // This is expected if the migration hasn't been run yet
+      }
+
+      return false;
     } catch (error) {
       console.error(`Error checking existing insights for meeting ${meetingId}:`, error);
       return false;
@@ -365,7 +383,7 @@ print(json.dumps(result, ensure_ascii=False))
   }
 
   /**
-   * Save insights to database
+   * Save insights to database with transaction safety
    */
   async saveInsightsToDatabase(meetingId, insights) {
     console.log('💾 Saving insights to database...');
@@ -373,106 +391,92 @@ print(json.dumps(result, ensure_ascii=False))
     // Convert meetingId to string if it's a number (for UUID compatibility)
     const meetingIdStr = String(meetingId);
 
-    // Delete existing insights for this meeting
-    try {
-      await prisma.$executeRaw`
-        DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
-      `;
-    } catch (error) {
-      console.warn(`Warning: Could not delete existing insights: ${error.message}`);
-      // Continue anyway - might be first time generating
-    }
+    // Use Prisma transaction to ensure atomicity
+    await prisma.$transaction(async (tx) => {
+      // Delete existing insights for this meeting
+      try {
+        await tx.$executeRaw`
+          DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
+        `;
+      } catch (error) {
+        console.warn(`Warning: Could not delete existing insights: ${error.message}`);
+        // Continue anyway - might be first time generating
+      }
 
-    const insertPromises = [];
-
-    // Save summary
-    if (insights.summary) {
-      const summaryId = uuidv4();
-      const content = JSON.stringify(insights.summary);
-      const confidence = insights.summary.confidence || 0.85;
-      
-      insertPromises.push(
-        prisma.$executeRaw`
+      // Save summary
+      if (insights.summary) {
+        const summaryId = uuidv4();
+        const content = JSON.stringify(insights.summary);
+        const confidence = insights.summary.confidence || 0.85;
+        
+        await tx.$executeRaw`
           INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
           VALUES (${summaryId}, ${meetingIdStr}, 'summary', ${content}, ${Number(confidence)})
-        `.catch(err => {
-          console.error(`Failed to save summary: ${err.message}`);
-          throw err;
-        })
-      );
-    }
+        `;
+      }
 
-    // Save decisions
-    if (insights.decisions && Array.isArray(insights.decisions) && insights.decisions.length > 0) {
-      const decisionsId = uuidv4();
-      const content = JSON.stringify(insights.decisions);
-      const avgConfidence = insights.decisions.reduce((sum, d) => sum + (d.confidence || 0.8), 0) / insights.decisions.length;
-      
-      insertPromises.push(
-        prisma.$executeRaw`
+      // Save decisions
+      if (insights.decisions && Array.isArray(insights.decisions) && insights.decisions.length > 0) {
+        const decisionsId = uuidv4();
+        const content = JSON.stringify(insights.decisions);
+        const avgConfidence = insights.decisions.reduce((sum, d) => sum + (d.confidence || 0.8), 0) / insights.decisions.length;
+        
+        await tx.$executeRaw`
           INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
           VALUES (${decisionsId}, ${meetingIdStr}, 'decisions', ${content}, ${Number(avgConfidence)})
-        `.catch(err => {
-          console.error(`Failed to save decisions: ${err.message}`);
-          throw err;
-        })
-      );
-    }
+        `;
+      }
 
-    // Save sentiment
-    if (insights.sentiment) {
-      const sentimentId = uuidv4();
-      const content = JSON.stringify(insights.sentiment);
-      const confidence = insights.sentiment.confidence || 0.8;
-      
-      insertPromises.push(
-        prisma.$executeRaw`
+      // Save sentiment
+      if (insights.sentiment) {
+        const sentimentId = uuidv4();
+        const content = JSON.stringify(insights.sentiment);
+        const confidence = insights.sentiment.confidence || 0.8;
+        
+        await tx.$executeRaw`
           INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
           VALUES (${sentimentId}, ${meetingIdStr}, 'sentiment', ${content}, ${Number(confidence)})
-        `.catch(err => {
-          console.error(`Failed to save sentiment: ${err.message}`);
-          throw err;
-        })
-      );
-    }
+        `;
+      }
 
-    // Save topics
-    if (insights.topics && Array.isArray(insights.topics) && insights.topics.length > 0) {
-      const topicsId = uuidv4();
-      const content = JSON.stringify(insights.topics);
-      const avgConfidence = 0.8; // Topics don't have individual confidence
-      
-      insertPromises.push(
-        prisma.$executeRaw`
+      // Save topics
+      if (insights.topics && Array.isArray(insights.topics) && insights.topics.length > 0) {
+        const topicsId = uuidv4();
+        const content = JSON.stringify(insights.topics);
+        const avgConfidence = 0.8; // Topics don't have individual confidence
+        
+        await tx.$executeRaw`
           INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
           VALUES (${topicsId}, ${meetingIdStr}, 'topics', ${content}, ${Number(avgConfidence)})
-        `.catch(err => {
-          console.error(`Failed to save topics: ${err.message}`);
-          throw err;
-        })
-      );
-    }
+        `;
+      }
 
-    // Save participants (use 'other' type since 'participants' is not in enum)
-    if (insights.participants && Array.isArray(insights.participants) && insights.participants.length > 0) {
-      const participantsId = uuidv4();
-      const content = JSON.stringify(insights.participants);
-      const avgConfidence = 0.85; // Participants don't have individual confidence
-      
-      insertPromises.push(
-        prisma.$executeRaw`
+      // Save participants (use 'other' type since 'participants' is not in enum)
+      if (insights.participants && Array.isArray(insights.participants) && insights.participants.length > 0) {
+        const participantsId = uuidv4();
+        const content = JSON.stringify(insights.participants);
+        const avgConfidence = 0.85; // Participants don't have individual confidence
+        
+        await tx.$executeRaw`
           INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
           VALUES (${participantsId}, ${meetingIdStr}, 'other', ${content}, ${Number(avgConfidence)})
-        `.catch(err => {
-          console.error(`Failed to save participants: ${err.message}`);
-          throw err;
-        })
-      );
-    }
+        `;
+      }
 
-    // Execute all inserts
-    await Promise.all(insertPromises);
-    console.log('✅ Insights saved to database');
+      // Mark meeting as insights generated (if field exists)
+      try {
+        await tx.$executeRaw`
+          UPDATE meetings 
+          SET ai_insights_generated = TRUE, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${meetingIdStr}
+        `;
+      } catch (error) {
+        // Field might not exist yet - log but don't fail
+        console.warn(`Note: Could not update ai_insights_generated flag (field may not exist): ${error.message}`);
+      }
+    });
+
+    console.log('✅ Insights saved to database (transaction completed)');
   }
 
   /**

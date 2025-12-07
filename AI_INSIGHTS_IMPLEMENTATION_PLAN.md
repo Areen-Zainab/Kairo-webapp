@@ -21,7 +21,7 @@ Located in `ai-layer/agents/`:
 - ✅ `sentiment_analysis_agent.py` - **UPGRADED** - Now uses Grok API
 - ✅ `summary_agent.py` - **UPGRADED** - Now uses Grok API
 - ✅ `topic_segmentation_agent.py` - **UPGRADED** - Now uses Grok API
-- ❌ `participant_analysis_agent.py` - **MISSING - Needs to be created (Phase 2)**
+- ✅ `participant_analysis_agent.py` - **CREATED** - Now uses Grok API (Phase 2)
 
 ### Current Processing Flow
 1. Meeting ends → `MeetingBot.stop()` is called
@@ -65,12 +65,26 @@ Located in `ai-layer/agents/`:
 - ✅ Modified `TranscriptionService.finalize()` to trigger AI insights generation
 - ✅ Integrated with existing transcription finalization flow
 - ✅ Async execution to avoid blocking meeting end process
+- ✅ Triggered after `saveDiarizedOutputs()` completes
+- ✅ Comprehensive error handling and logging
 
-### ⏳ Phase 6-8: Pending
-- Phase 4: Create AIInsightsService orchestration
-- Phase 5: Integrate with TranscriptionService.finalize()
-- Phase 6: Create backend API endpoint
-- Phase 7: Update frontend to use real API
+### ✅ Phase 6: Backend API Endpoints - **COMPLETED**
+- ✅ Created `GET /api/meetings/:id/ai-insights` endpoint
+- ✅ Created `POST /api/meetings/:id/ai-insights/regenerate` endpoint
+- ✅ Proper authentication and authorization
+- ✅ Handles missing insights gracefully
+- ✅ Formats response to match frontend expectations
+
+### ✅ Phase 7: Frontend Integration - **COMPLETED**
+- ✅ Added AI insights API methods to `api.ts`
+- ✅ Created `useAIInsights` hook
+- ✅ Updated `AIInsightsPanel` to use real API data
+- ✅ Implemented loading states
+- ✅ Implemented empty states (insights not generated)
+- ✅ Implemented error handling
+- ✅ Added regenerate functionality
+
+### ⏳ Phase 8: Pending
 - Phase 8: Testing and refinement
 
 ## Implementation Approach
@@ -452,7 +466,7 @@ ai-layer/
 ├── utils/
 │   ├── __init__.py (✅ created)
 │   └── transcript_converter.py (✅ Phase 3 - created)
-└── run_agents.py (⚠️ update to include participant agent)
+└── run_agents.py (✅ updated to include participant agent support)
 
 backend/
 ├── src/
@@ -460,16 +474,16 @@ backend/
 │   │   ├── AIInsightsService.js (✅ Phase 4 - created)
 │   │   └── TranscriptionService.js (✅ Phase 5 - modified finalize method)
 │   └── routes/
-│       └── meetingRoutes.js (⚠️ add GET /:id/ai-insights endpoint)
+│       └── meetingRoutes.js (✅ Phase 6 - added GET and POST endpoints)
 
 frontend/
 └── src/
     ├── components/
     │   └── meetings/
     │       └── details/
-    │           └── AIInsightsPanel.tsx (⚠️ update to use real API)
+    │           └── AIInsightsPanel.tsx (✅ Phase 7 - updated to use real API)
     └── hooks/
-        └── useAIInsights.ts (❌ create new)
+        └── useAIInsights.ts (✅ Phase 7 - created)
 ```
 
 ## Implementation Order
@@ -479,11 +493,8 @@ frontend/
 3. ✅ **Phase 3**: Create transcript converter utility - **COMPLETED**
 4. ✅ **Phase 4**: Create AIInsightsService orchestration - **COMPLETED**
 5. ✅ **Phase 5**: Integrate with TranscriptionService.finalize() - **COMPLETED**
-3. **Phase 3**: Create transcript converter utility
-4. **Phase 4**: Create AIInsightsService orchestration
-5. **Phase 5**: Integrate with TranscriptionService.finalize()
-6. **Phase 6**: Create backend API endpoint
-7. **Phase 7**: Update frontend to use real API
+6. ✅ **Phase 6**: Create backend API endpoint - **COMPLETED**
+7. ✅ **Phase 7**: Update frontend to use real API - **COMPLETED**
 8. **Phase 8**: Testing and refinement
 
 ## Success Criteria

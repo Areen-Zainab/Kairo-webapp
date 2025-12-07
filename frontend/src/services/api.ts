@@ -658,6 +658,64 @@ class ApiService {
       method: 'POST',
     });
   }
+
+  // AI Insights methods
+  async getAIInsights(meetingId: number): Promise<ApiResponse<{
+    summary: {
+      paragraph: string;
+      bullets: string[];
+      confidence?: number;
+    } | null;
+    keyDecisions: Array<{
+      decision: string;
+      context: string;
+      impact: string;
+      participants: string[];
+      timestamp?: number;
+      confidence?: number;
+    }>;
+    actionItems: Array<{
+      item: string;
+      assignee?: string;
+      dueDate?: string;
+      priority?: string;
+      confidence?: number;
+    }>;
+    sentiment: {
+      overall: string;
+      confidence: number;
+      breakdown: {
+        positive: number;
+        neutral: number;
+        negative: number;
+      };
+    } | null;
+    topics: Array<{
+      name: string;
+      mentions: number;
+      sentiment: string;
+    }>;
+    participants: Array<{
+      name: string;
+      speakingTime: number | string;
+      speakingTimeSeconds?: number;
+      engagement: string;
+      keyContributions: string[];
+      sentiment?: string;
+    }>;
+    generated: boolean;
+  }>> {
+    return this.request(`/meetings/${meetingId}/ai-insights`);
+  }
+
+  async regenerateAIInsights(meetingId: number): Promise<ApiResponse<{
+    success: boolean;
+    message: string;
+  }>> {
+    return this.request(`/meetings/${meetingId}/ai-insights/regenerate`, {
+      method: 'POST',
+    });
+  }
 }
 
 export type { Notification, NotificationsResponse };

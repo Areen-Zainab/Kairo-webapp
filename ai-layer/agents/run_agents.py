@@ -5,14 +5,18 @@ run_agents.py
 Entry point for running all Kairo AI-layer agents over a single transcript.
 
 This script is designed to be invoked from Node.js. It reads the full
-transcript from STDIN and prints a single line of JSON containing the
-outputs of all agents.
+transcript from STDIN (or JSON file path for participant agent) and prints 
+a single line of JSON containing the outputs of all agents.
+
+For participant analysis, if a JSON file path is provided as second argument,
+it will use that instead of text transcript.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+import os
 from typing import Any, Dict
 
 # Local imports (this file lives alongside the agent modules)
@@ -21,9 +25,10 @@ from decision_extraction_agent import DecisionExtractionAgent
 from action_item_agent import ActionItemAgent
 from sentiment_analysis_agent import SentimentAnalysisAgent
 from summary_agent import SummaryAgent
+from participant_analysis_agent import ParticipantAnalysisAgent
 
 
-def run_all(transcript: str) -> Dict[str, Any]:
+def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Run all agents on the given transcript and return a combined dict."""
     topic_agent = TopicSegmentationAgent()
     decision_agent = DecisionExtractionAgent()
@@ -43,7 +48,7 @@ def run_all(transcript: str) -> Dict[str, Any]:
         sentiment=sentiment,
     )
 
-    return {
+    result = {
         "topics": topics,
         "decisions": decisions,
         "action_items": actions,
@@ -51,30 +56,73 @@ def run_all(transcript: str) -> Dict[str, Any]:
         "summary": summary,
     }
 
+    # Run participant agent if JSON transcript is provided
+    if transcript_json:
+        participant_agent = ParticipantAnalysisAgent()
+        participants = participant_agent.run(transcript_json)
+        result["participants"] = participants
+
+    return result
+
 
 def main() -> None:
     """
     CLI:
-      python run_agents.py               # run all agents
-      python run_agents.py topics        # run only topic segmentation
-      python run_agents.py decisions     # run only decision extraction
-      python run_agents.py action_items  # run only action item extraction
-      python run_agents.py sentiment     # run only sentiment analysis
-      python run_agents.py summary       # run only summary (internally calls others)
+      python run_agents.py                    # run all text-based agents
+      python run_agents.py <json_file_path>   # run participant agent with JSON file
+      python run_agents.py topics             # run only topic segmentation
+      python run_agents.py decisions          # run only decision extraction
+      python run_agents.py action_items       # run only action item extraction
+      python run_agents.py sentiment          # run only sentiment analysis
+      python run_agents.py summary            # run only summary (internally calls others)
+      python run_agents.py participants <json> # run only participant analysis
     """
-    # Optional first arg selects a single agent key
-    agent_key = sys.argv[1] if len(sys.argv) > 1 else None
+    # Check if first arg is a file path (for participant agent)
+    transcript_json = None
+    agent_key = None
+    
+    if len(sys.argv) > 1:
+        first_arg = sys.argv[1]
+        # Check if it's a file path (ends with .json or exists as file)
+        if first_arg.endswith('.json') or os.path.isfile(first_arg):
+            # Load JSON file for participant agent
+            with open(first_arg, 'r', encoding='utf-8') as f:
+                transcript_json = json.load(f)
+            # Check if second arg specifies which agent
+            if len(sys.argv) > 2:
+                agent_key = sys.argv[2]
+        else:
+            # It's an agent key
+            agent_key = first_arg
 
-    data = sys.stdin.read()
-    transcript = data.strip()
-
-    full_result = run_all(transcript)
-
-    if agent_key:
-        # Return just the requested portion if it exists
-        result: Any = full_result.get(agent_key)
+    # Read transcript text from stdin (if not using JSON file)
+    if not transcript_json:
+        data = sys.stdin.read()
+        transcript = data.strip()
     else:
-        result = full_result
+        # For participant agent, we still need text format for other agents
+        # But participant agent will use JSON
+        data = sys.stdin.read()
+        transcript = data.strip() if data.strip() else ""
+
+    # If only participant agent requested and JSON provided
+    if agent_key == "participants" and transcript_json:
+        participant_agent = ParticipantAnalysisAgent()
+        result = participant_agent.run(transcript_json)
+    elif transcript_json:
+        # Run all agents including participant
+        full_result = run_all(transcript, transcript_json)
+        if agent_key:
+            result = full_result.get(agent_key)
+        else:
+            result = full_result
+    else:
+        # Run text-based agents only
+        full_result = run_all(transcript, None)
+        if agent_key:
+            result = full_result.get(agent_key)
+        else:
+            result = full_result
 
     json_output = json.dumps(result, ensure_ascii=False)
     sys.stdout.write(json_output + "\n")
