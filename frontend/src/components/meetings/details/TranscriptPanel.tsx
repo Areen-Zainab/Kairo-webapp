@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, X, ChevronDown, ChevronUp, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Clock } from 'lucide-react';
+import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Clock } from 'lucide-react';
 import type { MeetingDetailsData, TranscriptEntry, Slide, MeetingNote } from './types';
 
 interface TranscriptPanelProps {
@@ -45,6 +45,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [scrollProgress, setScrollProgress] = useState(0);
   const [hoveredEntryIndex, setHoveredEntryIndex] = useState<number | null>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const hideControlsTimeoutRef = useRef<number | null>(null);
   const audioObjectUrlRef = useRef<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1268,35 +1269,52 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         </div>
 
         {/* Right Panel - Slides, Media, and Notes */}
-        <div className="w-96 border-l border-slate-200 dark:border-slate-700 flex flex-col bg-white dark:bg-slate-800">
-          {/* Tabs for Right Panel */}
-          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
-            <div className="flex">
-              <button 
-                onClick={() => setActiveRightTab('slides')}
-                className={`flex-1 px-6 py-4 text-sm font-semibold transition-all ${
-                  activeRightTab === 'slides'
-                    ? 'text-slate-900 dark:text-white border-b-2 border-blue-500 bg-slate-50 dark:bg-slate-700/50'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/30'
-                }`}
-              >
-                Slides
-              </button>
-              <button 
-                onClick={() => setActiveRightTab('notes')}
-                className={`flex-1 px-6 py-4 text-sm font-semibold transition-all ${
-                  activeRightTab === 'notes'
-                    ? 'text-slate-900 dark:text-white border-b-2 border-blue-500 bg-slate-50 dark:bg-slate-700/50'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/30'
-                }`}
-              >
-                Notes
-              </button>
-            </div>
+        <div className={`${isRightPanelCollapsed ? 'w-12' : 'w-96'} border-l border-slate-200 dark:border-slate-700 flex flex-col bg-white dark:bg-slate-800 transition-all duration-300 overflow-hidden`}>
+          {/* Collapse/Expand Button */}
+          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm p-2">
+            <button
+              onClick={() => setIsRightPanelCollapsed(!isRightPanelCollapsed)}
+              className="w-full p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center"
+              title={isRightPanelCollapsed ? 'Expand panel' : 'Collapse panel'}
+            >
+              {isRightPanelCollapsed ? (
+                <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+              )}
+            </button>
           </div>
 
-          {/* Content Panel */}
-          <div className="flex-1 overflow-y-auto scrollbar-hide bg-white dark:bg-slate-800">
+          {!isRightPanelCollapsed && (
+            <>
+              {/* Tabs for Right Panel */}
+              <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
+                <div className="flex">
+                  <button 
+                    onClick={() => setActiveRightTab('slides')}
+                    className={`flex-1 px-6 py-4 text-sm font-semibold transition-all ${
+                      activeRightTab === 'slides'
+                        ? 'text-slate-900 dark:text-white border-b-2 border-blue-500 bg-slate-50 dark:bg-slate-700/50'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                    }`}
+                  >
+                    Slides
+                  </button>
+                  <button 
+                    onClick={() => setActiveRightTab('notes')}
+                    className={`flex-1 px-6 py-4 text-sm font-semibold transition-all ${
+                      activeRightTab === 'notes'
+                        ? 'text-slate-900 dark:text-white border-b-2 border-blue-500 bg-slate-50 dark:bg-slate-700/50'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                    }`}
+                  >
+                    Notes
+                  </button>
+                </div>
+              </div>
+
+              {/* Content Panel */}
+              <div className="flex-1 overflow-y-auto scrollbar-hide bg-white dark:bg-slate-800">
             {activeRightTab === 'slides' ? (
               <div className="p-6">
                 <h4 className="font-bold text-slate-900 dark:text-white mb-6 text-lg">
@@ -1414,7 +1432,9 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 </div>
               </div>
             )}
-          </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

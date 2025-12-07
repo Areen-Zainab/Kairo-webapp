@@ -104,7 +104,7 @@ device = "cpu"
 compute_type = "int8"  # Use int8 for CPU (faster, lower memory)
 
 # Model configuration
-model_size = "base"  # tiny, base, small, medium, large-v2
+model_size = "small"  # tiny, base, small, medium, large-v2
 model = None
 
 print(f"[Kairo Transcription] Device: {device} (CPU-only mode)", file=sys.stderr)
