@@ -399,6 +399,7 @@ async function leaveMeeting(page) {
 }
 
 module.exports = {
+  sleep,
   navigateToMeeting,
   enterBotName,
   disableCameraAndMic,
