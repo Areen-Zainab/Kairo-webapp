@@ -31,29 +31,91 @@ class AIInsightsService {
 
   /**
    * Check if transcript is available for a meeting
+   * Checks multiple possible locations and formats
    */
   async checkTranscriptAvailable(meetingId) {
+    console.log(`🔍 [checkTranscriptAvailable] Looking for transcript for meeting ${meetingId}...`);
+    
+    // Try multiple possible locations
+    const possiblePaths = [];
+    
+    // 1. Check in meeting_data directory (primary location: {meetingId}_{name}_{timestamp}/)
     const meetingDir = findMeetingDirectory(meetingId);
-    if (!meetingDir) {
-      return { available: false, error: 'Meeting directory not found' };
-    }
-
-    const transcriptPath = path.join(meetingDir, 'transcript_diarized.json');
-    if (!fs.existsSync(transcriptPath)) {
-      return { available: false, error: 'Transcript file not found' };
-    }
-
-    // Check if file has content
-    try {
-      const stats = fs.statSync(transcriptPath);
-      if (stats.size < 100) {
-        return { available: false, error: 'Transcript file is too small or empty' };
+    if (meetingDir) {
+      console.log(`   Found meeting directory: ${meetingDir}`);
+      possiblePaths.push(
+        path.join(meetingDir, 'transcript_diarized.json'),
+        path.join(meetingDir, 'transcript_diarized.txt'),
+        path.join(meetingDir, 'transcript_complete.txt')
+      );
+      
+      // Also check transcripts subdirectory
+      const transcriptsSubdir = path.join(meetingDir, 'transcripts');
+      if (fs.existsSync(transcriptsSubdir)) {
+        try {
+          const files = fs.readdirSync(transcriptsSubdir);
+          files.forEach(f => {
+            if (f.includes('transcript') || f.includes('diarized')) {
+              possiblePaths.push(path.join(transcriptsSubdir, f));
+            }
+          });
+        } catch (err) {
+          console.warn(`   Could not read transcripts subdirectory: ${err.message}`);
+        }
       }
-    } catch (error) {
-      return { available: false, error: `Error checking transcript: ${error.message}` };
+    } else {
+      console.warn(`   Meeting directory not found for meeting ${meetingId}`);
     }
-
-    return { available: true, transcriptPath };
+    
+    // 2. Check in recordings directory (fallback location)
+    const RECORDINGS_DIR = path.join(__dirname, 'recordings');
+    if (fs.existsSync(RECORDINGS_DIR)) {
+      try {
+        const files = fs.readdirSync(RECORDINGS_DIR);
+        const transcriptFiles = files.filter(f => 
+          f.startsWith('transcript_') && (f.endsWith('.txt') || f.endsWith('.json'))
+        );
+        transcriptFiles.forEach(f => {
+          possiblePaths.push(path.join(RECORDINGS_DIR, f));
+        });
+        if (transcriptFiles.length > 0) {
+          console.log(`   Found ${transcriptFiles.length} transcript file(s) in recordings directory`);
+        }
+      } catch (err) {
+        console.warn(`   Could not read recordings directory: ${err.message}`);
+      }
+    }
+    
+    console.log(`   Checking ${possiblePaths.length} possible transcript locations...`);
+    
+    // Try each path
+    for (const transcriptPath of possiblePaths) {
+      if (fs.existsSync(transcriptPath)) {
+        try {
+          const stats = fs.statSync(transcriptPath);
+          if (stats.size >= 100) {
+            console.log(`✅ Found transcript at: ${transcriptPath} (${(stats.size / 1024).toFixed(1)} KB)`);
+            return { available: true, transcriptPath };
+          } else {
+            console.warn(`   Transcript file too small: ${transcriptPath} (${stats.size} bytes)`);
+          }
+        } catch (error) {
+          console.warn(`   Error checking ${transcriptPath}: ${error.message}`);
+          continue;
+        }
+      }
+    }
+    
+    // If no transcript found, return error with helpful message
+    console.error(`❌ No transcript found for meeting ${meetingId}`);
+    console.error(`   Checked ${possiblePaths.length} possible locations`);
+    if (meetingDir) {
+      console.error(`   Meeting directory exists: ${meetingDir}`);
+      console.error(`   Directory contents:`, fs.readdirSync(meetingDir).join(', '));
+    } else {
+      console.error(`   Meeting directory not found. Expected format: {meetingId}_{name}_{timestamp}/`);
+    }
+    return { available: false, error: 'Transcript file not found in any expected location' };
   }
 
   /**
@@ -64,25 +126,35 @@ class AIInsightsService {
       // Convert meetingId to string for VARCHAR comparison
       const meetingIdStr = String(meetingId);
       
-      // First check the ai_insights table (Option 2)
-      const result = await prisma.$queryRaw`
-        SELECT COUNT(*) as count 
-        FROM ai_insights 
-        WHERE meeting_id = ${meetingIdStr}
-      `;
-      
-      const insightCount = Number(result[0]?.count || 0);
-      if (insightCount > 0) {
-        return true;
+      // First check the ai_insights table using Prisma's type-safe method
+      try {
+        const count = await prisma.aiInsight.count({
+          where: {
+            meetingId: meetingIdStr
+          }
+        });
+        
+        if (count > 0) {
+          return true;
+        }
+      } catch (error) {
+        // If table doesn't exist, catch the error and check the flag instead
+        if (error.code === 'P2010' || (error.meta && error.meta.code === '42P01')) {
+          console.warn(`⚠️  ai_insights table does not exist. Run migrations: npx prisma migrate dev`);
+          // Fall through to check the meetings table flag
+        } else {
+          throw error; // Re-throw if it's a different error
+        }
       }
 
       // Also check the meetings table flag if it exists (Option 1)
       // Note: meetings.id is INT, so we use parseInt for explicit type conversion
       try {
-        const meetingResult = await prisma.$queryRaw`
-          SELECT ai_insights_generated FROM meetings WHERE id = ${parseInt(meetingIdStr)}
-        `;
-        if (meetingResult && meetingResult.length > 0 && meetingResult[0].ai_insights_generated) {
+        const meeting = await prisma.meeting.findUnique({
+          where: { id: parseInt(meetingIdStr) },
+          select: { aiInsightsGenerated: true }
+        });
+        if (meeting && meeting.aiInsightsGenerated) {
           return true;
         }
       } catch (error) {
@@ -99,6 +171,7 @@ class AIInsightsService {
 
   /**
    * Load and convert diarized transcript to text format
+   * Handles both JSON and TXT formats
    */
   async loadDiarizedTranscript(meetingId) {
     const { transcriptPath } = await this.checkTranscriptAvailable(meetingId);
@@ -106,11 +179,58 @@ class AIInsightsService {
       throw new Error('Transcript not available');
     }
 
-    // Read JSON file
-    const transcriptJson = JSON.parse(fs.readFileSync(transcriptPath, 'utf8'));
+    console.log(`📄 [loadDiarizedTranscript] Loading transcript from: ${transcriptPath}`);
 
-    // Convert to text format using Python converter
-    const transcriptText = await this.convertJsonToText(transcriptPath);
+    let transcriptJson = null;
+    let transcriptText = '';
+
+    // Check file extension to determine format
+    const isJson = transcriptPath.endsWith('.json');
+    const isTxt = transcriptPath.endsWith('.txt');
+
+    if (isJson) {
+      // Read JSON file
+      try {
+        console.log(`   Reading JSON transcript...`);
+        transcriptJson = JSON.parse(fs.readFileSync(transcriptPath, 'utf8'));
+        console.log(`   JSON parsed successfully. Utterances: ${transcriptJson.utterances?.length || 0}`);
+        
+        // Convert to text format using Python converter
+        console.log(`   Converting JSON to text format...`);
+        transcriptText = await this.convertJsonToText(transcriptPath);
+        console.log(`   Text conversion complete (${transcriptText.length} characters)`);
+      } catch (error) {
+        console.error(`❌ Error reading/parsing JSON transcript: ${error.message}`);
+        throw new Error(`Failed to parse JSON transcript: ${error.message}`);
+      }
+    } else if (isTxt) {
+      // Read TXT file directly
+      console.log(`   Reading TXT transcript...`);
+      transcriptText = fs.readFileSync(transcriptPath, 'utf8');
+      console.log(`   TXT loaded (${transcriptText.length} characters)`);
+      
+      // Try to create a basic JSON structure from TXT for compatibility
+      // Split by lines and create a simple structure
+      const lines = transcriptText.split('\n').filter(line => line.trim());
+      transcriptJson = {
+        metadata: {
+          generated: new Date().toISOString(),
+          total_utterances: lines.length,
+          speakers: ['Speaker_0'], // Default speaker
+          duration_seconds: 0
+        },
+        utterances: lines.map((line, index) => ({
+          speaker: 'Speaker_0',
+          text: line.trim(),
+          start_time: index * 5.0, // Approximate timing
+          end_time: (index + 1) * 5.0
+        }))
+      };
+      
+      console.log(`   Converted TXT to JSON structure with ${lines.length} utterances`);
+    } else {
+      throw new Error(`Unsupported transcript format: ${transcriptPath}`);
+    }
 
     return {
       transcriptText,
@@ -121,26 +241,44 @@ class AIInsightsService {
 
   /**
    * Convert JSON transcript to text format using Python converter
+   * Fixed to handle paths with spaces on Windows
    */
   async convertJsonToText(jsonPath) {
     return new Promise((resolve, reject) => {
       const pythonExe = this.getPythonExecutable();
       const scriptPath = TRANSCRIPT_CONVERTER_PATH;
       
-      // Normalize paths for cross-platform compatibility
-      const normalizedJsonPath = jsonPath.replace(/\\/g, '/');
-      const normalizedScriptDir = path.dirname(scriptPath).replace(/\\/g, '/');
+      // Use absolute paths and properly escape them for Python
+      const absoluteJsonPath = path.resolve(jsonPath);
+      const absoluteScriptDir = path.resolve(path.dirname(scriptPath));
+      
+      // For Windows, we need to properly escape backslashes and quotes in the Python string
+      // Use JSON.stringify to properly escape the path
+      const escapedJsonPath = JSON.stringify(absoluteJsonPath);
+      const escapedScriptDir = JSON.stringify(absoluteScriptDir);
 
-      const proc = spawn(pythonExe, ['-c', `
+      // Create Python script that properly handles paths with spaces
+      const pythonScript = `
 import sys
 import os
-sys.path.insert(0, r"${normalizedScriptDir}")
+import json
+
+# Add script directory to path
+script_dir = ${escapedScriptDir}
+sys.path.insert(0, script_dir)
+
 from transcript_converter import convert_diarized_json_to_text
-result = convert_diarized_json_to_text(r"${normalizedJsonPath}")
+
+# Use the properly escaped path
+json_path = ${escapedJsonPath}
+result = convert_diarized_json_to_text(json_path)
 print(result)
-      `], {
-        shell: process.platform === 'win32',
-        cwd: path.dirname(scriptPath),
+      `.trim();
+
+      // Use spawn without shell to avoid path splitting issues
+      const proc = spawn(pythonExe, ['-c', pythonScript], {
+        shell: false, // Don't use shell to avoid path splitting
+        cwd: absoluteScriptDir,
         env: { ...process.env, PYTHONUNBUFFERED: '1' }
       });
 
@@ -228,26 +366,22 @@ print(result)
       const tempJsonPath = path.join(__dirname, `temp_transcript_${Date.now()}.json`);
       fs.writeFileSync(tempJsonPath, JSON.stringify(transcriptJson));
       
-      // Normalize paths for cross-platform compatibility
-      const normalizedTempPath = tempJsonPath.replace(/\\/g, '/');
-      const normalizedScriptDir = path.dirname(scriptPath).replace(/\\/g, '/');
+      // Use absolute paths and properly escape them for Python
+      const absoluteTempPath = path.resolve(tempJsonPath);
+      const absoluteScriptDir = path.resolve(path.dirname(scriptPath));
+      
+      // For Windows, we need to properly escape backslashes and quotes in the Python string
+      // Use JSON.stringify to properly escape the paths
+      const escapedTempPath = JSON.stringify(absoluteTempPath);
+      const escapedScriptDir = JSON.stringify(absoluteScriptDir);
 
-      const proc = spawn(pythonExe, ['-c', `
-import sys
-import json
-import os
-sys.path.insert(0, r"${normalizedScriptDir}")
-from participant_analysis_agent import ParticipantAnalysisAgent
+      // Create Python script that properly handles paths with spaces
+      // Use a single-line command to avoid issues with Windows cmd.exe
+      const pythonScript = `import sys; import json; import os; sys.path.insert(0, ${escapedScriptDir}); from participant_analysis_agent import ParticipantAnalysisAgent; f = open(${escapedTempPath}, 'r', encoding='utf-8'); transcript_json = json.load(f); f.close(); agent = ParticipantAnalysisAgent(); result = agent.run(transcript_json); print(json.dumps(result, ensure_ascii=False))`;
 
-with open(r"${normalizedTempPath}", 'r', encoding='utf-8') as f:
-    transcript_json = json.load(f)
-
-agent = ParticipantAnalysisAgent()
-result = agent.run(transcript_json)
-print(json.dumps(result, ensure_ascii=False))
-      `], {
-        shell: process.platform === 'win32',
-        cwd: path.dirname(scriptPath),
+      const proc = spawn(pythonExe, ['-c', pythonScript], {
+        shell: false, // Don't use shell to avoid path splitting
+        cwd: absoluteScriptDir,
         env: { ...process.env, PYTHONUNBUFFERED: '1' }
       });
 
@@ -394,11 +528,16 @@ print(json.dumps(result, ensure_ascii=False))
 
     // Use Prisma transaction to ensure atomicity
     await prisma.$transaction(async (tx) => {
-      // Delete existing insights for this meeting
+      // Delete existing insights for this meeting using Prisma's type-safe method
       try {
-        await tx.$executeRaw`
-          DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
-        `;
+        const deleted = await tx.aiInsight.deleteMany({
+          where: {
+            meetingId: meetingIdStr
+          }
+        });
+        if (deleted.count > 0) {
+          console.log(`   Deleted ${deleted.count} existing insight(s)`);
+        }
       } catch (error) {
         console.warn(`Warning: Could not delete existing insights: ${error.message}`);
         // Continue anyway - might be first time generating
@@ -406,72 +545,116 @@ print(json.dumps(result, ensure_ascii=False))
 
       // Save summary
       if (insights.summary) {
-        const summaryId = uuidv4();
         const content = JSON.stringify(insights.summary);
         const confidence = insights.summary.confidence || 0.85;
         
-        await tx.$executeRaw`
-          INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
-          VALUES (${summaryId}, ${meetingIdStr}, 'summary', ${content}, ${Number(confidence)})
-        `;
+        await tx.aiInsight.create({
+          data: {
+            id: uuidv4(),
+            meetingId: meetingIdStr,
+            insightType: 'summary',
+            content: content,
+            confidenceScore: Number(confidence)
+          }
+        });
+        console.log(`   ✅ Saved summary insight`);
       }
 
       // Save decisions
       if (insights.decisions && Array.isArray(insights.decisions) && insights.decisions.length > 0) {
-        const decisionsId = uuidv4();
         const content = JSON.stringify(insights.decisions);
         const avgConfidence = insights.decisions.reduce((sum, d) => sum + (d.confidence || 0.8), 0) / insights.decisions.length;
         
-        await tx.$executeRaw`
-          INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
-          VALUES (${decisionsId}, ${meetingIdStr}, 'decisions', ${content}, ${Number(avgConfidence)})
-        `;
+        await tx.aiInsight.create({
+          data: {
+            id: uuidv4(),
+            meetingId: meetingIdStr,
+            insightType: 'decisions',
+            content: content,
+            confidenceScore: Number(avgConfidence)
+          }
+        });
+        console.log(`   ✅ Saved ${insights.decisions.length} decision(s)`);
       }
 
       // Save sentiment
       if (insights.sentiment) {
-        const sentimentId = uuidv4();
         const content = JSON.stringify(insights.sentiment);
         const confidence = insights.sentiment.confidence || 0.8;
         
-        await tx.$executeRaw`
-          INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
-          VALUES (${sentimentId}, ${meetingIdStr}, 'sentiment', ${content}, ${Number(confidence)})
-        `;
+        await tx.aiInsight.create({
+          data: {
+            id: uuidv4(),
+            meetingId: meetingIdStr,
+            insightType: 'sentiment',
+            content: content,
+            confidenceScore: Number(confidence)
+          }
+        });
+        console.log(`   ✅ Saved sentiment insight`);
       }
 
       // Save topics
       if (insights.topics && Array.isArray(insights.topics) && insights.topics.length > 0) {
-        const topicsId = uuidv4();
         const content = JSON.stringify(insights.topics);
         const avgConfidence = 0.8; // Topics don't have individual confidence
         
-        await tx.$executeRaw`
-          INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
-          VALUES (${topicsId}, ${meetingIdStr}, 'topics', ${content}, ${Number(avgConfidence)})
-        `;
+        await tx.aiInsight.create({
+          data: {
+            id: uuidv4(),
+            meetingId: meetingIdStr,
+            insightType: 'topics',
+            content: content,
+            confidenceScore: Number(avgConfidence)
+          }
+        });
+        console.log(`   ✅ Saved ${insights.topics.length} topic(s)`);
+      }
+
+      // Save action items
+      if (insights.actionItems && Array.isArray(insights.actionItems) && insights.actionItems.length > 0) {
+        const content = JSON.stringify(insights.actionItems);
+        const avgConfidence = insights.actionItems.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / insights.actionItems.length;
+        
+        await tx.aiInsight.create({
+          data: {
+            id: uuidv4(),
+            meetingId: meetingIdStr,
+            insightType: 'action_items',
+            content: content,
+            confidenceScore: Number(avgConfidence)
+          }
+        });
+        console.log(`   ✅ Saved ${insights.actionItems.length} action item(s)`);
       }
 
       // Save participants (use 'other' type since 'participants' is not in enum)
       if (insights.participants && Array.isArray(insights.participants) && insights.participants.length > 0) {
-        const participantsId = uuidv4();
         const content = JSON.stringify(insights.participants);
         const avgConfidence = 0.85; // Participants don't have individual confidence
         
-        await tx.$executeRaw`
-          INSERT INTO ai_insights (id, meeting_id, insight_type, content, confidence_score)
-          VALUES (${participantsId}, ${meetingIdStr}, 'other', ${content}, ${Number(avgConfidence)})
-        `;
+        await tx.aiInsight.create({
+          data: {
+            id: uuidv4(),
+            meetingId: meetingIdStr,
+            insightType: 'other',
+            content: content,
+            confidenceScore: Number(avgConfidence)
+          }
+        });
+        console.log(`   ✅ Saved ${insights.participants.length} participant(s)`);
       }
 
       // Mark meeting as insights generated (if field exists)
-      // Note: meetings.id is INT, so we use parseInt for explicit type conversion
       try {
-        await tx.$executeRaw`
-          UPDATE meetings 
-          SET ai_insights_generated = TRUE, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${parseInt(meetingIdStr)}
-        `;
+        await tx.meeting.update({
+          where: { id: parseInt(meetingIdStr) },
+          data: {
+            aiInsightsGenerated: true,
+            updatedAt: new Date()
+          }
+        });
+        console.log(`   ✅ Updated meeting ai_insights_generated flag`);
       } catch (error) {
         // Field might not exist yet - log but don't fail
         console.warn(`Note: Could not update ai_insights_generated flag (field may not exist): ${error.message}`);
@@ -486,6 +669,7 @@ print(json.dumps(result, ensure_ascii=False))
    */
   async generateInsights(meetingId) {
     console.log(`\n🧠 Starting AI insights generation for meeting ${meetingId}...`);
+    console.log(`   Meeting ID type: ${typeof meetingId}, value: ${meetingId}`);
 
     try {
       // Check if insights already exist
@@ -496,27 +680,40 @@ print(json.dumps(result, ensure_ascii=False))
       }
 
       // Check if transcript is available
+      console.log('🔍 Checking for transcript...');
       const transcriptCheck = await this.checkTranscriptAvailable(meetingId);
       if (!transcriptCheck.available) {
         console.error(`❌ Transcript not available: ${transcriptCheck.error}`);
+        console.error(`   This means AI insights cannot be generated.`);
+        console.error(`   Please ensure the meeting has been transcribed and the transcript file exists.`);
         return { success: false, error: transcriptCheck.error };
       }
 
       // Load transcript
       console.log('📄 Loading transcript...');
+      console.log(`   Transcript path: ${transcriptCheck.transcriptPath}`);
       const { transcriptText, transcriptJson } = await this.loadDiarizedTranscript(meetingId);
       console.log(`✅ Transcript loaded (${transcriptText.length} characters)`);
+      
+      if (transcriptText.length < 50) {
+        console.warn(`⚠️  Transcript is very short (${transcriptText.length} chars), insights may be limited`);
+      }
 
       // Run all agents
+      console.log('🤖 Running AI agents...');
       const insights = await this.runAllAgents(transcriptText, transcriptJson);
+      console.log('✅ All agents completed');
 
       // Save to database
+      console.log('💾 Saving insights to database...');
       await this.saveInsightsToDatabase(meetingId, insights);
+      console.log('✅ Insights saved to database');
 
       console.log(`✅ AI insights generation completed for meeting ${meetingId}`);
       return { success: true, insights };
     } catch (error) {
       console.error(`❌ AI insights generation failed for meeting ${meetingId}:`, error);
+      console.error(`   Error stack:`, error.stack);
       return { success: false, error: error.message };
     }
   }

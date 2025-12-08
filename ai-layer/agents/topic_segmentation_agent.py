@@ -149,30 +149,39 @@ class TopicSegmentationAgent:
 
     def _build_identification_prompt(self, transcript: str) -> str:
         """Build the prompt for topic identification."""
-        # Truncate transcript if too long (keep last 10000 chars for context)
-        max_length = 10000
+        # Truncate transcript if too long (keep last 12000 chars for context)
+        max_length = 12000
         if len(transcript) > max_length:
             transcript = "..." + transcript[-max_length:]
 
-        return f"""Analyze the following meeting transcript and identify the key topics discussed.
+        return f"""Analyze the following meeting transcript and identify the key topics that were actually discussed.
+
+IMPORTANT INSTRUCTIONS:
+- Read the entire transcript carefully to understand what was actually discussed
+- Identify specific, meaningful topics (not generic ones like "discussion" or "meeting")
+- Topics should be substantive - things that took up significant discussion time
+- Be specific: "Q4 Product Launch Strategy" is better than "Product Discussion"
+- Avoid topics that are just greetings, small talk, or brief mentions
+- Count how many times each topic was meaningfully discussed (not just mentioned in passing)
+- Assess the sentiment: was the discussion positive, neutral, or negative about this topic?
 
 For each topic, identify:
-1. **name**: The topic name or title (concise, 2-5 words)
-2. **mentions**: Approximate number of times this topic was mentioned or discussed (integer)
-3. **sentiment**: The sentiment associated with this topic - "Positive", "Neutral", or "Negative"
+1. **name**: A specific, descriptive topic name (2-6 words that clearly identify what was discussed)
+2. **mentions**: The number of times this topic was meaningfully discussed (count substantial mentions, not passing references)
+3. **sentiment**: The overall sentiment - "Positive" (favorable discussion), "Neutral" (factual/informational), or "Negative" (concerns/issues raised)
 
 Return ONLY a JSON object with this exact structure:
 {{
   "topics": [
     {{
-      "name": "Topic name",
-      "mentions": 15,
+      "name": "Specific topic name (e.g., 'Q4 Marketing Budget Allocation')",
+      "mentions": 8,
       "sentiment": "Positive|Neutral|Negative"
     }}
   ]
 }}
 
-Focus on identifying the main topics that were discussed, not every minor mention. Aim for 5-10 key topics.
+Focus on identifying 5-12 key topics that represent the main discussion points. Be specific and accurate.
 
 Transcript:
 {transcript}

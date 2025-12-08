@@ -488,6 +488,12 @@ class AudioRecorder {
             let retries = 2;
             let result = null;
             while (retries >= 0) {
+              // Check if transcriptionService still exists before each retry
+              if (!this.transcriptionService) {
+                console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
+                break;
+              }
+              
               try {
                 result = await this.transcriptionService.transcribe(mp3Path, idx);
                 if (result && result.success) {
@@ -512,6 +518,12 @@ class AudioRecorder {
             let retries = 2;
             let result = null;
             while (retries >= 0) {
+              // Check if transcriptionService still exists before each retry
+              if (!this.transcriptionService) {
+                console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
+                break;
+              }
+              
               try {
                 result = await this.transcriptionService.transcribe(chunkPath, idx);
                 if (result && result.success) {
@@ -582,6 +594,12 @@ class AudioRecorder {
               let retries = 2;
               let result = null;
               while (retries >= 0) {
+                // Check if transcriptionService still exists before each retry
+                if (!this.transcriptionService) {
+                  console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
+                  break;
+                }
+                
                 try {
                   result = await this.transcriptionService.transcribe(mp3Path, idx);
                   if (result && result.success) {
@@ -606,6 +624,12 @@ class AudioRecorder {
               let retries = 2;
               let result = null;
               while (retries >= 0) {
+                // Check if transcriptionService still exists before each retry
+                if (!this.transcriptionService) {
+                  console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
+                  break;
+                }
+                
                 try {
                   result = await this.transcriptionService.transcribe(chunkPath, idx);
                   if (result && result.success) {

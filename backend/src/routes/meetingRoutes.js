@@ -1505,13 +1505,44 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
     // Convert meetingId to string for database query
     const meetingIdStr = String(meetingId);
 
-    // Fetch all insights for this meeting
-    const insightsRows = await prisma.$queryRaw`
-      SELECT insight_type, content, confidence_score, created_at
-      FROM ai_insights
-      WHERE meeting_id = ${meetingIdStr}
-      ORDER BY created_at DESC
-    `;
+    // Fetch all insights for this meeting using Prisma's type-safe query
+    let insightsRows = [];
+    try {
+      insightsRows = await prisma.aiInsight.findMany({
+        where: {
+          meetingId: meetingIdStr
+        },
+        select: {
+          insightType: true,
+          content: true,
+          confidenceScore: true,
+          createdAt: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+    } catch (dbError) {
+      // If table doesn't exist or other DB error, log it and return empty
+      console.error("Database error fetching AI insights:", dbError);
+      // Check if it's a table not found error (PostgreSQL error code 42P01)
+      if (dbError.code === 'P2010' || (dbError.meta && dbError.meta.code === '42P01') || 
+          (dbError.message && dbError.message.includes('does not exist'))) {
+        console.error("❌ ai_insights table does not exist in database!");
+        console.error("   To fix this, run: cd backend && npx prisma migrate dev");
+        console.error("   Or if in production: npx prisma migrate deploy");
+      }
+      // Return empty structure instead of crashing
+      return res.json({
+        summary: null,
+        keyDecisions: [],
+        actionItems: [],
+        sentiment: null,
+        topics: [],
+        participants: [],
+        generated: false
+      });
+    }
 
     // If no insights found, return empty structure
     if (!insightsRows || insightsRows.length === 0) {
@@ -1543,7 +1574,8 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
           ? JSON.parse(row.content) 
           : row.content;
 
-        switch (row.insight_type) {
+        // Use insightType (camelCase from Prisma) instead of insight_type
+        switch (row.insightType) {
           case 'summary':
             insights.summary = content;
             break;
