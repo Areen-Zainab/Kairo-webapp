@@ -45,6 +45,7 @@ class TranscriptionService {
     // Initialize utterances array for diarization
     this.utterances = [];
     this.chunkCount = 0;
+    this.firstTimestamp = null; // Track first chunk timestamp for relative time calculation
 
     // Verify Python script exists
     if (!fs.existsSync(PY_SCRIPT_PATH)) {
@@ -81,10 +82,36 @@ class TranscriptionService {
         transcriptionResult = await this.sendToPython(audioPath, chunkIndex);
       } catch (error) {
         console.warn(`⚠️  Persistent Python process failed, trying one-shot: ${error.message}`);
+        
+        // Check if it's a ModuleNotFoundError - this means persistent process has wrong Python
+        if (error.message && error.message.includes('ModuleNotFoundError')) {
+          console.error('❌ Persistent process using wrong Python environment (missing whisperx)');
+          // Kill and restart persistent process with correct Python
+          try {
+            if (this.pythonProc && !this.pythonProc.killed) {
+              this.pythonProc.kill();
+            }
+            this.pythonProc = null;
+            console.log('🔄 Clearing persistent process - will restart with correct Python on next request');
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+        
         try {
           const text = await this.runPythonOneShot(audioPath);
           transcriptionResult = { text, chunkIndex };
         } catch (oneShotError) {
+          // Check for ModuleNotFoundError and provide helpful message
+          if (oneShotError.message && oneShotError.message.includes('whisperx')) {
+            console.error(`❌ Transcription failed: whisperx not available in any Python environment`);
+            return { 
+              success: false, 
+              text: '', 
+              chunk: chunkIndex, 
+              error: 'whisperx module not found. Please install whisperx in your Python environment.' 
+            };
+          }
           console.error(`❌ Transcription failed: ${oneShotError.message}`);
           return { success: false, text: '', chunk: chunkIndex, error: oneShotError.message };
         }
@@ -115,6 +142,13 @@ class TranscriptionService {
       // Process transcription result
       if (cleanedText && cleanedText.trim()) {
         const timestamp = new Date().toISOString();
+        const timestampDate = new Date(timestamp);
+        
+        // Track first timestamp to calculate relative timestamps
+        if (this.firstTimestamp === null) {
+          this.firstTimestamp = timestampDate;
+        }
+        
         // Use finalChunkIndex (from resolver) as the authoritative source
         let chunkNum;
         if (finalChunkIndex !== null) {
@@ -126,6 +160,15 @@ class TranscriptionService {
         } else {
           chunkNum = this.chunkCount++;
         }
+
+        // Calculate actual timestamps relative to first chunk (in seconds)
+        // This gives us the real time offset from the start of the meeting
+        const relativeTimeSeconds = (timestampDate - this.firstTimestamp) / 1000;
+        
+        // Estimate duration based on text length (average speaking rate ~150 words/min = 2.5 words/sec)
+        // Fallback to 3 seconds if text is very short
+        const wordCount = cleanedText.trim().split(/\s+/).length;
+        const estimatedDuration = Math.max(1.0, Math.min(5.0, wordCount / 2.5)); // Between 1-5 seconds
 
         // 1. Save individual chunk transcript file - ONLY transcription text and timestamp
         const chunkFilename = `chunk_${chunkNum}_transcript.txt`;
@@ -147,16 +190,19 @@ class TranscriptionService {
           console.warn(`⚠️  Could not append to complete transcript: ${fileError.message}`);
         }
 
-        // 3. Store utterance for diarization (basic structure, will be enhanced later)
-        // Assuming 3-second chunks, will be updated during diarization
+        // 3. Store utterance for diarization with actual timestamps
+        // start_time and end_time are relative to meeting start (in seconds)
+        // These will be refined by diarization if available
         this.utterances.push({
           chunk: chunkNum,
-          timestamp: timestamp,
+          timestamp: timestamp, // ISO timestamp for reference
           audioFile: path.basename(audioPath),
           text: cleanedText.trim(), // Use cleaned text
           speaker: null, // Will be assigned during diarization
-          start_time: chunkNum * 3.0, // Assuming 3-second chunks
-          end_time: (chunkNum + 1) * 3.0
+          start_time: relativeTimeSeconds, // Actual time from meeting start
+          end_time: relativeTimeSeconds + estimatedDuration, // Estimated end time
+          diarized_start: null, // Will be set during diarization if available
+          diarized_end: null // Will be set during diarization if available
         });
 
         // 4. Append to legacy transcript file (backward compatibility)
@@ -313,6 +359,52 @@ class TranscriptionService {
     }
     // Fallback to system Python
     return null;
+  }
+
+  /**
+   * Validate that Python executable has whisperx available
+   * @param {string} pythonCmd - Python command to test
+   * @returns {Promise<boolean>} - True if whisperx is available
+   */
+  async validatePythonEnvironment(pythonCmd) {
+    return new Promise((resolve) => {
+      try {
+        const isFullPath = pythonCmd.includes(path.sep) || (process.platform === 'win32' && pythonCmd.includes('\\'));
+        const spawnOptions = isFullPath
+          ? { shell: false }
+          : { shell: process.platform === 'win32' };
+        
+        // Quick check: try to import whisperx
+        const proc = spawn(pythonCmd, ['-c', 'import whisperx'], {
+          ...spawnOptions,
+          timeout: 5000 // 5 second timeout
+        });
+
+        let stderr = '';
+        proc.stderr.on('data', d => stderr += d.toString());
+        
+        proc.on('close', (code) => {
+          // Code 0 means import succeeded
+          resolve(code === 0);
+        });
+
+        proc.on('error', () => {
+          resolve(false);
+        });
+
+        // Timeout after 5 seconds
+        setTimeout(() => {
+          try {
+            proc.kill();
+          } catch (e) {
+            // Ignore
+          }
+          resolve(false);
+        }, 5000);
+      } catch (error) {
+        resolve(false);
+      }
+    });
   }
 
   /**
@@ -624,44 +716,47 @@ class TranscriptionService {
       this.pythonProc = null;
     }
     
-    // Spawn new process
+    // Spawn new process - CRITICAL: Only use venv Python (it has whisperx)
     const venvPython = this.getPythonExecutable();
-    const candidates = venvPython
-      ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
-      : ['py -3.10', 'python3.10', 'python', 'py'];
-    let started = false;
-
-    for (const cmd of candidates) {
-      try {
-        const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
-        const spawnOptions = isFullPath 
-          ? { shell: false }
-          : { shell: process.platform === 'win32' };
-        
-        const proc = spawn(cmd, [PY_SCRIPT_PATH], {
-          cwd: path.dirname(PY_SCRIPT_PATH),
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env },
-          ...spawnOptions
-        });
-        
-        this.pythonProc = proc;
-        this.pythonStdoutBuffer = '';
-        this.pythonResolvers = [];
-        this.pendingRequests.clear(); // Clear any stale pending requests
-        this.pythonProcExited = false;
-        
-        this._setupProcessHandlers(proc);
-        
-        started = true;
-        break;
-      } catch (error) {
-        continue;
-      }
+    
+    if (!venvPython) {
+      throw new Error('Venv Python not found. Cannot start persistent process without venv Python (whisperx required).');
     }
 
-    if (!started) {
-      throw new Error('Failed to start Python process - no valid Python command found');
+    // Validate venv Python has whisperx before using it
+    console.log('🔍 Validating venv Python has whisperx...');
+    const hasWhisperx = await this.validatePythonEnvironment(venvPython);
+    
+    if (!hasWhisperx) {
+      throw new Error(`Venv Python at ${venvPython} does not have whisperx installed. Please install whisperx in the venv.`);
+    }
+
+    console.log(`✅ Starting persistent process with validated Python: ${venvPython}`);
+    
+    try {
+      const isFullPath = venvPython.includes(path.sep) || (process.platform === 'win32' && venvPython.includes('\\'));
+      const spawnOptions = isFullPath 
+        ? { shell: false }
+        : { shell: process.platform === 'win32' };
+      
+      const proc = spawn(venvPython, [PY_SCRIPT_PATH], {
+        cwd: path.dirname(PY_SCRIPT_PATH),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env },
+        ...spawnOptions
+      });
+      
+      this.pythonProc = proc;
+      this.pythonStdoutBuffer = '';
+      this.pythonResolvers = [];
+      this.pendingRequests.clear(); // Clear any stale pending requests
+      this.pythonProcExited = false;
+      
+      this._setupProcessHandlers(proc);
+      
+      console.log('✅ Persistent Python process started successfully');
+    } catch (error) {
+      throw new Error(`Failed to start Python process with ${venvPython}: ${error.message}`);
     }
   }
 
@@ -684,8 +779,17 @@ class TranscriptionService {
         await this.ensurePythonProc();
 
         if (!this.isPythonProcAlive()) {
-          // Fallback to one-shot mode
-          console.log('⚠️  Persistent Python process not alive, using one-shot mode');
+          // Process is dead - clear it and fallback to one-shot mode
+          console.log('⚠️  Persistent Python process not alive, clearing and using one-shot mode');
+          try {
+            if (this.pythonProc && !this.pythonProc.killed) {
+              this.pythonProc.kill();
+            }
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+          this.pythonProc = null;
+          
           const text = await this.runPythonOneShot(audioPath);
           resolve({ text, chunkIndex });
           continue;
@@ -695,12 +799,31 @@ class TranscriptionService {
         const result = await this._sendSingleRequest(audioPath, chunkIndex);
         resolve(result);
       } catch (error) {
+        // Check if persistent process has wrong Python environment
+        if (error.message && error.message.includes('ModuleNotFoundError')) {
+          console.error('❌ Persistent process error: wrong Python environment');
+          // Clear the process so it can be restarted with correct Python
+          try {
+            if (this.pythonProc && !this.pythonProc.killed) {
+              this.pythonProc.kill();
+            }
+            this.pythonProc = null;
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+        
         // Try one-shot as fallback
         try {
           const text = await this.runPythonOneShot(audioPath);
           resolve({ text, chunkIndex });
         } catch (oneShotError) {
-          reject(oneShotError);
+          // Provide better error message for ModuleNotFoundError
+          if (oneShotError.message && oneShotError.message.includes('whisperx')) {
+            reject(new Error('whisperx module not found in any Python environment. Please install whisperx.'));
+          } else {
+            reject(oneShotError);
+          }
         }
       }
     }
@@ -851,21 +974,47 @@ class TranscriptionService {
    * @param {string} audioPath - Path to audio file
    * @returns {Promise<string>} - Transcription text
    */
-  runPythonOneShot(audioPath) {
-    return new Promise((resolve, reject) => {
-      // Try root venv Python first, then fallback to system Python
+  async runPythonOneShot(audioPath) {
+    return new Promise(async (resolve, reject) => {
+      // CRITICAL: Always prioritize venv Python - it has whisperx installed
       const venvPython = this.getPythonExecutable();
+      
+      // Build candidate list - venv Python first, then system Python only if venv doesn't exist
       const candidates = venvPython
-        ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
-        : ['py -3.10', 'python3.10', 'python', 'py'];
+        ? [venvPython] // Only use venv Python if available - don't fallback to system Python
+        : ['py -3.10', 'python3.10', 'python', 'py']; // Only if no venv exists
+      
       let attempt = 0;
+      const validatedCandidates = [];
+
+      // First, validate which Python executables have whisperx
+      console.log('🔍 Validating Python environments for whisperx...');
+      for (const cmd of candidates) {
+        const hasWhisperx = await this.validatePythonEnvironment(cmd);
+        if (hasWhisperx) {
+          validatedCandidates.push(cmd);
+          console.log(`✅ Python environment validated: ${cmd}`);
+        } else {
+          console.warn(`⚠️  Python environment missing whisperx: ${cmd}`);
+        }
+      }
+
+      // If no validated candidates, reject immediately with helpful error
+      if (validatedCandidates.length === 0) {
+        const errorMsg = venvPython
+          ? `No Python environment with whisperx found. Venv Python exists at ${venvPython} but whisperx is not installed. Please install whisperx in the venv.`
+          : 'No Python environment with whisperx found. Please ensure whisperx is installed in your Python environment.';
+        return reject(new Error(errorMsg));
+      }
 
       const tryOne = () => {
-        if (attempt >= candidates.length) {
-          return reject(new Error('Python not found - tried all candidates'));
+        if (attempt >= validatedCandidates.length) {
+          return reject(new Error('All Python environments failed - tried all validated candidates'));
         }
 
-        const cmd = candidates[attempt++];
+        const cmd = validatedCandidates[attempt++];
+        console.log(`🔄 Attempting transcription with: ${cmd}`);
+        
         // Check if cmd is a full path (contains path separators)
         const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
 
@@ -883,29 +1032,50 @@ class TranscriptionService {
         proc.stdout.on('data', d => stdout += d.toString());
         proc.stderr.on('data', d => stderr += d.toString());
 
-        proc.on('error', () => {
+        proc.on('error', (error) => {
+          console.error(`❌ Process error with ${cmd}:`, error.message);
           // Try next candidate
-          tryOne();
+          if (attempt < validatedCandidates.length) {
+            return tryOne();
+          }
+          return reject(new Error(`Failed to spawn Python process: ${error.message}`));
         });
 
         proc.on('close', (code) => {
+          // Check for ModuleNotFoundError specifically
+          if (stderr.includes('ModuleNotFoundError') && stderr.includes('whisperx')) {
+            console.error(`❌ ModuleNotFoundError: whisperx not found in ${cmd}`);
+            // Try next validated candidate
+            if (attempt < validatedCandidates.length) {
+              return tryOne();
+            }
+            return reject(new Error(`whisperx module not found in Python environment: ${cmd}. Please install whisperx.`));
+          }
+
           if (code === 0) {
             // Clean the output - remove any log lines that might have leaked to stdout
             const cleanedText = this.cleanTranscriptionText(stdout.trim());
             if (cleanedText) {
+              console.log(`✅ Transcription successful with: ${cmd}`);
               return resolve(cleanedText);
             } else {
               // If no clean text, try next candidate
-              if (attempt < candidates.length) {
+              if (attempt < validatedCandidates.length) {
                 return tryOne();
               }
               return reject(new Error('No transcription text found in output'));
             }
           }
-          if (attempt < candidates.length) {
+          
+          // Non-zero exit code
+          if (attempt < validatedCandidates.length) {
+            console.warn(`⚠️  Python process exited with code ${code}, trying next candidate...`);
             return tryOne();
           }
-          return reject(new Error(stderr || `Python exited with code ${code}`));
+          
+          // All candidates failed
+          const errorMsg = stderr || `Python exited with code ${code}`;
+          return reject(new Error(`Transcription failed: ${errorMsg}`));
         });
       };
 
@@ -1069,14 +1239,22 @@ class TranscriptionService {
   async saveDiarizedOutputs() {
     try {
       // 1. Save JSON format (structured data)
+      // Calculate duration using the best available timestamps (diarized if available)
+      const maxEndTime = this.utterances.length > 0
+        ? Math.max(...this.utterances.map(u => {
+            // Use diarized_end if available, otherwise use end_time
+            return (u.diarized_end !== null && u.diarized_end !== undefined)
+              ? u.diarized_end
+              : u.end_time;
+          }))
+        : 0;
+      
       const jsonOutput = {
         metadata: {
           generated: new Date().toISOString(),
           total_utterances: this.utterances.length,
           speakers: [...new Set(this.utterances.map(u => u.speaker).filter(s => s))],
-          duration_seconds: this.utterances.length > 0
-            ? Math.max(...this.utterances.map(u => u.end_time))
-            : 0
+          duration_seconds: maxEndTime
         },
         utterances: this.utterances
       };
@@ -1094,7 +1272,17 @@ class TranscriptionService {
 
       for (const utterance of this.utterances) {
         const speaker = utterance.speaker || 'UNKNOWN';
-        const timeRange = `[${utterance.start_time.toFixed(1)}s - ${utterance.end_time.toFixed(1)}s]`;
+        
+        // PRIORITY: Use diarized timestamps if available (most accurate)
+        // Otherwise fall back to calculated timestamps from ISO timestamps
+        const startTime = utterance.diarized_start !== null && utterance.diarized_start !== undefined
+          ? utterance.diarized_start
+          : utterance.start_time;
+        const endTime = utterance.diarized_end !== null && utterance.diarized_end !== undefined
+          ? utterance.diarized_end
+          : utterance.end_time;
+        
+        const timeRange = `[${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s]`;
         textOutput += `${speaker} ${timeRange}:\n${utterance.text}\n\n`;
       }
 
@@ -1120,12 +1308,20 @@ class TranscriptionService {
     let srt = '';
 
     this.utterances.forEach((utterance, index) => {
-      const startTime = this.formatSRTTime(utterance.start_time);
-      const endTime = this.formatSRTTime(utterance.end_time);
+      // Use diarized timestamps if available, otherwise use calculated timestamps
+      const startTime = utterance.diarized_start !== null && utterance.diarized_start !== undefined
+        ? utterance.diarized_start
+        : utterance.start_time;
+      const endTime = utterance.diarized_end !== null && utterance.diarized_end !== undefined
+        ? utterance.diarized_end
+        : utterance.end_time;
+      
+      const startTimeFormatted = this.formatSRTTime(startTime);
+      const endTimeFormatted = this.formatSRTTime(endTime);
       const speaker = utterance.speaker || 'UNKNOWN';
 
       srt += `${index + 1}\n`;
-      srt += `${startTime} --> ${endTime}\n`;
+      srt += `${startTimeFormatted} --> ${endTimeFormatted}\n`;
       srt += `[${speaker}] ${utterance.text}\n\n`;
     });
 

@@ -134,6 +134,26 @@ class Meeting {
               // Don't fail meeting creation if preload fails - global model will handle it
           });
         }
+        
+        // DO NOT trigger auto-join for instant meetings - let the route handler handle it
+        // This prevents duplicate bot instances when frontend calls the route handler
+        // Auto-join is only for scheduled meetings that reach their start time
+        if (meetingType !== 'instant') {
+          // Only trigger auto-join for scheduled meetings, not instant ones
+          const { triggerAutoJoinImmediately } = require('../config/cron');
+          triggerAutoJoinImmediately()
+            .then((result) => {
+              if (result.success && result.triggered > 0) {
+                console.log(`✅ Immediate auto-join triggered for meeting ${meeting.id}`);
+              }
+            })
+            .catch((error) => {
+              console.warn(`⚠️  Failed to trigger immediate auto-join for meeting ${meeting.id}:`, error.message);
+              // Don't fail meeting creation - cron job will handle it
+            });
+        } else {
+          console.log(`ℹ️  Skipping auto-join for instant meeting ${meeting.id} - route handler will handle bot join`);
+        }
       }
 
       return meeting;
