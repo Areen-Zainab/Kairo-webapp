@@ -21,19 +21,19 @@ class TranscriptionService {
     this.pythonProcExited = false;
     this.transcriptionQueue = []; // Queue for sequential processing
     this.processingTranscription = false; // Flag to prevent concurrent processing
-    
+
     // Create transcripts subdirectory
     this.transcriptsDir = path.join(meetingDataDir, 'transcripts');
     if (!fs.existsSync(this.transcriptsDir)) {
       fs.mkdirSync(this.transcriptsDir, { recursive: true });
       console.log(`📁 Created transcripts directory: ${this.transcriptsDir}`);
     }
-    
+
     // Define output file paths
     this.completeTranscriptPath = path.join(meetingDataDir, 'transcript_complete.txt');
     this.diarizedJsonPath = path.join(meetingDataDir, 'transcript_diarized.json');
     this.diarizedTextPath = path.join(meetingDataDir, 'transcript_diarized.txt');
-    
+
     // Initialize complete transcript file with header
     const header = `Kairo Complete Transcript\nGenerated: ${new Date().toISOString()}\n${'='.repeat(80)}\n\n`;
     try {
@@ -41,16 +41,16 @@ class TranscriptionService {
     } catch (error) {
       console.warn(`⚠️  Could not initialize complete transcript file: ${error.message}`);
     }
-    
+
     // Initialize utterances array for diarization
     this.utterances = [];
     this.chunkCount = 0;
-    
+
     // Verify Python script exists
     if (!fs.existsSync(PY_SCRIPT_PATH)) {
       console.warn(`⚠️  Python script not found at: ${PY_SCRIPT_PATH}`);
     }
-    
+
     console.log('✅ TranscriptionService initialized');
     console.log(`   Meeting data directory: ${meetingDataDir}`);
     console.log(`   Transcripts directory: ${this.transcriptsDir}`);
@@ -93,25 +93,25 @@ class TranscriptionService {
       // Extract text and response chunkIndex from result
       const text = transcriptionResult.text;
       const responseChunkIndex = transcriptionResult.chunkIndex;
-      
+
       // Validate chunkIndex matches (if both are provided)
       if (chunkIndex !== null && responseChunkIndex !== null && chunkIndex !== responseChunkIndex) {
         console.error(`❌ ChunkIndex mismatch! Requested: ${chunkIndex}, Response: ${responseChunkIndex}`);
         // Use the response chunkIndex (from resolver) as it's the authoritative source
       }
-      
+
       // Use response chunkIndex if available, otherwise fall back to provided chunkIndex
       const finalChunkIndex = responseChunkIndex !== null ? responseChunkIndex : chunkIndex;
-      
+
       // Clean the transcription text - remove any log lines
       const cleanedText = this.cleanTranscriptionText(text);
-      
+
       // If transcription returned empty or whitespace, log warning but don't fail
       if (!cleanedText || !cleanedText.trim()) {
         console.warn(`⚠️  Empty transcription result for ${path.basename(audioPath)}`);
         return { success: false, text: '', chunk: finalChunkIndex, error: 'Empty transcription result' };
       }
-      
+
       // Process transcription result
       if (cleanedText && cleanedText.trim()) {
         const timestamp = new Date().toISOString();
@@ -126,19 +126,19 @@ class TranscriptionService {
         } else {
           chunkNum = this.chunkCount++;
         }
-        
+
         // 1. Save individual chunk transcript file - ONLY transcription text and timestamp
         const chunkFilename = `chunk_${chunkNum}_transcript.txt`;
         const chunkTranscriptPath = path.join(this.transcriptsDir, chunkFilename);
         const chunkContent = `${timestamp}\n${cleanedText.trim()}\n`;
-        
+
         try {
           fs.writeFileSync(chunkTranscriptPath, chunkContent);
           console.log(`   📄 Chunk transcript saved: ${chunkFilename}`);
         } catch (fileError) {
           console.warn(`⚠️  Could not save chunk transcript: ${fileError.message}`);
         }
-        
+
         // 2. Append to complete transcript file - only transcription text
         const completeLine = `[Chunk ${chunkNum}] [${timestamp}]\n${cleanedText.trim()}\n\n`;
         try {
@@ -146,7 +146,7 @@ class TranscriptionService {
         } catch (fileError) {
           console.warn(`⚠️  Could not append to complete transcript: ${fileError.message}`);
         }
-        
+
         // 3. Store utterance for diarization (basic structure, will be enhanced later)
         // Assuming 3-second chunks, will be updated during diarization
         this.utterances.push({
@@ -158,7 +158,7 @@ class TranscriptionService {
           start_time: chunkNum * 3.0, // Assuming 3-second chunks
           end_time: (chunkNum + 1) * 3.0
         });
-        
+
         // 4. Append to legacy transcript file (backward compatibility)
         if (this.transcriptFilepath) {
           try {
@@ -168,7 +168,7 @@ class TranscriptionService {
             console.warn(`⚠️  Could not append to legacy transcript file: ${fileError.message}`);
           }
         }
-        
+
         // Log transcription result
         console.log(`✅ Chunk ${chunkNum} transcription done`);
         
@@ -252,17 +252,25 @@ class TranscriptionService {
    */
   cleanTranscriptionText(text) {
     if (!text) return '';
-    
+
+    // Check for transcription failure marker
+    if (text.trim() === '[TRANSCRIPTION_FAILED]') {
+      return '';
+    }
+
     // Split into lines
-    const lines = text.split('\n');
+    const lines = text.split('\\n');
     const cleanedLines = [];
-    
+
     for (const line of lines) {
       const trimmed = line.trim();
-      
+
       // Skip empty lines
       if (!trimmed) continue;
-      
+
+      // Skip failure marker
+      if (trimmed === '[TRANSCRIPTION_FAILED]') continue;
+
       // Skip log lines (common patterns)
       if (
         trimmed.includes('whisperx.') ||
@@ -282,11 +290,11 @@ class TranscriptionService {
       ) {
         continue; // Skip this line
       }
-      
+
       // Keep this line - it's likely actual transcription
       cleanedLines.push(trimmed);
     }
-    
+
     // Join and return
     return cleanedLines.join(' ').trim();
   }
@@ -618,11 +626,11 @@ class TranscriptionService {
     
     // Spawn new process
     const venvPython = this.getPythonExecutable();
-    const candidates = venvPython 
+    const candidates = venvPython
       ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
       : ['py -3.10', 'python3.10', 'python', 'py'];
     let started = false;
-    
+
     for (const cmd of candidates) {
       try {
         const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
@@ -651,7 +659,7 @@ class TranscriptionService {
         continue;
       }
     }
-    
+
     if (!started) {
       throw new Error('Failed to start Python process - no valid Python command found');
     }
@@ -665,16 +673,16 @@ class TranscriptionService {
     if (this.processingTranscription || this.transcriptionQueue.length === 0) {
       return;
     }
-    
+
     this.processingTranscription = true;
-    
+
     while (this.transcriptionQueue.length > 0) {
       const { audioPath, chunkIndex, resolve, reject } = this.transcriptionQueue.shift();
-      
+
       try {
         // Ensure process exists and is alive (wait for preload if in progress)
         await this.ensurePythonProc();
-        
+
         if (!this.isPythonProcAlive()) {
           // Fallback to one-shot mode
           console.log('⚠️  Persistent Python process not alive, using one-shot mode');
@@ -682,7 +690,7 @@ class TranscriptionService {
           resolve({ text, chunkIndex });
           continue;
         }
-        
+
         // Send request and wait for response (with chunkIndex)
         const result = await this._sendSingleRequest(audioPath, chunkIndex);
         resolve(result);
@@ -696,7 +704,7 @@ class TranscriptionService {
         }
       }
     }
-    
+
     this.processingTranscription = false;
   }
 
@@ -770,13 +778,13 @@ class TranscriptionService {
         // Remove from pending requests
         this.pendingRequests.delete(requestId);
       };
-      
+
       // Add timeout to prevent hanging forever
       timeout = setTimeout(() => {
         cleanup();
         reject(new Error('Transcription timeout - Python process did not respond within 30 seconds'));
       }, 30000); // 30 second timeout
-      
+
       // Create resolver wrapper that cleans up timeout and stores chunkIndex
       const resolverWrapper = {
         requestId: requestId, // Track request ID
@@ -801,13 +809,13 @@ class TranscriptionService {
       
       // Also add to resolver array for backward compatibility
       this.pythonResolvers.push(resolverWrapper);
-      
+
       try {
         if (!this.pythonProc.stdin || this.pythonProc.stdin.destroyed) {
           cleanup();
           return reject(new Error('Python process stdin is not available'));
         }
-        
+
         this.pythonProc.stdin.write(audioPath + '\n');
       } catch (e) {
         cleanup();
@@ -826,7 +834,7 @@ class TranscriptionService {
     return new Promise((resolve, reject) => {
       // Add to queue for sequential processing with chunkIndex
       this.transcriptionQueue.push({ audioPath, chunkIndex, resolve, reject });
-      
+
       // Start processing queue if not already processing
       this._processTranscriptionQueue();
     }).then((result) => {
@@ -847,39 +855,39 @@ class TranscriptionService {
     return new Promise((resolve, reject) => {
       // Try root venv Python first, then fallback to system Python
       const venvPython = this.getPythonExecutable();
-      const candidates = venvPython 
+      const candidates = venvPython
         ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
         : ['py -3.10', 'python3.10', 'python', 'py'];
       let attempt = 0;
-      
+
       const tryOne = () => {
         if (attempt >= candidates.length) {
           return reject(new Error('Python not found - tried all candidates'));
         }
-        
+
         const cmd = candidates[attempt++];
         // Check if cmd is a full path (contains path separators)
         const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
-        
+
         // For full paths, don't use shell mode and pass executable + script separately
         // For command strings like 'py -3.10', use shell mode
-        const spawnOptions = isFullPath 
+        const spawnOptions = isFullPath
           ? { shell: false } // Direct execution, no shell
           : { shell: process.platform === 'win32' }; // Use shell for command strings
-        
+
         const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath], spawnOptions);
-        
+
         let stdout = '';
         let stderr = '';
-        
+
         proc.stdout.on('data', d => stdout += d.toString());
         proc.stderr.on('data', d => stderr += d.toString());
-        
+
         proc.on('error', () => {
           // Try next candidate
           tryOne();
         });
-        
+
         proc.on('close', (code) => {
           if (code === 0) {
             // Clean the output - remove any log lines that might have leaked to stdout
@@ -900,7 +908,7 @@ class TranscriptionService {
           return reject(new Error(stderr || `Python exited with code ${code}`));
         });
       };
-      
+
       tryOne();
     });
   }
@@ -914,30 +922,30 @@ class TranscriptionService {
     try {
       console.log('\n🎭 Starting speaker diarization...');
       console.log(`   Audio file: ${path.basename(completeAudioPath)}`);
-      
+
       if (!fs.existsSync(completeAudioPath)) {
         console.error(`❌ Audio file not found: ${completeAudioPath}`);
         return null;
       }
-      
+
       // Call Python script with diarization flag
       const result = await this.runDiarizationPython(completeAudioPath);
-      
+
       if (!result || !result.segments) {
         console.warn('⚠️  Diarization returned no segments');
         // Save outputs without diarization
         await this.saveDiarizedOutputs();
         return null;
       }
-      
+
       console.log(`✅ Diarization complete: ${result.segments.length} segments found`);
-      
+
       // Map diarized segments to our utterances
       this.assignSpeakersToUtterances(result.segments);
-      
+
       // Save diarized outputs
       await this.saveDiarizedOutputs();
-      
+
       return result;
     } catch (error) {
       console.error('❌ Diarization failed:', error.message);
@@ -956,40 +964,40 @@ class TranscriptionService {
     return new Promise((resolve, reject) => {
       // Try root venv Python first, then fallback to system Python
       const venvPython = this.getPythonExecutable();
-      const candidates = venvPython 
+      const candidates = venvPython
         ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
         : ['py -3.10', 'python3.10', 'python', 'py'];
       let attempt = 0;
-      
+
       const tryOne = () => {
         if (attempt >= candidates.length) {
           return reject(new Error('Python not found for diarization'));
         }
-        
+
         const cmd = candidates[attempt++];
         // Check if cmd is a full path (contains path separators)
         const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
-        
+
         // For full paths, don't use shell mode and pass executable + script separately
         // For command strings like 'py -3.10', use shell mode
-        const spawnOptions = isFullPath 
+        const spawnOptions = isFullPath
           ? { shell: false } // Direct execution, no shell
           : { shell: process.platform === 'win32' }; // Use shell for command strings
-        
+
         // Add --diarize flag to Python script
         const proc = spawn(cmd, [PY_SCRIPT_PATH, audioPath, '--diarize'], spawnOptions);
-        
+
         let stdout = '';
         let stderr = '';
-        
+
         proc.stdout.on('data', d => stdout += d.toString());
         proc.stderr.on('data', d => stderr += d.toString());
-        
+
         proc.on('error', () => {
           // Try next candidate
           tryOne();
         });
-        
+
         proc.on('close', (code) => {
           if (code === 0) {
             try {
@@ -1019,7 +1027,7 @@ class TranscriptionService {
           return reject(new Error(stderr || `Diarization failed with code ${code}`));
         });
       };
-      
+
       tryOne();
     });
   }
@@ -1030,19 +1038,19 @@ class TranscriptionService {
    */
   assignSpeakersToUtterances(segments) {
     console.log('🔗 Mapping speakers to utterances...');
-    
+
     for (const utterance of this.utterances) {
       // Find diarized segment that overlaps with this utterance's time range
       const matchingSegment = segments.find(seg => {
         const overlapStart = Math.max(seg.start, utterance.start_time);
         const overlapEnd = Math.min(seg.end, utterance.end_time);
         const overlap = overlapEnd - overlapStart;
-        
+
         // If there's significant overlap (>50% of utterance duration)
         const utteranceDuration = utterance.end_time - utterance.start_time;
         return overlap > (utteranceDuration * 0.5);
       });
-      
+
       if (matchingSegment) {
         utterance.speaker = matchingSegment.speaker;
         utterance.diarized_start = matchingSegment.start;
@@ -1051,7 +1059,7 @@ class TranscriptionService {
         utterance.speaker = 'UNKNOWN';
       }
     }
-    
+
     console.log(`✅ Assigned speakers to ${this.utterances.length} utterances`);
   }
 
@@ -1066,39 +1074,39 @@ class TranscriptionService {
           generated: new Date().toISOString(),
           total_utterances: this.utterances.length,
           speakers: [...new Set(this.utterances.map(u => u.speaker).filter(s => s))],
-          duration_seconds: this.utterances.length > 0 
-            ? Math.max(...this.utterances.map(u => u.end_time)) 
+          duration_seconds: this.utterances.length > 0
+            ? Math.max(...this.utterances.map(u => u.end_time))
             : 0
         },
         utterances: this.utterances
       };
-      
+
       fs.writeFileSync(
-        this.diarizedJsonPath, 
+        this.diarizedJsonPath,
         JSON.stringify(jsonOutput, null, 2)
       );
       console.log(`✅ Diarized JSON saved: ${path.basename(this.diarizedJsonPath)}`);
-      
+
       // 2. Save human-readable text format
       let textOutput = `Kairo Speaker-Diarized Transcript\n`;
       textOutput += `Generated: ${new Date().toISOString()}\n`;
       textOutput += `${'='.repeat(80)}\n\n`;
-      
+
       for (const utterance of this.utterances) {
         const speaker = utterance.speaker || 'UNKNOWN';
         const timeRange = `[${utterance.start_time.toFixed(1)}s - ${utterance.end_time.toFixed(1)}s]`;
         textOutput += `${speaker} ${timeRange}:\n${utterance.text}\n\n`;
       }
-      
+
       fs.writeFileSync(this.diarizedTextPath, textOutput);
       console.log(`✅ Diarized text saved: ${path.basename(this.diarizedTextPath)}`);
-      
+
       // 3. Optional: Save SRT subtitle format
       const srtPath = path.join(this.meetingDataDir, 'transcript_diarized.srt');
       const srtContent = this.generateSRT();
       fs.writeFileSync(srtPath, srtContent);
       console.log(`✅ SRT subtitles saved: ${path.basename(srtPath)}`);
-      
+
     } catch (error) {
       console.error('❌ Error saving diarized outputs:', error.message);
     }
@@ -1110,17 +1118,17 @@ class TranscriptionService {
    */
   generateSRT() {
     let srt = '';
-    
+
     this.utterances.forEach((utterance, index) => {
       const startTime = this.formatSRTTime(utterance.start_time);
       const endTime = this.formatSRTTime(utterance.end_time);
       const speaker = utterance.speaker || 'UNKNOWN';
-      
+
       srt += `${index + 1}\n`;
       srt += `${startTime} --> ${endTime}\n`;
       srt += `[${speaker}] ${utterance.text}\n\n`;
     });
-    
+
     return srt;
   }
 
@@ -1134,7 +1142,7 @@ class TranscriptionService {
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
     const millis = Math.floor((seconds % 1) * 1000);
-    
+
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
   }
 
@@ -1147,7 +1155,7 @@ class TranscriptionService {
     console.log('\n📊 Finalizing transcription outputs...');
     console.log(`   Chunks processed: ${this.chunkCount}`);
     console.log(`   Utterances collected: ${this.utterances.length}`);
-    
+
     try {
       // Ensure complete transcript file exists and has content
       if (!fs.existsSync(this.completeTranscriptPath) || fs.statSync(this.completeTranscriptPath).size < 100) {
@@ -1161,7 +1169,7 @@ class TranscriptionService {
         fs.writeFileSync(this.completeTranscriptPath, content);
         console.log(`✅ Regenerated complete transcript from ${this.utterances.length} utterances`);
       }
-      
+
       // 1. Perform speaker diarization on complete audio
       if (completeAudioPath && fs.existsSync(completeAudioPath)) {
         console.log(`\n🎭 Performing diarization on complete audio: ${path.basename(completeAudioPath)}`);
@@ -1172,13 +1180,13 @@ class TranscriptionService {
         // Save outputs without diarization
         await this.saveDiarizedOutputs();
       }
-      
+
       // 2. Generate summary statistics
       const stats = this.generateStatistics();
       const statsPath = path.join(this.meetingDataDir, 'transcript_stats.json');
       fs.writeFileSync(statsPath, JSON.stringify(stats, null, 2));
       console.log(`✅ Statistics saved: ${path.basename(statsPath)}`);
-      
+
       // 3. Trigger AI insights generation (async, non-blocking)
       // This runs after diarized transcript is saved, but doesn't block finalization
       if (this.meetingId) {
@@ -1207,7 +1215,7 @@ class TranscriptionService {
       } else {
         console.log(`⚠️  [TranscriptionService.finalize] No meeting ID available, skipping AI insights generation`);
       }
-      
+
       // 4. Verify all output files exist
       const outputFiles = {
         'Complete transcript': this.completeTranscriptPath,
@@ -1216,7 +1224,7 @@ class TranscriptionService {
         'SRT subtitles': path.join(this.meetingDataDir, 'transcript_diarized.srt'),
         'Statistics': statsPath
       };
-      
+
       console.log(`\n📋 Transcription Summary:`);
       console.log(`   Total chunks processed: ${this.chunkCount}`);
       console.log(`   Total utterances: ${this.utterances.length}`);
@@ -1231,7 +1239,7 @@ class TranscriptionService {
         console.log(`   ${status} ${name}: ${path.basename(filePath)} (${(size / 1024).toFixed(1)} KB)`);
       }
       console.log(`   └─ Individual chunks: transcripts/ (${this.chunkCount} files)`);
-      
+
       return stats;
     } catch (error) {
       console.error('❌ Error during finalization:', error.message);
@@ -1247,17 +1255,17 @@ class TranscriptionService {
   generateStatistics() {
     const speakers = [...new Set(this.utterances.map(u => u.speaker).filter(s => s && s !== 'UNKNOWN'))];
     const totalWords = this.utterances.reduce((sum, u) => sum + u.text.split(/\s+/).length, 0);
-    const duration = this.utterances.length > 0 
-      ? Math.max(...this.utterances.map(u => u.end_time)) 
+    const duration = this.utterances.length > 0
+      ? Math.max(...this.utterances.map(u => u.end_time))
       : 0;
-    
+
     // Calculate speaking time per speaker
     const speakerStats = {};
     speakers.forEach(speaker => {
       const speakerUtterances = this.utterances.filter(u => u.speaker === speaker);
       const speakingTime = speakerUtterances.reduce((sum, u) => sum + (u.end_time - u.start_time), 0);
       const wordCount = speakerUtterances.reduce((sum, u) => sum + u.text.split(/\s+/).length, 0);
-      
+
       speakerStats[speaker] = {
         utterance_count: speakerUtterances.length,
         speaking_time_seconds: speakingTime,
@@ -1265,7 +1273,7 @@ class TranscriptionService {
         speaking_percentage: duration > 0 ? ((speakingTime / duration) * 100).toFixed(1) : '0.0'
       };
     });
-    
+
     return {
       total_chunks: this.chunkCount,
       total_utterances: this.utterances.length,
@@ -1347,7 +1355,7 @@ class TranscriptionService {
           console.log('✅ Python process stopped');
         }
       }
-      
+
       // Clear state
       this.pythonStdoutBuffer = '';
       this.pythonResolvers = [];

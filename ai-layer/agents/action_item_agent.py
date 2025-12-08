@@ -32,13 +32,15 @@ class ActionItemAgent:
 
     def run(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract action items from transcript using Grok API or fallback method."""
-        if not transcript:
+        if not transcript or len(transcript.strip()) < 50:
             return []
 
         # Try Grok API first if API key is available
         if self.use_api:
             try:
-                return self._extract_with_grok(transcript)
+                result = self._extract_with_grok(transcript)
+                # Ensure we return a list (even if empty)
+                return result if isinstance(result, list) else []
             except Exception as e:
                 print(f"Warning: Grok API extraction failed: {e}. Falling back to pattern matching.")
                 # Fall through to pattern matching
@@ -99,16 +101,36 @@ class ActionItemAgent:
             parsed = json.loads(content)
             action_items = parsed.get("action_items", [])
             
+            # If no action items, return empty list (don't create fake ones)
+            if not action_items or len(action_items) == 0:
+                return []
+            
             # Normalize the format to match expected structure
             normalized = []
             for idx, item in enumerate(action_items):
+                # Only include items with reasonable confidence (lowered threshold to catch more items)
+                confidence = float(item.get("confidence", 0.8))
+                if confidence < 0.3:  # Lower threshold from 0.5 to 0.3
+                    continue  # Skip low-confidence items
+                
+                title = item.get("title") or item.get("description", "")[:100] or ""
+                description = item.get("description") or item.get("title") or ""
+                
+                # Ensure we have at least a title or description
+                if not title and not description:
+                    continue  # Skip items with no content
+                
+                # Use description as title if title is missing
+                if not title:
+                    title = description[:100]
+                
                 normalized_item = {
                     "id": idx,
-                    "title": item.get("title") or item.get("description", "")[:100] or "Untitled Action Item",
-                    "description": item.get("description") or item.get("title") or "",
+                    "title": title,
+                    "description": description,
                     "assignee": item.get("assignee") or item.get("assigned_to") or item.get("assignee_name") or None,
                     "dueDate": item.get("dueDate") or item.get("due_date") or None,
-                    "confidence": float(item.get("confidence", 0.8))
+                    "confidence": confidence
                 }
                 normalized.append(normalized_item)
             
@@ -118,32 +140,49 @@ class ActionItemAgent:
 
     def _build_extraction_prompt(self, transcript: str) -> str:
         """Build the prompt for action item extraction."""
-        # Truncate transcript if too long (keep last 8000 chars for context)
-        max_length = 8000
+        # Send full transcript - Grok can handle longer context
+        # Only truncate if extremely long (>20000 chars)
+        max_length = 20000
         if len(transcript) > max_length:
             transcript = "..." + transcript[-max_length:]
 
-        return f"""Analyze the following meeting transcript and extract all action items, tasks, and follow-up items mentioned.
+        return f"""Analyze the following meeting transcript and extract ALL action items, tasks, and follow-up items that were mentioned.
+
+IMPORTANT INSTRUCTIONS:
+- Read the ENTIRE transcript carefully to identify ALL action items
+- Look for explicit commitments, tasks, or follow-ups with patterns like:
+  * "I will...", "I'll...", "I can...", "I'll take...", "Let me..."
+  * "We need to...", "We should...", "We must...", "We have to..."
+  * "Let's...", "Someone needs to...", "Someone should..."
+  * "Action:", "TODO:", "Follow up:", "Next steps:"
+  * "Please...", "Can you...", "Could you..."
+- Extract the assignee name if explicitly mentioned (who will do it)
+- Extract any deadlines or due dates mentioned
+- Be thorough - capture ALL action items, even if confidence is moderate (0.3+)
+- If NO action items are found, return an empty array: {{"action_items": []}}
+- Do NOT make up action items - only extract what is explicitly stated
 
 For each action item, identify:
-1. **title**: A concise title (max 100 chars)
-2. **description**: The full description of what needs to be done
-3. **assignee**: The person responsible (if mentioned, otherwise null)
-4. **dueDate**: Any deadline or due date mentioned (ISO format YYYY-MM-DD or null)
-5. **confidence**: Your confidence in this extraction (0.0 to 1.0)
+1. **title**: A concise, specific title describing the action (max 100 chars)
+2. **description**: The full description of what needs to be done (be specific)
+3. **assignee**: The person responsible (extract the actual name if mentioned, otherwise null)
+4. **dueDate**: Any deadline or due date mentioned (ISO format YYYY-MM-DD or null if not mentioned)
+5. **confidence**: Your confidence in this extraction (0.0 to 1.0) - be conservative if uncertain
 
 Return ONLY a JSON object with this exact structure:
 {{
   "action_items": [
     {{
-      "title": "Short title",
-      "description": "Full description",
-      "assignee": "Name or null",
+      "title": "Specific action title",
+      "description": "Detailed description of what needs to be done",
+      "assignee": "Person's name or null",
       "dueDate": "YYYY-MM-DD or null",
       "confidence": 0.85
     }}
   ]
 }}
+
+If no action items are found, return: {{"action_items": []}}
 
 Transcript:
 {transcript}

@@ -6,9 +6,10 @@ interface InsightsTabProps {
   insights: Insight[];
   getCategoryColor: (category: string) => string;
   onAddInsight?: (text: string) => void;
+  summary?: string; // Add summary prop
 }
 
-const InsightsTab: React.FC<InsightsTabProps> = ({ insights, getCategoryColor, onAddInsight }) => {
+const InsightsTab: React.FC<InsightsTabProps> = ({ insights, getCategoryColor, onAddInsight, summary }) => {
   return (
     <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">
       <div className="rounded-lg p-3 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
@@ -28,7 +29,7 @@ const InsightsTab: React.FC<InsightsTabProps> = ({ insights, getCategoryColor, o
           Summary
         </h3>
         <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
-          Team is discussing Q4 planning priorities. Main focus on mobile app development and design system completion.
+          {summary || 'AI-generated summary will appear here as the meeting progresses...'}
         </p>
       </div>
 

@@ -30,6 +30,7 @@ import TranscriptTab from '../../components/meetings/meetingslive/TranscriptTab'
 import InsightsTab from '../../components/meetings/meetingslive/InsightsTab';
 import LeaveMeetingConfirmationModal from '../../modals/LeaveMeetingConfirmationModal';
 import { useLiveTranscript } from '../../hooks/useLiveTranscript';
+import { useLiveAIInsights } from '../../hooks/useLiveAIInsights';
 
 type SidebarTab = 'memory' | 'chat' | 'actions' | 'notes' | 'transcript' | 'insights';
 
@@ -66,11 +67,13 @@ interface Insight {
   category: 'decision' | 'question' | 'important';
 }
 
+type ActionStatus = 'confirmed' | 'removed' | 'undecided';
+
 const LiveMeetingView = () => {
   const { id, workspaceId } = useParams<{ id: string; workspaceId?: string }>();
   const navigate = useNavigate();
   const { success: toastSuccess, error: toastError } = useToastContext();
-  
+
   const handleLeaveMeeting = () => {
     setShowBotControls(false);
     setShowLeaveModal(true);
@@ -78,9 +81,9 @@ const LiveMeetingView = () => {
 
   const handleConfirmLeave = async () => {
     if (isLeavingMeeting) return; // Prevent double-clicks
-    
+
     setIsLeavingMeeting(true);
-    
+
     // Add timeout to prevent infinite loading
     const timeoutId = setTimeout(() => {
       console.error('Leave meeting operation timed out after 30 seconds');
@@ -88,17 +91,17 @@ const LiveMeetingView = () => {
       setShowLeaveModal(false);
       setIsLeavingMeeting(false);
     }, 30000); // 30 second timeout
-    
+
     try {
       // Try to get meeting ID from multiple sources
       let meetId: number | null = null;
-      
+
       if (meeting?.id && typeof meeting.id === 'number') {
         meetId = meeting.id;
       } else if (id) {
         meetId = parseInt(String(id));
       }
-      
+
       if (!meetId || isNaN(meetId)) {
         clearTimeout(timeoutId);
         console.error('Invalid meeting ID:', { meeting, id, meetId });
@@ -107,9 +110,9 @@ const LiveMeetingView = () => {
         setIsLeavingMeeting(false);
         return;
       }
-      
+
       console.log('Leaving meeting:', meetId);
-      
+
       // Mark meeting as completed (this will automatically close the bot's meeting tab via backend)
       console.log('Calling updateMeetingStatus API...');
       console.log('Request details:', JSON.stringify({
@@ -118,23 +121,23 @@ const LiveMeetingView = () => {
         method: 'PATCH',
         status: 'completed'
       }, null, 2));
-      
+
       // Add a timeout promise to prevent hanging (increased to 45 seconds to allow stopMeetingSession to complete)
       const apiCallPromise = apiService.updateMeetingStatus(meetId, 'completed');
-      const timeoutPromise = new Promise<{ error: string }>((resolve) => 
+      const timeoutPromise = new Promise<{ error: string }>((resolve) =>
         setTimeout(() => {
           console.error('API call timed out after 45 seconds');
           resolve({ error: 'Request timeout: Server did not respond in time. The meeting may still be processed in the background.' });
         }, 45000)
       );
-      
+
       const resp = await Promise.race([apiCallPromise, timeoutPromise]);
-      
+
       clearTimeout(timeoutId); // Clear timeout on successful response
-      
+
       console.log('API Response received:');
       console.log(JSON.stringify(resp, null, 2));
-      
+
       // Check for error in response
       if ('error' in resp && resp.error) {
         console.error('API error:', resp.error);
@@ -143,7 +146,7 @@ const LiveMeetingView = () => {
         setIsLeavingMeeting(false);
         return;
       }
-      
+
       // Ensure we have a valid response with data
       if (!resp || !('data' in resp) || !resp.data) {
         console.error('Invalid API response:', resp);
@@ -152,27 +155,27 @@ const LiveMeetingView = () => {
         setIsLeavingMeeting(false);
         return;
       }
-      
+
       console.log('Meeting marked as completed successfully, navigating...', resp);
       toastSuccess('Meeting marked as completed', 'Meeting Completed');
-      
+
       // Close modal immediately
       setShowLeaveModal(false);
-      
+
       // Reset loading state before navigation (navigation will unmount component if successful)
       setIsLeavingMeeting(false);
-      
+
       // Navigate to meetings page with state to show ended banner
       const endedId = String(meetId);
-      const navPath = workspaceId 
+      const navPath = workspaceId
         ? `/workspace/${workspaceId}/meetings`
         : '/workspace/meetings';
-      
+
       console.log('Navigating to:', navPath);
-      
+
       // Navigate immediately - if successful, component unmounts, if it fails, user can try again
       navigate(navPath, { state: { endedMeetingId: endedId } });
-      
+
     } catch (e: any) {
       clearTimeout(timeoutId);
       console.error('Error leaving meeting:', e);
@@ -202,14 +205,14 @@ const LiveMeetingView = () => {
   const [isConnected] = useState(true);
   const [showParticipants, setShowParticipants] = useState(false);
   const [memoryChatInput, setMemoryChatInput] = useState('');
-  const [memoryChat, setMemoryChat] = useState<{id:string; role:'user'|'bot'; text:string}[]>([]);
+  const [memoryChat, setMemoryChat] = useState<{ id: string; role: 'user' | 'bot'; text: string }[]>([]);
   const [meeting, setMeeting] = useState<any>(null);
   const [isBotJoining, setIsBotJoining] = useState(false);
   const [isBotJoined, setIsBotJoined] = useState(false);
   const [isWaitingForBot, setIsWaitingForBot] = useState(true);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [isLeavingMeeting, setIsLeavingMeeting] = useState(false);
-  
+
   const transcriptRef = useRef<HTMLDivElement>(null);
   const pollingActiveRef = useRef(false);
 
@@ -223,10 +226,10 @@ const LiveMeetingView = () => {
   // Get live transcript entries from backend
   const meetingId = meeting ? parseInt(meeting.id) : null;
   const { entries: liveTranscriptEntries, loading: transcriptLoading } = useLiveTranscript(meetingId, 3000);
-  
+
   // System messages from privacy mode toggle
   const [systemMessages, setSystemMessages] = useState<TranscriptEntry[]>([]);
-  
+
   // Merge live transcript entries with system messages
   // Live entries are already sorted by chunkIndex from backend, so we maintain that order
   // System messages are appended and will be sorted by timestamp
@@ -247,23 +250,53 @@ const LiveMeetingView = () => {
     return aTime.localeCompare(bTime);
   });
 
-  const [actionItems, setActionItems] = useState<ActionItem[]>([
-    { id: '1', text: 'Review Q4 roadmap document', assignee: 'Sana Khan', isCompleted: false },
-    { id: '2', text: 'Schedule design system workshop', assignee: 'Fatima Sheikh', isCompleted: false },
-    { id: '3', text: 'Update project timeline', assignee: 'Muhammad Ali', isCompleted: true },
-  ]);
-  type ActionStatus = 'confirmed' | 'removed' | 'undecided';
-  const [actionStatusById, setActionStatusById] = useState<Record<string, ActionStatus>>({
-    '1': 'undecided',
-    '2': 'undecided',
-    '3': 'confirmed'
-  });
+  // Fetch live AI insights
+  const { insights: aiInsights } = useLiveAIInsights(id);
 
-  const [insights] = useState<Insight[]>([
-    { id: '1', text: 'Team agreed to prioritize mobile app development', timestamp: '10:02 AM', category: 'decision' },
-    { id: '2', text: 'Open question: Budget allocation for Q1 2025', timestamp: '10:03 AM', category: 'question' },
-    { id: '3', text: 'Critical: Design system needs to be completed by Dec 15', timestamp: '10:04 AM', category: 'important' },
-  ]);
+  // Map AI insights to action items
+  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
+  type ActionStatus = 'confirmed' | 'removed' | 'undecided';
+  const [actionStatusById, setActionStatusById] = useState<Record<string, ActionStatus>>({});
+
+  // Update action items when AI insights change
+  useEffect(() => {
+    if (aiInsights?.actionItems && aiInsights.actionItems.length > 0) {
+      const mappedItems = aiInsights.actionItems.map((item, index) => ({
+        id: String(item.id || index),
+        text: item.title || item.description,
+        assignee: item.assignee || 'Unassigned',
+        isCompleted: false
+      }));
+      setActionItems(mappedItems);
+
+      // Initialize status for new items
+      const newStatuses: Record<string, ActionStatus> = {};
+      mappedItems.forEach(item => {
+        if (!(item.id in actionStatusById)) {
+          newStatuses[item.id] = 'undecided';
+        }
+      });
+      if (Object.keys(newStatuses).length > 0) {
+        setActionStatusById(prev => ({ ...prev, ...newStatuses }));
+      }
+    }
+  }, [aiInsights]);
+
+  // Map AI insights to insights array
+  const [insights, setInsights] = useState<Insight[]>([]);
+
+  // Update insights when AI insights change
+  useEffect(() => {
+    if (aiInsights?.keyDecisions && aiInsights.keyDecisions.length > 0) {
+      const mappedInsights = aiInsights.keyDecisions.map((decision, index) => ({
+        id: String(index),
+        text: decision.decision,
+        timestamp: decision.timestamp || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        category: 'decision' as const
+      }));
+      setInsights(mappedInsights);
+    }
+  }, [aiInsights]);
 
   const [notes, setNotes] = useState<any[]>([]);
   const [newNotePrivacy, setNewNotePrivacy] = useState<'public' | 'private'>('public');
@@ -390,11 +423,11 @@ const LiveMeetingView = () => {
           } catch (e) {
             console.error('Failed to load meeting notes', e);
           }
-          
+
           // Check if bot has already joined - only consider 'in-progress' as confirmed join
-          const botHasJoined = fetchedMeeting.metadata?.botJoinTriggeredAt && 
-                              fetchedMeeting.status === 'in-progress';
-          
+          const botHasJoined = fetchedMeeting.metadata?.botJoinTriggeredAt &&
+            fetchedMeeting.status === 'in-progress';
+
           if (botHasJoined) {
             setIsBotJoined(true);
             setIsWaitingForBot(false);
@@ -416,7 +449,7 @@ const LiveMeetingView = () => {
   // Auto-trigger bot join on live page if not yet triggered, and poll for join status
   useEffect(() => {
     if (!meeting || isBotJoined || pollingActiveRef.current) return;
-    
+
     pollingActiveRef.current = true;
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -425,22 +458,22 @@ const LiveMeetingView = () => {
     const meetingStatus = meeting.status;
     const startTime = meeting.startTime;
     const alreadyTriggeredAtStart = !!meeting.metadata?.botJoinTriggeredAt;
-    
+
     const triggerJoinIfNeeded = async () => {
       const hasValidLink = !!meetingLink && typeof meetingLink === 'string';
       const isLive = meetingStatus === 'in-progress' || meetingStatus === 'upcoming' || new Date(startTime).getTime() <= Date.now();
       let alreadyTriggered = alreadyTriggeredAtStart;
-      
+
       // Only stop waiting if meeting is invalid - otherwise keep waiting for bot
       if (!hasValidLink || !isLive) {
         // If no valid link or not live, we can't join, so stop waiting
         setIsWaitingForBot(false);
         return;
       }
-      
+
       // Ensure we're waiting if meeting is live and bot hasn't joined
       setIsWaitingForBot(true);
-      
+
       // If bot already joined (status is in-progress), stop waiting
       if (alreadyTriggered && meetingStatus === 'in-progress') {
         setIsBotJoined(true);
@@ -448,7 +481,7 @@ const LiveMeetingView = () => {
         toastSuccess('Bot has successfully joined the meeting', 'Bot Joined');
         return;
       }
-      
+
       // Start polling to check bot join status - this will run whether we trigger join or not
       pollInterval = setInterval(async () => {
         try {
@@ -463,11 +496,11 @@ const LiveMeetingView = () => {
               }
               return prev;
             });
-            
+
             // Only consider 'in-progress' status as confirmed join
-            const botHasJoined = updatedMeeting.metadata?.botJoinTriggeredAt && 
-                                updatedMeeting.status === 'in-progress';
-            
+            const botHasJoined = updatedMeeting.metadata?.botJoinTriggeredAt &&
+              updatedMeeting.status === 'in-progress';
+
             if (botHasJoined) {
               setIsBotJoined(true);
               setIsWaitingForBot(false);
@@ -484,7 +517,7 @@ const LiveMeetingView = () => {
               }
               return;
             }
-            
+
             // Only show error if backend explicitly set botJoinError in metadata
             if (updatedMeeting.metadata?.botJoinError) {
               setIsWaitingForBot(false);
@@ -509,7 +542,7 @@ const LiveMeetingView = () => {
           }
         }
       }, 2000); // Poll every 2 seconds
-      
+
       // Trigger bot join if not already triggered
       if (!alreadyTriggered) {
         try {
@@ -530,7 +563,7 @@ const LiveMeetingView = () => {
           // Keep polling even if trigger failed - backend might still join via cron
         }
       }
-      
+
       // Stop polling after 120 seconds max (give more time for bot to join)
       timeoutId = setTimeout(() => {
         pollingActiveRef.current = false;
@@ -545,9 +578,9 @@ const LiveMeetingView = () => {
         }
       }, 120000); // 2 minutes
     };
-    
+
     triggerJoinIfNeeded();
-    
+
     return () => {
       pollingActiveRef.current = false;
       if (pollInterval) {
@@ -601,15 +634,15 @@ const LiveMeetingView = () => {
         prev.map(n =>
           n.id === tempId
             ? {
-                id: String(saved.id),
-                text: saved.content,
-                timestamp: createdAtLabel,
-                author: saved.author?.name || 'You',
-                isPrivate: optimistic.isPrivate,
-                color: saved.color,
-                type: saved.type,
-                rawTimestamp: saved.timestamp,
-              }
+              id: String(saved.id),
+              text: saved.content,
+              timestamp: createdAtLabel,
+              author: saved.author?.name || 'You',
+              isPrivate: optimistic.isPrivate,
+              color: saved.color,
+              type: saved.type,
+              rawTimestamp: saved.timestamp,
+            }
             : n
         )
       );
@@ -688,10 +721,10 @@ const LiveMeetingView = () => {
   return (
     <Layout>
       <div className="rounded-lg overflow-hidden h-[calc(100vh-8rem)] flex flex-col bg-white border border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/50">
-        
+
         {/* Compact Top Bar */}
         <div className="px-4 py-2.5 flex-shrink-0 bg-gray-50 border-b border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
-        <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <div className="flex items-center gap-1.5 px-1.5 py-0.5 sm:px-2 sm:py-1 bg-red-500/10 border border-red-500/30 rounded">
                 <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500 animate-pulse" />
@@ -708,12 +741,12 @@ const LiveMeetingView = () => {
                 <span className="hidden sm:inline">{isSidebarCollapsed ? 'Show Tabs' : 'Hide Tabs'}</span>
                 <span className="sm:hidden">Tabs</span>
               </button>
-              <div className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border ${isConnected ? 'border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/10' : 'border-yellow-300 bg-yellow-100 text-yellow-700 dark:border-yellow-500/30 dark:bg-yellow-500/10'}` }>
+              <div className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border ${isConnected ? 'border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/10' : 'border-yellow-300 bg-yellow-100 text-yellow-700 dark:border-yellow-500/30 dark:bg-yellow-500/10'}`}>
                 <Circle className={`w-1.5 h-1.5 ${isConnected ? 'fill-green-500 text-green-500' : 'fill-yellow-500 text-yellow-500'}`} />
                 <span className={`text-[11px] ${isConnected ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>{isConnected ? 'Connected · Stable' : 'Reconnecting…'}</span>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
               <div className="hidden xs:flex items-center gap-1.5 text-slate-400">
                 <Clock className="w-3.5 h-3.5" />
@@ -741,7 +774,7 @@ const LiveMeetingView = () => {
                       <div className="max-h-64 overflow-y-auto">
                         {participants.map((participant) => (
                           <div key={participant.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                               <div className={`w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-[10px] font-semibold text-white ${participant.isSpeaking ? 'ring-2 ring-green-500' : ''}`}>{participant.avatar}</div>
                               <div>
                                 <p className="text-xs text-gray-900 dark:text-white leading-tight">{participant.name}</p>
@@ -764,8 +797,8 @@ const LiveMeetingView = () => {
                     </div>
                   )}
                 </div>
-            </div>
-              
+              </div>
+
               {/* Bot Controls Dropdown */}
               <div className="relative bot-controls-dropdown">
                 <button
@@ -776,7 +809,7 @@ const LiveMeetingView = () => {
                   <span className="hidden xs:inline">Kairo Bot</span>
                   <ChevronDown className={`w-3 h-3 transition-transform ${showBotControls ? 'rotate-180' : ''}`} />
                 </button>
-                
+
                 {showBotControls && (
                   <div className="absolute right-0 top-full mt-2 w-64 rounded-lg shadow-2xl z-50 overflow-hidden bg-white border border-gray-200 dark:bg-slate-800/95 dark:border-slate-700/50">
                     <div className="p-1">
@@ -806,237 +839,237 @@ const LiveMeetingView = () => {
                       <button onClick={handleLeaveMeeting} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded transition-all text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
                         <LogOut className="w-3.5 h-3.5" /> Leave Meeting
                       </button>
-          </div>
-            </div>
+                    </div>
+                  </div>
                 )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden min-h-0 flex-col md:flex-row pb-14 md:pb-0">
-        {/* Left Sidebar - Compact Tabs */}
-        <div className={`hidden md:flex ${isSidebarCollapsed ? 'md:w-14' : 'md:w-72'} flex-col transition-[width] duration-300 ease-in-out bg-gray-50 border-r border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50`} aria-label="Sidebar tabs" aria-expanded={!isSidebarCollapsed}>
-          <div
-            className={`border-b ${
-              isSidebarCollapsed ? 'flex flex-col items-center gap-2 py-2 px-1' : 'flex gap-1 p-1'
-            } bg-white border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50`}
-            role="tablist"
-            aria-orientation={isSidebarCollapsed ? 'vertical' : 'horizontal'}
-          >
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-            <button
-                  key={tab.id}
-                  onClick={() => {
-                    if (tab.id === activeTab) {
-                      setIsSidebarCollapsed(prev => !prev);
-                    } else {
-                      setActiveTab(tab.id);
-                      setIsSidebarCollapsed(false);
-                    }
-                  }}
-                  className={`${
-                    isSidebarCollapsed
+        {/* Main Content */}
+        <div className="flex-1 flex overflow-hidden min-h-0 flex-col md:flex-row pb-14 md:pb-0">
+          {/* Left Sidebar - Compact Tabs */}
+          <div className={`hidden md:flex ${isSidebarCollapsed ? 'md:w-14' : 'md:w-72'} flex-col transition-[width] duration-300 ease-in-out bg-gray-50 border-r border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50`} aria-label="Sidebar tabs" aria-expanded={!isSidebarCollapsed}>
+            <div
+              className={`border-b ${isSidebarCollapsed ? 'flex flex-col items-center gap-2 py-2 px-1' : 'flex gap-1 p-1'
+                } bg-white border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50`}
+              role="tablist"
+              aria-orientation={isSidebarCollapsed ? 'vertical' : 'horizontal'}
+            >
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      if (tab.id === activeTab) {
+                        setIsSidebarCollapsed(prev => !prev);
+                      } else {
+                        setActiveTab(tab.id);
+                        setIsSidebarCollapsed(false);
+                      }
+                    }}
+                    className={`${isSidebarCollapsed
                       ? 'w-full flex items-center justify-center px-2 py-2'
                       : 'flex-1 flex flex-col items-center gap-1 px-2 py-2'
-                  } rounded transition-all ${
-                    activeTab === tab.id
-                      ? 'bg-purple-50 text-purple-700 border border-purple-300 dark:bg-purple-600/20 dark:text-white dark:border-purple-500/30'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/30'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {!isSidebarCollapsed && (
-                    <>
-                      <span className="text-xs font-medium">{tab.label}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        activeTab === tab.id ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300' : 'bg-gray-100 text-gray-600 dark:bg-slate-700/50 dark:text-slate-500'
-                      }`}>
-                        {tab.count}
-                      </span>
-                    </>
-                  )}
-            </button>
-              );
-            })}
+                      } rounded transition-all ${activeTab === tab.id
+                        ? 'bg-purple-50 text-purple-700 border border-purple-300 dark:bg-purple-600/20 dark:text-white dark:border-purple-500/30'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/30'
+                      }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {!isSidebarCollapsed && (
+                      <>
+                        <span className="text-xs font-medium">{tab.label}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === tab.id ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300' : 'bg-gray-100 text-gray-600 dark:bg-slate-700/50 dark:text-slate-500'
+                          }`}>
+                          {tab.count}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {!isSidebarCollapsed && (
+              <div className={`flex-1 overflow-y-auto p-3`}>
+                {activeTab === 'memory' && (
+                  <MemoryTab memoryItems={memoryItems as any} />
+                )}
+
+                {activeTab === 'chat' && (
+                  <LiveChat
+                    messages={memoryChat}
+                    input={memoryChatInput}
+                    onChangeInput={setMemoryChatInput}
+                    onSubmit={submitMemoryChat}
+                  />
+                )}
+
+                {activeTab === 'actions' && (
+                  <ActionItemsTab
+                    actionItems={actionItems}
+                    actionStatusById={actionStatusById}
+                    newAction={newAction}
+                    onChangeNewAction={setNewAction}
+                    onAddAction={addActionItem}
+                    onSetStatus={setActionStatus as any}
+                  />
+                )}
+
+                {activeTab === 'notes' && (
+                  <NotesTab
+                    notes={notes as any}
+                    newNote={newNote}
+                    newNotePrivacy={newNotePrivacy}
+                    onChangeNewNote={setNewNote}
+                    onChangePrivacy={setNewNotePrivacy}
+                    onAddNote={addNote}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
-          {!isSidebarCollapsed && (
-            <div className={`flex-1 overflow-y-auto p-3`}>
+          {/* Mobile Tab Content (full width, above transcript) */}
+          <div className="md:hidden px-3 py-2 border-b bg-gray-50 border-gray-200 dark:border-slate-700/50 dark:bg-slate-900/30">
             {activeTab === 'memory' && (
-                <MemoryTab memoryItems={memoryItems as any} />
-              )}
+              <MemoryTab memoryItems={memoryItems as any} />
+            )}
 
-              {activeTab === 'chat' && (
-                <LiveChat
-                  messages={memoryChat}
-                  input={memoryChatInput}
-                  onChangeInput={setMemoryChatInput}
-                  onSubmit={submitMemoryChat}
-                />
+            {activeTab === 'chat' && (
+              <LiveChat
+                messages={memoryChat}
+                input={memoryChatInput}
+                onChangeInput={setMemoryChatInput}
+                onSubmit={submitMemoryChat}
+              />
             )}
 
             {activeTab === 'actions' && (
-                <ActionItemsTab
-                  actionItems={actionItems}
-                  actionStatusById={actionStatusById}
-                  newAction={newAction}
-                  onChangeNewAction={setNewAction}
-                  onAddAction={addActionItem}
-                  onSetStatus={setActionStatus as any}
-                />
-              )}
-
-              {activeTab === 'notes' && (
-                <NotesTab
-                  notes={notes as any}
-                  newNote={newNote}
-                  newNotePrivacy={newNotePrivacy}
-                  onChangeNewNote={setNewNote}
-                  onChangePrivacy={setNewNotePrivacy}
-                  onAddNote={addNote}
-                />
-              )}
-                  </div>
-          )}
-                </div>
-
-        {/* Mobile Tab Content (full width, above transcript) */}
-        <div className="md:hidden px-3 py-2 border-b bg-gray-50 border-gray-200 dark:border-slate-700/50 dark:bg-slate-900/30">
-          {activeTab === 'memory' && (
-            <MemoryTab memoryItems={memoryItems as any} />
-          )}
-
-          {activeTab === 'chat' && (
-            <LiveChat
-              messages={memoryChat}
-              input={memoryChatInput}
-              onChangeInput={setMemoryChatInput}
-              onSubmit={submitMemoryChat}
-            />
-          )}
-
-          {activeTab === 'actions' && (
-            <ActionItemsTab
-              actionItems={actionItems}
-              actionStatusById={actionStatusById}
-              newAction={newAction}
-              onChangeNewAction={setNewAction}
-              onAddAction={addActionItem}
-              onSetStatus={setActionStatus as any}
-            />
+              <ActionItemsTab
+                actionItems={actionItems}
+                actionStatusById={actionStatusById}
+                newAction={newAction}
+                onChangeNewAction={setNewAction}
+                onAddAction={addActionItem}
+                onSetStatus={setActionStatus as any}
+              />
             )}
 
             {activeTab === 'notes' && (
-            <NotesTab
-              notes={notes as any}
-              newNote={newNote}
-              newNotePrivacy={newNotePrivacy}
-              onChangeNewNote={setNewNote}
-              onChangePrivacy={setNewNotePrivacy}
-              onAddNote={addNote}
-            />
-          )}
-
-          {activeTab === 'transcript' && (
-            <div className="min-h-[40vh]">
-              <TranscriptTab
-                transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
-                transcript={transcript}
-                isLoading={transcriptLoading}
-                onRefer={(text) => {
-                  const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
-                  setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
-                }}
+              <NotesTab
+                notes={notes as any}
+                newNote={newNote}
+                newNotePrivacy={newNotePrivacy}
+                onChangeNewNote={setNewNote}
+                onChangePrivacy={setNewNotePrivacy}
+                onAddNote={addNote}
               />
-                </div>
-          )}
+            )}
 
-          {activeTab === 'insights' && (
-            <div className="min-h-[40vh]">
-              <div className="border-b border-slate-700/50 px-2 py-2 bg-slate-800/20 flex-shrink-0 rounded-t">
-                <h2 className="text-sm font-semibold text-white flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-purple-400" />
-                  AI Insights
-                </h2>
-                  </div>
-              <InsightsTab insights={insights} getCategoryColor={getCategoryColor} />
+            {activeTab === 'transcript' && (
+              <div className="min-h-[40vh]">
+                <TranscriptTab
+                  transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
+                  transcript={transcript}
+                  isLoading={transcriptLoading}
+                  onRefer={(text) => {
+                    const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
+                    setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
+                  }}
+                />
               </div>
             )}
-        </div>
 
-        {/* Center - Transcript (grow to available width) */}
-        <div className="hidden md:block flex-1 min-w-0">
-          <TranscriptTab
-            transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
-            transcript={transcript}
-            isLoading={transcriptLoading}
-            onRefer={(text) => {
-              const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
-              setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
-            }}
-          />
-        </div>
-
-        {/* Right Panel - AI Insights (hidden on small screens) */}
-        <div className="hidden md:flex w-72 flex-col bg-gray-50 border-l border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50">
-          <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-purple-400" />
-              AI Insights
-            </h2>
-          </div>
-          <InsightsTab insights={insights} getCategoryColor={getCategoryColor} />
+            {activeTab === 'insights' && (
+              <div className="min-h-[40vh]">
+                <div className="border-b border-slate-700/50 px-2 py-2 bg-slate-800/20 flex-shrink-0 rounded-t">
+                  <h2 className="text-sm font-semibold text-white flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    AI Insights
+                  </h2>
+                </div>
+                <InsightsTab
+                  insights={insights}
+                  getCategoryColor={getCategoryColor}
+                  summary={aiInsights?.summary?.paragraph}
+                />
               </div>
+            )}
+          </div>
+
+          {/* Center - Transcript (grow to available width) */}
+          <div className="hidden md:block flex-1 min-w-0">
+            <TranscriptTab
+              transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
+              transcript={transcript}
+              isLoading={transcriptLoading}
+              onRefer={(text) => {
+                const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
+                setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
+              }}
+            />
+          </div>
+
+          {/* Right Panel - AI Insights (hidden on small screens) */}
+          <div className="hidden md:flex w-72 flex-col bg-gray-50 border-l border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50">
+            <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                AI Insights
+              </h2>
             </div>
+            <InsightsTab insights={insights} getCategoryColor={getCategoryColor} />
+          </div>
+        </div>
 
-      {/* Mobile Bottom Tab Bar */}
-      <nav className="md:hidden fixed bottom-2 left-1/2 -translate-x-1/2 z-40 rounded-2xl px-2 py-1 shadow-lg backdrop-blur border bg-white/80 border-gray-200 dark:bg-slate-800/80 dark:border-slate-700/60" role="tablist" aria-label="Mobile navigation">
-        <ul className="flex items-center gap-2">
-          {mobileTabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <li key={tab.id}>
-                <button
-                  type="button"
-                  aria-label={tab.label}
-                  aria-current={isActive}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`${isActive ? 'bg-purple-100 text-purple-700 border border-purple-300 dark:bg-purple-600/30 dark:text-white dark:border-purple-500/40' : 'text-gray-600 hover:text-gray-900 dark:text-slate-300 dark:hover:text-white'} relative w-10 h-10 rounded-xl flex items-center justify-center transition-colors`}
-                >
-                  <Icon className="w-5 h-5" />
-                  {tab.count > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-purple-600 text-white text-[10px] leading-4 text-center border border-purple-500/60">
-                      {tab.count > 99 ? '99+' : tab.count}
-                    </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
+        {/* Mobile Bottom Tab Bar */}
+        <nav className="md:hidden fixed bottom-2 left-1/2 -translate-x-1/2 z-40 rounded-2xl px-2 py-1 shadow-lg backdrop-blur border bg-white/80 border-gray-200 dark:bg-slate-800/80 dark:border-slate-700/60" role="tablist" aria-label="Mobile navigation">
+          <ul className="flex items-center gap-2">
+            {mobileTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <li key={tab.id}>
+                  <button
+                    type="button"
+                    aria-label={tab.label}
+                    aria-current={isActive}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`${isActive ? 'bg-purple-100 text-purple-700 border border-purple-300 dark:bg-purple-600/30 dark:text-white dark:border-purple-500/40' : 'text-gray-600 hover:text-gray-900 dark:text-slate-300 dark:hover:text-white'} relative w-10 h-10 rounded-xl flex items-center justify-center transition-colors`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    {tab.count > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-purple-600 text-white text-[10px] leading-4 text-center border border-purple-500/60">
+                        {tab.count > 99 ? '99+' : tab.count}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
 
-      {/* Bottom Status Bar */}
-      <div className="border-t px-3 sm:px-4 py-2 flex-shrink-0 bg-gray-50 border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
-        <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2">
-          <div className="flex items-center gap-2 sm:gap-3">
+        {/* Bottom Status Bar */}
+        <div className="border-t px-3 sm:px-4 py-2 flex-shrink-0 bg-gray-50 border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
+          <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3">
               <Circle className={`w-2 h-2 ${isPrivacyMode ? 'fill-orange-500' : isPaused ? 'fill-yellow-500' : isRecording ? 'fill-green-500' : 'fill-slate-500'}`} />
               <span className="text-xs text-gray-600 dark:text-slate-400">
                 {isPrivacyMode ? 'Privacy Mode' : isPaused ? 'Paused' : isRecording ? 'Recording' : 'Stopped'}
               </span>
-                    </div>
+            </div>
             <div className="flex items-center gap-2 sm:gap-3">
               <span className="hidden xs:inline text-xs text-gray-500 dark:text-slate-500">Last updated: {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-          </div>
+      </div>
 
       {/* Leave Meeting Confirmation Modal */}
       <LeaveMeetingConfirmationModal

@@ -19,12 +19,20 @@ import sys
 import os
 from typing import Any, Dict
 
+# Add the agents directory to the path so we can import modules
+# This allows the script to work when run directly (not as a module)
+_agents_dir = os.path.dirname(os.path.abspath(__file__))
+if _agents_dir not in sys.path:
+    sys.path.insert(0, _agents_dir)
+
 # Local imports (this file lives alongside the agent modules)
-from .topic_segmentation_agent import TopicSegmentationAgent
-from .decision_extraction_agent import DecisionExtractionAgent
-from .action_item_agent import ActionItemAgent
-from .sentiment_analysis_agent import SentimentAnalysisAgent
-from .summary_agent import SummaryAgent
+# Use absolute imports since we've added the directory to sys.path
+from topic_segmentation_agent import TopicSegmentationAgent
+from decision_extraction_agent import DecisionExtractionAgent
+from action_item_agent import ActionItemAgent
+from sentiment_analysis_agent import SentimentAnalysisAgent
+from summary_agent import SummaryAgent
+from participant_analysis_agent import ParticipantAnalysisAgent
 
 
 def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -39,12 +47,21 @@ def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> D
     decisions = decision_agent.run(transcript)
     actions = action_agent.run(transcript)
     sentiment = sentiment_agent.run(transcript)
+    
+    # Run participant agent if JSON transcript is provided (before summary)
+    participants = None
+    if transcript_json:
+        participant_agent = ParticipantAnalysisAgent()
+        participants = participant_agent.run(transcript_json)
+    
+    # Generate summary with all context including participants
     summary = summary_agent.run(
         transcript,
         topic_segments=topics,
         decisions=decisions,
         action_items=actions,
         sentiment=sentiment,
+        participants=participants,
     )
 
     result = {
@@ -55,10 +72,8 @@ def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> D
         "summary": summary,
     }
 
-    # Run participant agent if JSON transcript is provided
-    if transcript_json:
-        participant_agent = ParticipantAnalysisAgent()
-        participants = participant_agent.run(transcript_json)
+    # Add participants to result if available
+    if participants:
         result["participants"] = participants
 
     return result
