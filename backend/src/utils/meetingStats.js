@@ -19,28 +19,30 @@ async function getAudioFileDuration(audioPath) {
 
   try {
     const ffmpegPath = ffmpeg.path;
-    
+    // Use ffprobe instead of ffmpeg for duration extraction
+    const ffprobePath = ffmpegPath.replace('ffmpeg.exe', 'ffprobe.exe').replace('ffmpeg', 'ffprobe');
+
     // Try JSON output first (most reliable)
-    const jsonCommand = `"${ffmpegPath}" -v error -show_entries format=duration -of json "${audioPath}"`;
+    const jsonCommand = `"${ffprobePath}" -v error -show_entries format=duration -of json "${audioPath}"`;
     const { stdout } = await execAsync(jsonCommand, { maxBuffer: 1024 * 1024 });
-    
+
     const json = JSON.parse(stdout);
     if (json.format && json.format.duration) {
       return parseFloat(json.format.duration);
     }
-    
+
     // Fallback: default format
-    const defaultCommand = `"${ffmpegPath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`;
+    const defaultCommand = `"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`;
     const { stdout: defaultStdout } = await execAsync(defaultCommand, { maxBuffer: 1024 * 1024 });
     const duration = parseFloat(defaultStdout.trim());
-    
+
     if (!isNaN(duration) && duration > 0) {
       return duration;
     }
   } catch (error) {
     console.error('Error getting audio file duration:', error.message);
   }
-  
+
   return null;
 }
 
@@ -53,7 +55,7 @@ async function getAudioFileDuration(audioPath) {
  */
 async function getMeetingStats(meetingId, recordingUrl = null) {
   let audioDurationSeconds = 0;
-  
+
   // PRIORITY 1: Use recordingUrl from database if available (most accurate path)
   if (recordingUrl) {
     try {
@@ -70,7 +72,7 @@ async function getMeetingStats(meetingId, recordingUrl = null) {
       console.error('Error getting duration from recordingUrl:', error);
     }
   }
-  
+
   const meetingDir = findMeetingDirectory(meetingId);
   if (!meetingDir) {
     // If we got duration from recordingUrl, still return it even if meetingDir not found
@@ -92,10 +94,10 @@ async function getMeetingStats(meetingId, recordingUrl = null) {
   if (audioDurationSeconds === 0) {
     try {
       const files = fs.readdirSync(meetingDir);
-      const completeAudioFiles = files.filter(f => 
+      const completeAudioFiles = files.filter(f =>
         f.includes('_complete.mp3') || f.includes('_complete.webm')
       );
-      
+
       // Try MP3 first, then WebM
       for (const filename of completeAudioFiles) {
         const audioPath = path.join(meetingDir, filename);
@@ -118,7 +120,7 @@ async function getMeetingStats(meetingId, recordingUrl = null) {
     try {
       const stats = JSON.parse(fs.readFileSync(statsPath, 'utf8'));
       transcriptLength = stats.total_words || 0;
-      
+
       // Only use stats duration if we don't have a better source
       // (we already got duration from recordingUrl or audio file above)
       if (audioDurationSeconds === 0 && stats.duration_seconds) {

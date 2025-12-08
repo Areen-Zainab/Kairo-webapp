@@ -42,7 +42,7 @@ class AudioRecorder {
           try {
             const last = window.audioCapture.lastProcessedIndex || 0;
             const all = window.audioCapture.streamChunks || [];
-            
+
             if (last >= all.length) return resolve(null);
 
             // Get only NEW chunks to check size
@@ -51,19 +51,19 @@ class AudioRecorder {
             if (totalSize < 1000) return resolve(null); // Minimum 1KB of new data
 
             window.audioCapture.lastProcessedIndex = all.length;
-            
+
             // CRITICAL: Create blob from ALL chunks (cumulative)
             // This ensures valid WebM with header and all audio data
-            const allChunksBlob = new Blob(all, { 
-              type: 'audio/webm;codecs=opus' 
+            const allChunksBlob = new Blob(all, {
+              type: 'audio/webm;codecs=opus'
             });
-            
+
             const reader = new FileReader();
             reader.onloadend = () => {
               try {
                 const base64Data = reader.result.split(',')[1];
                 if (!base64Data || base64Data.length < 100) return resolve(null);
-                
+
                 resolve({
                   audio: base64Data,
                   size: allChunksBlob.size,
@@ -246,9 +246,9 @@ class AudioRecorder {
               try {
                 // Get all chunks including any that arrived after stop was called
                 const allChunks = [...window.audioCapture.completeChunks];
-                
+
                 console.log('[KAIRO] Processing chunks:', allChunks.length);
-                
+
                 if (allChunks.length === 0) {
                   console.log('[KAIRO] No chunks recorded');
                   resolve(null);
@@ -257,7 +257,7 @@ class AudioRecorder {
 
                 const blob = new Blob(allChunks, { type: 'audio/webm;codecs=opus' });
                 console.log('[KAIRO] Blob created, size:', blob.size);
-                
+
                 const reader = new FileReader();
                 reader.onloadend = () => {
                   try {
@@ -292,12 +292,12 @@ class AudioRecorder {
             // If recorder is still active, stop it and wait for final data
             if (window.audioCapture.completeRecorder.state === 'recording') {
               console.log('[KAIRO] Recorder is active, stopping...');
-              
+
               // Strategy: Wait for final dataavailable event before processing
               let finalDataReceived = false;
               let stopHandlerCalled = false;
               const initialChunkCount = window.audioCapture.completeChunks.length;
-              
+
               // Set up handler for final data
               const dataHandler = (event) => {
                 console.log('[KAIRO] Final dataavailable event received, chunk size:', event.data?.size);
@@ -306,29 +306,29 @@ class AudioRecorder {
                   finalDataReceived = true;
                 }
               };
-              
+
               // Listen for final data
               window.audioCapture.completeRecorder.addEventListener('dataavailable', dataHandler, { once: true });
-              
+
               // Set up handler for when recorder stops
               const stopHandler = () => {
                 if (stopHandlerCalled) return;
                 stopHandlerCalled = true;
-                
+
                 console.log('[KAIRO] Stop event received');
                 console.log('[KAIRO] Initial chunks:', initialChunkCount, 'Current chunks:', window.audioCapture.completeChunks.length);
-                
+
                 // Remove the data handler if it hasn't fired
                 try {
                   window.audioCapture.completeRecorder.removeEventListener('dataavailable', dataHandler);
                 } catch (e) { }
-                
+
                 // Wait longer to ensure all data is written
                 // Use multiple delays to check if chunks are still arriving
                 const checkAndProcess = (attempt = 0) => {
                   const currentChunkCount = window.audioCapture.completeChunks.length;
                   console.log('[KAIRO] Check attempt', attempt, 'chunks:', currentChunkCount);
-                  
+
                   if (attempt === 0 && !finalDataReceived) {
                     // First check: wait for final data event (up to 500ms)
                     setTimeout(() => checkAndProcess(1), 500);
@@ -350,12 +350,12 @@ class AudioRecorder {
                     processChunks();
                   }
                 };
-                
+
                 checkAndProcess(0);
               };
 
               window.audioCapture.completeRecorder.onstop = stopHandler;
-              
+
               // Request final data before stopping (this triggers final dataavailable)
               try {
                 console.log('[KAIRO] Requesting final data...');
@@ -363,7 +363,7 @@ class AudioRecorder {
               } catch (e) {
                 console.log('[KAIRO] Could not request final data:', e);
               }
-              
+
               // Wait a moment for requestData to be processed, then stop
               setTimeout(() => {
                 try {
@@ -375,7 +375,7 @@ class AudioRecorder {
                   processChunks();
                 }
               }, 100); // Small delay to let requestData finish
-              
+
             } else if (window.audioCapture.completeRecorder.state === 'paused') {
               console.log('[KAIRO] Recorder is paused, processing existing chunks');
               // If paused, just process existing chunks
@@ -422,8 +422,8 @@ class AudioRecorder {
         // Event-driven: Wait for streamRecorder dataavailable event
         const chunkReady = await this.page.evaluate(() => {
           return new Promise((resolve) => {
-            if (!window.audioCapture?.streamRecorder || 
-                window.audioCapture.streamRecorder.state !== 'recording') {
+            if (!window.audioCapture?.streamRecorder ||
+              window.audioCapture.streamRecorder.state !== 'recording') {
               return resolve(false);
             }
 
@@ -443,9 +443,9 @@ class AudioRecorder {
               window.audioCapture.streamRecorder.removeEventListener('dataavailable', handler);
               setTimeout(() => resolve(true), 50);
             };
-            
+
             window.audioCapture.streamRecorder.addEventListener('dataavailable', handler);
-            
+
             try {
               window.audioCapture.streamRecorder.requestData();
             } catch (e) {
@@ -472,17 +472,17 @@ class AudioRecorder {
         const idx = this.chunkSequence++;
         const chunkFilename = `chunk_${ts}_${idx}.webm`;
         const chunkPath = path.join(this.chunksDir, chunkFilename);
-        
+
         // Special case: First chunk (startIndex = 0) - this IS the new audio, no extraction needed
         if (chunkData.startIndex === 0) {
           fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
-          
+
           // Convert to MP3 and transcribe
           const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
           const ok = await this.convertToMp3(chunkPath, mp3Path);
           const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
           console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) \n- Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
-          
+
           if (ok && this.transcriptionService) {
             // Retry transcription up to 2 times if it fails
             let retries = 2;
@@ -493,7 +493,7 @@ class AudioRecorder {
                 console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
                 break;
               }
-              
+
               try {
                 result = await this.transcriptionService.transcribe(mp3Path, idx);
                 if (result && result.success) {
@@ -502,14 +502,14 @@ class AudioRecorder {
               } catch (transcribeError) {
                 console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
               }
-              
+
               if (retries > 0 && (!result || !result.success)) {
                 console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
                 await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
               }
               retries--;
             }
-            
+
             if (!result || !result.success) {
               console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
             }
@@ -523,7 +523,7 @@ class AudioRecorder {
                 console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
                 break;
               }
-              
+
               try {
                 result = await this.transcriptionService.transcribe(chunkPath, idx);
                 if (result && result.success) {
@@ -532,14 +532,14 @@ class AudioRecorder {
               } catch (transcribeError) {
                 console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
               }
-              
+
               if (retries > 0 && (!result || !result.success)) {
                 console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
                 await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
               }
               retries--;
             }
-            
+
             if (!result || !result.success) {
               console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
             }
@@ -549,14 +549,14 @@ class AudioRecorder {
           // First, remux the cumulative blob to ensure it's a valid WebM file
           const tempCumulativePath = path.join(this.chunksDir, `temp_cumulative_${ts}.webm`);
           const tempRemuxedPath = path.join(this.chunksDir, `temp_remuxed_${ts}.webm`);
-          
+
           fs.writeFileSync(tempCumulativePath, Buffer.from(chunkData.audio, 'base64'));
-          
+
           // Remux the file first to ensure it's valid WebM structure
           const remuxSuccess = await new Promise((resolve) => {
             const ffmpegPath = ffmpeg.path;
             const remuxCommand = `"${ffmpegPath}" -i "${tempCumulativePath}" -c copy "${tempRemuxedPath}" -y 2>&1`;
-            
+
             exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
               if (remuxError || !fs.existsSync(tempRemuxedPath) || fs.statSync(tempRemuxedPath).size < 1000) {
                 resolve(false);
@@ -565,9 +565,9 @@ class AudioRecorder {
               }
             });
           });
-          
+
           const fileToExtract = remuxSuccess ? tempRemuxedPath : tempCumulativePath;
-          
+
           const extractSuccess = await this.extractLastNSeconds(
             fileToExtract,
             chunkPath,
@@ -588,7 +588,7 @@ class AudioRecorder {
             const ok = await this.convertToMp3(chunkPath, mp3Path);
             const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
             console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
-            
+
             if (ok && this.transcriptionService) {
               // Retry transcription up to 2 times if it fails
               let retries = 2;
@@ -599,7 +599,7 @@ class AudioRecorder {
                   console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
                   break;
                 }
-                
+
                 try {
                   result = await this.transcriptionService.transcribe(mp3Path, idx);
                   if (result && result.success) {
@@ -608,14 +608,14 @@ class AudioRecorder {
                 } catch (transcribeError) {
                   console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
-                
+
                 if (retries > 0 && (!result || !result.success)) {
                   console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
                   await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
                 }
                 retries--;
               }
-              
+
               if (!result || !result.success) {
                 console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
               }
@@ -629,7 +629,7 @@ class AudioRecorder {
                   console.warn(`   ⚠️  Transcription service became unavailable during retry for chunk ${idx}`);
                   break;
                 }
-                
+
                 try {
                   result = await this.transcriptionService.transcribe(chunkPath, idx);
                   if (result && result.success) {
@@ -638,14 +638,14 @@ class AudioRecorder {
                 } catch (transcribeError) {
                   console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
-                
+
                 if (retries > 0 && (!result || !result.success)) {
                   console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
                   await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
                 }
                 retries--;
               }
-              
+
               if (!result || !result.success) {
                 console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
               }
@@ -683,7 +683,7 @@ class AudioRecorder {
         } catch (e) {
           console.error('[KAIRO] Error requesting final data:', e);
         }
-      }).catch(() => {});
+      }).catch(() => { });
 
       // Wait a moment for data to be available
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -706,19 +706,19 @@ class AudioRecorder {
       const idx = this.chunkSequence++;
       const chunkFilename = `chunk_${ts}_${idx}.webm`;
       const chunkPath = path.join(this.chunksDir, chunkFilename);
-      
+
       // Extract only the new portion (last ~3 seconds) if this isn't the first chunk
       if (chunkData.startIndex > 0) {
         const tempCumulativePath = path.join(this.chunksDir, `temp_final_${ts}.webm`);
         const tempRemuxedPath = path.join(this.chunksDir, `temp_final_remuxed_${ts}.webm`);
-        
+
         fs.writeFileSync(tempCumulativePath, Buffer.from(chunkData.audio, 'base64'));
-        
+
         // Remux the file first to ensure it's valid WebM structure
         const remuxSuccess = await new Promise((resolve) => {
           const ffmpegPath = ffmpeg.path;
           const remuxCommand = `"${ffmpegPath}" -i "${tempCumulativePath}" -c copy "${tempRemuxedPath}" -y 2>&1`;
-          
+
           exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
             if (remuxError || !fs.existsSync(tempRemuxedPath) || fs.statSync(tempRemuxedPath).size < 1000) {
               resolve(false);
@@ -727,9 +727,9 @@ class AudioRecorder {
             }
           });
         });
-        
+
         const fileToExtract = remuxSuccess ? tempRemuxedPath : tempCumulativePath;
-        
+
         const extractSuccess = await this.extractLastNSeconds(
           fileToExtract,
           chunkPath,
@@ -753,7 +753,7 @@ class AudioRecorder {
       }
 
       const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
-      
+
       // CRITICAL FIX: Don't wait for transcription - do it in background
       // The transcription might hang and we need to proceed to save the complete recording
       if (this.transcriptionService) {
@@ -775,7 +775,7 @@ class AudioRecorder {
         const mp3Status = 'MP3 conversion skipped (no transcription service)';
         console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
       }
-      
+
     } catch (err) {
       console.error('[AudioRecorder.flushPendingChunks] Error:', err);
       // Don't throw - we need to proceed
@@ -814,7 +814,7 @@ class AudioRecorder {
       }).catch(() => null);
 
       const audioData = await Promise.race([evaluatePromise, timeoutPromise]);
-      
+
       if (!audioData || !audioData.audio) {
         console.log('❌ No complete recording available');
         return null;
@@ -832,7 +832,7 @@ class AudioRecorder {
       const mp3Path = path.join(this.meetingDataDir, mp3Filename);
 
       const conversionSuccess = await this.convertToMp3(webmPath, mp3Path);
-      
+
       if (conversionSuccess) {
         console.log(`✅ Complete recording saved: ${webmFilename} and ${mp3Filename} (${(audioData.size / 1024 / 1024).toFixed(2)} MB)`);
       } else {
@@ -864,7 +864,7 @@ class AudioRecorder {
         resolve();
       }, 5000); // 5 second timeout
     });
-    
+
     await Promise.race([flushPromise, flushTimeout]);
 
     // Stop streamRecorder only (completeRecorder is stopped by saveCompleteRecording)
@@ -930,18 +930,20 @@ class AudioRecorder {
       setTimeout(() => {
         const ffmpegPath = ffmpeg.path;
         const fileSize = fs.statSync(inputPath).size;
-        
+
         if (fileSize < 1000) {
           return resolve(false);
         }
-        
+
         // Step 1: Get total duration - try multiple methods
+        // Use ffprobe instead of ffmpeg for duration extraction
+        const ffprobePath = ffmpegPath.replace('ffmpeg.exe', 'ffprobe.exe').replace('ffmpeg', 'ffprobe');
         // Method 1: JSON output (most reliable)
-        const ffprobeJsonCommand = `"${ffmpegPath}" -v error -show_entries format=duration -of json "${inputPath}"`;
-        
+        const ffprobeJsonCommand = `"${ffprobePath}" -v error -show_entries format=duration -of json "${inputPath}"`;
+
         exec(ffprobeJsonCommand, { maxBuffer: 1024 * 1024 }, (jsonError, jsonStdout, jsonStderr) => {
           let totalDuration = null;
-          
+
           // Try parsing JSON output first
           if (jsonStdout) {
             try {
@@ -953,11 +955,11 @@ class AudioRecorder {
               // JSON parse failed, continue to other methods
             }
           }
-          
+
           // Method 2: Default format output
           if (!totalDuration) {
-            const ffprobeCommand = `"${ffmpegPath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`;
-            
+            const ffprobeCommand = `"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`;
+
             exec(ffprobeCommand, { maxBuffer: 1024 * 1024 }, (probeError, probeStdout, probeStderr) => {
               if (!totalDuration && probeStdout && probeStdout.trim()) {
                 const durationStr = probeStdout.trim();
@@ -966,37 +968,37 @@ class AudioRecorder {
                   totalDuration = parsed;
                 }
               }
-              
+
               // Method 3: Full ffmpeg -i command (last resort)
               if (!totalDuration) {
                 const fallbackCommand = `"${ffmpegPath}" -i "${inputPath}" 2>&1`;
                 exec(fallbackCommand, { maxBuffer: 1024 * 1024 }, (fallbackError, fallbackStdout, fallbackStderr) => {
                   const output = (fallbackStdout || '') + (fallbackStderr || '');
-                  
+
                   // Look for duration in multiple formats
                   let durationMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
-                  
+
                   // Also try format without leading zeros
                   if (!durationMatch) {
                     durationMatch = output.match(/Duration: (\d{1,2}):(\d{2}):(\d{2}\.\d{1,3})/);
                   }
-                  
+
                   if (durationMatch) {
                     const hours = parseInt(durationMatch[1]);
                     const minutes = parseInt(durationMatch[2]);
                     const secs = parseFloat(durationMatch[3]);
                     totalDuration = hours * 3600 + minutes * 60 + secs;
                   }
-                  
+
                   if (!totalDuration) {
                     // Try to fix/remux the file first, then get duration
                     const fixedPath = inputPath.replace('.webm', '_fixed.webm');
                     const fixCommand = `"${ffmpegPath}" -i "${inputPath}" -c copy "${fixedPath}" -y 2>&1`;
-                    
+
                     exec(fixCommand, { maxBuffer: 1024 * 1024 }, (fixError, fixStdout, fixStderr) => {
                       if (!fixError && fs.existsSync(fixedPath) && fs.statSync(fixedPath).size > 1000) {
                         // Try getting duration from fixed file
-                        const fixedProbeCommand = `"${ffmpegPath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${fixedPath}"`;
+                        const fixedProbeCommand = `"${ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${fixedPath}"`;
                         exec(fixedProbeCommand, { maxBuffer: 1024 * 1024 }, (fixedProbeError, fixedProbeStdout) => {
                           if (fixedProbeStdout && fixedProbeStdout.trim()) {
                             const parsed = parseFloat(fixedProbeStdout.trim());
@@ -1008,52 +1010,52 @@ class AudioRecorder {
                               proceedWithExtraction(totalDuration);
                               // Clean up fixed file after extraction
                               setTimeout(() => {
-                                try { if (fs.existsSync(fixedPath)) fs.unlinkSync(fixedPath); } catch (e) {}
+                                try { if (fs.existsSync(fixedPath)) fs.unlinkSync(fixedPath); } catch (e) { }
                               }, 5000);
                               return;
                             }
                           }
                           // If fixed file also doesn't work, give up
-                          try { if (fs.existsSync(fixedPath)) fs.unlinkSync(fixedPath); } catch (e) {}
+                          try { if (fs.existsSync(fixedPath)) fs.unlinkSync(fixedPath); } catch (e) { }
                           return resolve(false);
                         });
                         return;
                       }
-                      
+
                       // Fixing failed, give up
-                      try { if (fs.existsSync(fixedPath)) fs.unlinkSync(fixedPath); } catch (e) {}
+                      try { if (fs.existsSync(fixedPath)) fs.unlinkSync(fixedPath); } catch (e) { }
                       return resolve(false);
                     });
                     return;
                   }
-                  
+
                   proceedWithExtraction(totalDuration);
                 });
                 return;
               }
-              
+
               proceedWithExtraction(totalDuration);
             });
             return;
           }
-          
+
           proceedWithExtraction(totalDuration);
         });
-        
+
         function proceedWithExtraction(totalDuration) {
           // Calculate start time for extraction (total - N seconds)
           const startTime = Math.max(0, totalDuration - seconds);
           const extractDuration = Math.min(seconds, totalDuration);
-          
+
           // If file is shorter than requested seconds, extract from start
           if (totalDuration <= seconds) {
             const extractCommand = `"${ffmpegPath}" -i "${inputPath}" -c copy "${outputPath}" -y`;
-            
+
             exec(extractCommand, { maxBuffer: 1024 * 1024 }, (extractError) => {
               if (extractError) {
                 return resolve(false);
               }
-              
+
               if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                 resolve(true);
               } else {
@@ -1062,22 +1064,22 @@ class AudioRecorder {
             });
             return;
           }
-          
+
           // Step 2: Extract the segment
           // -ss AFTER -i for accurate extraction (especially important for end of file)
           // -c copy first (fast), fallback to re-encode if it fails
           const extractCommand = `"${ffmpegPath}" -i "${inputPath}" -ss ${startTime} -t ${extractDuration} -c copy -avoid_negative_ts make_zero "${outputPath}" -y`;
-          
+
           exec(extractCommand, { maxBuffer: 1024 * 1024 }, (extractError, extractStdout, extractStderr) => {
             if (extractError) {
               // Fallback: re-encode with Opus
               const reencodeCommand = `"${ffmpegPath}" -i "${inputPath}" -ss ${startTime} -t ${extractDuration} -c:a libopus -b:a 128k -f webm "${outputPath}" -y`;
-              
+
               exec(reencodeCommand, { maxBuffer: 1024 * 1024 }, (reencodeError, reencodeStdout, reencodeStderr) => {
                 if (reencodeError) {
                   return resolve(false);
                 }
-                
+
                 if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                   resolve(true);
                 } else {
@@ -1086,7 +1088,7 @@ class AudioRecorder {
               });
               return;
             }
-            
+
             // Check if extraction succeeded
             if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
               resolve(true);

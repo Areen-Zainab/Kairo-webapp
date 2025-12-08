@@ -49,8 +49,8 @@ router.post("/", authenticateToken, async (req, res) => {
 
     // Validate required fields
     if (!workspaceId || !title || !startTime || !endTime || !duration) {
-      return res.status(400).json({ 
-        error: "Missing required fields: workspaceId, title, startTime, endTime, duration" 
+      return res.status(400).json({
+        error: "Missing required fields: workspaceId, title, startTime, endTime, duration"
       });
     }
 
@@ -82,7 +82,7 @@ router.post("/", authenticateToken, async (req, res) => {
       const invalidParticipants = participantIds.filter(id => !validParticipantIds.has(id));
 
       if (invalidParticipants.length > 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: `Cannot invite these participants. They must be members of the workspace first. Please ask them to join the workspace before inviting them to the meeting.`,
           details: `Invalid participant IDs: ${invalidParticipants.join(', ')}`
         });
@@ -382,18 +382,18 @@ router.get("/:id", authenticateToken, async (req, res) => {
     // Only check for audio file if meeting is completed (live meetings don't need audio playback)
     let audioUrl = null;
     if (meeting.status === 'completed') {
-    const audioPath = findCompleteAudioFile(meetingId);
-    console.log(`[Meeting ${meetingId}] Audio file check:`, {
-      audioPath,
-      found: !!audioPath,
-      meetingStatus: meeting.status
-    });
-    if (audioPath) {
-      // Construct URL for audio file
-      audioUrl = `/api/meetings/${meetingId}/audio`;
-      console.log(`[Meeting ${meetingId}] Audio URL set to:`, audioUrl);
-    } else {
-      console.log(`[Meeting ${meetingId}] No audio file found, audioUrl will be null`);
+      const audioPath = findCompleteAudioFile(meetingId);
+      console.log(`[Meeting ${meetingId}] Audio file check:`, {
+        audioPath,
+        found: !!audioPath,
+        meetingStatus: meeting.status
+      });
+      if (audioPath) {
+        // Construct URL for audio file
+        audioUrl = `/api/meetings/${meetingId}/audio`;
+        console.log(`[Meeting ${meetingId}] Audio URL set to:`, audioUrl);
+      } else {
+        console.log(`[Meeting ${meetingId}] No audio file found, audioUrl will be null`);
       }
     }
 
@@ -446,9 +446,9 @@ router.put("/:id", authenticateToken, async (req, res) => {
     }
 
     // Only creator, admin, or owner can update
-    if (existingMeeting.createdById !== req.user.id && 
-        membership.role !== 'admin' && 
-        membership.role !== 'owner') {
+    if (existingMeeting.createdById !== req.user.id &&
+      membership.role !== 'admin' &&
+      membership.role !== 'owner') {
       return res.status(403).json({ error: "Only the meeting creator or workspace admin can update this meeting" });
     }
 
@@ -466,7 +466,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
       const invalidParticipants = req.body.participantIds.filter(id => !validParticipantIds.has(id));
 
       if (invalidParticipants.length > 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: `Cannot invite these participants. They must be members of the workspace first. Please ask them to join the workspace before inviting them to the meeting.`,
           details: `Invalid participant IDs: ${invalidParticipants.join(', ')}`
         });
@@ -635,7 +635,7 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
     if (status === 'completed' || status === 'cancelled') {
       console.log(`\n🛑 [ROUTE] Meeting ${meetingId} marked as ${status}, stopping bot session...`);
       console.log(`   Active sessions before stop: ${getActiveSessions().join(', ') || 'none'}`);
-      
+
       // Stop active bot session in background (don't wait for this to complete)
       // This will close the browser and remove it from activeSessions
       stopMeetingSession(meetingId)
@@ -666,15 +666,15 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
         'scheduled': `Meeting scheduled: ${meeting.title}`,
         'upcoming': `Meeting scheduled: ${meeting.title}`
       };
-      
+
       const title = statusTitles[status] || `Meeting status changed: ${meeting.title}`;
-      const description = status === 'completed' 
+      const description = status === 'completed'
         ? `${meeting.title} meeting was completed`
         : status === 'cancelled'
-        ? `${meeting.title} meeting was cancelled`
-        : status === 'in-progress'
-        ? `${meeting.title} meeting has started`
-        : `${meeting.title} meeting status changed to ${status}`;
+          ? `${meeting.title} meeting was cancelled`
+          : status === 'in-progress'
+            ? `${meeting.title} meeting has started`
+            : `${meeting.title} meeting status changed to ${status}`;
 
       await WorkspaceLog.create({
         workspaceId: meeting.workspaceId,
@@ -1010,7 +1010,7 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
 
     // Use MeetingBot class (same as autoJoinMeetings) to ensure session is tracked
     const MeetingBot = require('../services/MeetingBot');
-    
+
     // Calculate duration (from now until meeting end, minimum 5 minutes)
     const now = new Date();
     const meetingEndTime = new Date(meeting.endTime);
@@ -1101,7 +1101,7 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
 
     // Use MeetingBot class (same as autoJoinMeetings) to ensure session is tracked
     const MeetingBot = require('../services/MeetingBot');
-    
+
     // Calculate duration (from now until meeting end, minimum 5 minutes)
     const now = new Date();
     const meetingEndTime = new Date(meeting.endTime);
@@ -1217,7 +1217,7 @@ router.post("/:id/files", authenticateToken, upload.single('file'), async (req, 
 
     // Check if user is workspace owner/admin OR a meeting participant
     const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin';
-    
+
     if (!isOwnerOrAdmin) {
       // Check if user is a participant of this meeting
       const participant = await prisma.meetingParticipant.findUnique({
@@ -1230,8 +1230,8 @@ router.post("/:id/files", authenticateToken, upload.single('file'), async (req, 
       });
 
       if (!participant) {
-        return res.status(403).json({ 
-          error: "Only workspace owners/admins and meeting participants can upload files" 
+        return res.status(403).json({
+          error: "Only workspace owners/admins and meeting participants can upload files"
         });
       }
     }
@@ -1363,7 +1363,7 @@ router.delete("/:meetingId/files/:fileId", authenticateToken, async (req, res) =
     // Only file owner or workspace admin/owner can delete
     const isOwner = file.uploadedBy.id === req.user.id;
     const isAdminOrOwner = membership.role === 'admin' || membership.role === 'owner';
-    
+
     if (!isOwner && !isAdminOrOwner) {
       return res.status(403).json({ error: "You can only delete your own files" });
     }
@@ -1462,8 +1462,15 @@ router.get("/:id/transcript", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "You do not have access to this meeting" });
     }
 
-    // Get diarized transcript entries
-    const entries = getDiarizedTranscript(meetingId);
+    // Get diarized transcript (preferred for post-meeting view)
+    let entries = getDiarizedTranscript(meetingId);
+
+    // Fallback to live transcript entries if diarized is empty or not available
+    // This ensures users see transcription even if diarization hasn't completed
+    if (!entries || entries.length === 0) {
+      console.log(`Diarized transcript not available for meeting ${meetingId}, falling back to live transcript entries`);
+      entries = getLiveTranscriptEntries(meetingId);
+    }
 
     res.json({
       transcript: entries
@@ -1526,8 +1533,8 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
       // If table doesn't exist or other DB error, log it and return empty
       console.error("Database error fetching AI insights:", dbError);
       // Check if it's a table not found error (PostgreSQL error code 42P01)
-      if (dbError.code === 'P2010' || (dbError.meta && dbError.meta.code === '42P01') || 
-          (dbError.message && dbError.message.includes('does not exist'))) {
+      if (dbError.code === 'P2010' || (dbError.meta && dbError.meta.code === '42P01') ||
+        (dbError.message && dbError.message.includes('does not exist'))) {
         console.error("❌ ai_insights table does not exist in database!");
         console.error("   To fix this, run: cd backend && npx prisma migrate dev");
         console.error("   Or if in production: npx prisma migrate deploy");
@@ -1570,8 +1577,8 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
 
     for (const row of insightsRows) {
       try {
-        const content = typeof row.content === 'string' 
-          ? JSON.parse(row.content) 
+        const content = typeof row.content === 'string'
+          ? JSON.parse(row.content)
           : row.content;
 
         // Use insightType (camelCase from Prisma) instead of insight_type
@@ -1669,7 +1676,7 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
 
     // Trigger insights regeneration
     const AIInsightsService = require('../services/AIInsightsService');
-    
+
     // Delete existing insights and reset flag in a transaction
     const meetingIdStr = String(meetingId);
     await prisma.$transaction(async (tx) => {
@@ -1677,7 +1684,7 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
       await tx.$executeRaw`
         DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
       `;
-      
+
       // Reset the flag to allow regeneration
       try {
         await tx.$executeRaw`

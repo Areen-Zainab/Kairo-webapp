@@ -108,9 +108,9 @@ class ActionItemAgent:
             # Normalize the format to match expected structure
             normalized = []
             for idx, item in enumerate(action_items):
-                # Only include items with reasonable confidence
+                # Only include items with reasonable confidence (lowered threshold to catch more items)
                 confidence = float(item.get("confidence", 0.8))
-                if confidence < 0.5:
+                if confidence < 0.3:  # Lower threshold from 0.5 to 0.3
                     continue  # Skip low-confidence items
                 
                 title = item.get("title") or item.get("description", "")[:100] or ""
@@ -140,19 +140,25 @@ class ActionItemAgent:
 
     def _build_extraction_prompt(self, transcript: str) -> str:
         """Build the prompt for action item extraction."""
-        # Truncate transcript if too long (keep last 12000 chars for context)
-        max_length = 12000
+        # Send full transcript - Grok can handle longer context
+        # Only truncate if extremely long (>20000 chars)
+        max_length = 20000
         if len(transcript) > max_length:
             transcript = "..." + transcript[-max_length:]
 
         return f"""Analyze the following meeting transcript and extract ALL action items, tasks, and follow-up items that were mentioned.
 
 IMPORTANT INSTRUCTIONS:
-- Read the entire transcript carefully to identify action items
-- Look for explicit commitments, tasks, or follow-ups (e.g., "I will...", "We need to...", "Let's...", "Action:...", "TODO:...")
-- Extract the assignee name if mentioned (who will do it)
+- Read the ENTIRE transcript carefully to identify ALL action items
+- Look for explicit commitments, tasks, or follow-ups with patterns like:
+  * "I will...", "I'll...", "I can...", "I'll take...", "Let me..."
+  * "We need to...", "We should...", "We must...", "We have to..."
+  * "Let's...", "Someone needs to...", "Someone should..."
+  * "Action:", "TODO:", "Follow up:", "Next steps:"
+  * "Please...", "Can you...", "Could you..."
+- Extract the assignee name if explicitly mentioned (who will do it)
 - Extract any deadlines or due dates mentioned
-- Be accurate - only extract items that are clearly action items, not general discussion points
+- Be thorough - capture ALL action items, even if confidence is moderate (0.3+)
 - If NO action items are found, return an empty array: {{"action_items": []}}
 - Do NOT make up action items - only extract what is explicitly stated
 

@@ -9,10 +9,12 @@ Falls back to simple extractive summary if API is unavailable.
 from __future__ import annotations
 
 import os
+import re
 import json
 import requests
 from dataclasses import dataclass, asdict
 from typing import Dict, Any, List, Optional
+from datetime import datetime
 
 
 @dataclass
@@ -31,11 +33,215 @@ class SummaryAgent:
     # Groq API configuration
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
     GROQ_MODEL = "llama-3.3-70b-versatile"  # Fast and capable Llama model
+    # Alternative models: "meta-llama/llama-4-scout-17b-16e-instruct", "grok-4.1-fast"
     GROQ_API_KEY_ENV = "GROQ-API"
+    
+    # Chunking configuration for long transcripts
+    CHUNK_THRESHOLD_WORDS = 2000  # Use chunking if transcript exceeds this
+    CHUNK_SIZE_WORDS = 1000  # Larger chunks for better context (increased from 600)
+    CHUNK_OVERLAP_WORDS = 200  # More overlap to preserve continuity (increased from 100)
 
     def __init__(self):
         self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
+    
+    def _preprocess_text(self, text: str) -> str:
+        """Remove timestamps and normalize whitespace from transcript."""
+        # Remove timestamps in format [HH:MM:SS.mmm - HH:MM:SS.mmm]
+        text = re.sub(r'\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-\s*\d{2}:\d{2}:\d{2}\.\d{3}\]', '', text)
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+    
+    def _chunk_text(self, text: str, max_words: int = None, overlap: int = None) -> List[str]:
+        """Split text into chunks with overlap for better context preservation."""
+        max_words = max_words or self.CHUNK_SIZE_WORDS
+        overlap = overlap or self.CHUNK_OVERLAP_WORDS
+        
+        words = text.split()
+        chunks = []
+        
+        if len(words) <= max_words:
+            return [text]
+        
+        start = 0
+        while start < len(words):
+            end = start + max_words
+            chunk = ' '.join(words[start:end])
+            
+            # Try to end at sentence boundary if not at the end
+            if end < len(words) and not chunk.endswith(('.', '?', '!')):
+                last_sentence_end = max(
+                    chunk.rfind('.'),
+                    chunk.rfind('?'),
+                    chunk.rfind('!')
+                )
+                # Only break at sentence if it's in the last 30% of chunk
+                if last_sentence_end > len(chunk) * 0.7:
+                    chunk = chunk[:last_sentence_end + 1]
+            
+            chunks.append(chunk)
+            start = end - overlap if end < len(words) else len(words)
+        
+        return chunks
+    
+    def _summarize_chunk(self, chunk: str, chunk_num: int, total_chunks: int) -> str:
+        """Summarize a single chunk of text."""
+        prompt = (
+            f"This is chunk {chunk_num} of {total_chunks} from a meeting transcript. "
+            "Summarize the key points, decisions, and action items in this section. "
+            "Be SPECIFIC - include participant names, numbers, dates, and concrete details. "
+            "Avoid generic statements. Focus on what was actually discussed and decided. "
+            "Be concise but comprehensive.\n\n"
+            f"Chunk content:\n{chunk}"
+        )
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": self.GROQ_MODEL,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 800
+        }
+        
+        try:
+            response = requests.post(
+                self.GROQ_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=45
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        except Exception as e:
+            print(f"Warning: Failed to summarize chunk {chunk_num}: {e}")
+            return ""
+    
+    def _combine_chunk_summaries(
+        self,
+        chunk_summaries: List[str],
+        topic_segments: Optional[List[Dict[str, Any]]] = None,
+        decisions: Optional[List[Dict[str, Any]]] = None,
+        action_items: Optional[List[Dict[str, Any]]] = None,
+        sentiment: Optional[Dict[str, Any]] = None,
+        participants: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Combine chunk summaries into final comprehensive summary."""
+        combined_text = "\n\n".join([
+            f"Section {i+1} Summary:\n{summary}"
+            for i, summary in enumerate(chunk_summaries)
+            if summary
+        ])
+        
+        # Build context from other agents
+        context_parts = []
+        
+        if participants:
+            speaker_names = [p.get("name", "Unknown") for p in participants[:5]]
+            if speaker_names:
+                context_parts.append(f"Key participants: {', '.join(speaker_names)}")
+        
+        if topic_segments:
+            topics = [t.get("name") or t.get("title", "") for t in topic_segments[:5]]
+            topics = [t for t in topics if t]
+            if topics:
+                context_parts.append(f"Main topics: {', '.join(topics)}")
+        
+        if decisions:
+            context_parts.append(f"{len(decisions)} decisions were made")
+        
+        if action_items:
+            context_parts.append(f"{len(action_items)} action items were identified")
+        else:
+            context_parts.append("No action items were identified")
+        
+        if sentiment:
+            overall = sentiment.get("overall", "Neutral")
+            context_parts.append(f"Overall sentiment: {overall}")
+        
+        context_section = ". ".join(context_parts) if context_parts else ""
+        
+        prompt = f"""Synthesize the following section summaries from a meeting transcript into a comprehensive final summary.
+
+Context: {context_section}
+
+Section Summaries:
+{combined_text}
+
+Create a final summary with:
+1. **paragraph**: A comprehensive 3-5 paragraph summary covering ALL key points from the meeting. Be SPECIFIC - include participant names, concrete decisions, specific numbers/dates, and important details. Avoid vague or generic statements like "the team discussed" - instead say WHO discussed WHAT and WHAT was decided.
+2. **bullets**: 10-15 specific, actionable bullet points covering key topics, decisions, action items, and outcomes. Each bullet should provide concrete information with specifics (names, dates, numbers, decisions).
+3. **confidence**: Your confidence in this summary (0.0 to 1.0)
+
+Return ONLY a JSON object with this structure:
+{{
+  "paragraph": "Comprehensive meeting summary with specific details...",
+  "bullets": ["Specific point 1 with details", "Specific point 2 with details", ...],
+  "confidence": 0.85
+}}
+
+JSON Response:"""
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": self.GROQ_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are an expert at synthesizing meeting summaries. Always respond with valid JSON only."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.4,
+            "max_tokens": 2000
+        }
+        
+        response = requests.post(
+            self.GROQ_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        # Extract and parse content
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        content = content.strip()
+        
+        # Clean markdown code blocks
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        
+        # Remove any ** markdown formatting
+        content = content.replace("**", "")
+        
+        parsed = json.loads(content)
+        
+        return SummaryResult(
+            paragraph=parsed.get("paragraph", ""),
+            bullets=parsed.get("bullets", [])[:10],
+            confidence=float(parsed.get("confidence", 0.8))
+        ).to_dict()
 
     def run(
         self,
@@ -89,7 +295,43 @@ class SummaryAgent:
         participants: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Generate summary using Groq Cloud API with Llama."""
-        prompt = self._build_summary_prompt(transcript, topic_segments, decisions, action_items, sentiment, participants)
+        # Preprocess transcript to remove timestamps and normalize whitespace
+        clean_transcript = self._preprocess_text(transcript)
+        word_count = len(clean_transcript.split())
+        
+        # Use chunking for long transcripts
+        if word_count > self.CHUNK_THRESHOLD_WORDS:
+            print(f"Transcript has {word_count} words. Using chunking strategy...")
+            chunks = self._chunk_text(clean_transcript)
+            print(f"Created {len(chunks)} chunks for processing")
+            
+            # Summarize each chunk
+            chunk_summaries = []
+            for i, chunk in enumerate(chunks, 1):
+                print(f"Summarizing chunk {i}/{len(chunks)}...")
+                summary = self._summarize_chunk(chunk, i, len(chunks))
+                if summary:
+                    chunk_summaries.append(summary)
+                else:
+                    print(f"Warning: Chunk {i} failed to summarize")
+            
+            if not chunk_summaries:
+                raise ValueError("All chunk summaries failed")
+            
+            # Combine chunk summaries into final summary
+            print("Combining chunk summaries into final summary...")
+            return self._combine_chunk_summaries(
+                chunk_summaries,
+                topic_segments,
+                decisions,
+                action_items,
+                sentiment,
+                participants
+            )
+        
+        # For shorter transcripts, use single-pass summarization
+        print(f"Transcript has {word_count} words. Using single-pass summarization...")
+        prompt = self._build_summary_prompt(clean_transcript, topic_segments, decisions, action_items, sentiment, participants)
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -151,6 +393,10 @@ class SummaryAgent:
             # Validate paragraph exists
             if not paragraph:
                 raise ValueError("Groq API did not return a paragraph summary")
+            
+            # Remove any ** markdown formatting
+            paragraph = paragraph.replace("**", "")
+            bullets = [b.replace("**", "") for b in bullets]
             
             return SummaryResult(
                 paragraph=paragraph,
@@ -408,5 +654,40 @@ JSON Response:"""
             bullets=bullets[:7],  # Limit to 7 bullets
             confidence=0.5  # Lower confidence for fallback method
         ).to_dict()
+    
+    def write_summary_to_file(
+        self,
+        summary_result: Dict[str, Any],
+        output_path: str,
+        source_file: str = "transcript"
+    ) -> None:
+        """Optional utility: Write summary to a formatted text file."""
+        try:
+            with open(output_path, 'w', encoding='utf-8') as file:
+                file.write("MEETING SUMMARY\n")
+                file.write("=" * 50 + "\n\n")
+                file.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                file.write(f"Source: {source_file}\n")
+                file.write(f"Model: {self.GROQ_MODEL}\n")
+                file.write(f"Confidence: {summary_result.get('confidence', 0.0):.2f}\n\n")
+                file.write("-" * 50 + "\n\n")
+                
+                # Write paragraph summary
+                file.write("SUMMARY\n")
+                file.write("-" * 20 + "\n")
+                file.write(summary_result.get('paragraph', '') + "\n\n")
+                
+                # Write bullet points
+                bullets = summary_result.get('bullets', [])
+                if bullets:
+                    file.write("KEY POINTS\n")
+                    file.write("-" * 20 + "\n")
+                    for i, bullet in enumerate(bullets, 1):
+                        file.write(f"{i}. {bullet}\n")
+                    file.write("\n")
+                
+            print(f"Summary written to {output_path}")
+        except Exception as e:
+            print(f"Failed to write summary file: {e}")
 
 
