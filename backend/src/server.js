@@ -73,12 +73,34 @@ const server = app.listen(PORT, async () => {
   
   // Initialize cron jobs after server starts
   initializeCronJobs();
+  
+  // Initialize global transcription model (non-blocking)
+  const ModelPreloader = require('./services/ModelPreloader');
+  console.log('🔄 Initializing global transcription model...');
+  ModelPreloader.getGlobalModel()
+    .then((model) => {
+      // Check if model actually loaded (getGlobalModel returns null on failure)
+      if (model && ModelPreloader.isProcessHealthy(model.process)) {
+        console.log('✅ Global transcription model ready');
+      } else {
+        console.warn('⚠️  Global model initialization returned null (will retry on first request)');
+      }
+    })
+    .catch((error) => {
+      console.warn('⚠️  Global model initialization failed (will retry on first request):', error.message);
+      // Don't crash - lazy loading will handle it
+    });
 });
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('\n⚠️  SIGTERM signal received: closing HTTP server...');
   stopCronJobs();
+  
+  // Cleanup global model
+  const ModelPreloader = require('./services/ModelPreloader');
+  ModelPreloader.releaseGlobalModel();
+  
   server.close(() => {
     console.log('✅ HTTP server closed');
     process.exit(0);
@@ -88,6 +110,11 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('\n⚠️  SIGINT signal received: closing HTTP server...');
   stopCronJobs();
+  
+  // Cleanup global model
+  const ModelPreloader = require('./services/ModelPreloader');
+  ModelPreloader.releaseGlobalModel();
+  
   server.close(() => {
     console.log('✅ HTTP server closed');
     process.exit(0);

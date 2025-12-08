@@ -6,6 +6,18 @@ const ModelPreloader = require('../services/ModelPreloader');
  * Preload models for meetings starting in 3 minutes
  */
 async function preloadModels() {
+  // Check if global model is available first - skip per-meeting preloads if it is
+  if (ModelPreloader.isGlobalModelAvailable()) {
+    console.log(`✅ Global model available, skipping per-meeting preloads`);
+    return {
+      success: true,
+      preloaded: 0,
+      failed: 0,
+      total: 0,
+      skipped: 'global_model_available'
+    };
+  }
+
   const now = new Date();
   const threeMinutesFromNow = new Date(now.getTime() + 3 * 60 * 1000); // 3 minutes from now
   const fourMinutesFromNow = new Date(now.getTime() + 4 * 60 * 1000); // 4 minutes from now (window)

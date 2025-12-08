@@ -16,6 +16,7 @@ class AudioRecorder {
     this.chunkFlushInterval = null;
     this.transcriptFilepath = null;
     this.transcriptionService = null; // Will be initialized when transcript file is created
+    this.isRecording = false; // Track recording state for graceful cancellation
   }
 
   /**
@@ -411,6 +412,7 @@ class AudioRecorder {
 
     // Initialize transcription service
     this.transcriptionService = new TranscriptionService(this.meetingDataDir, this.transcriptFilepath, this.meetingId);
+    this.isRecording = true; // Mark recording as active
 
     if (this.chunkFlushInterval) clearInterval(this.chunkFlushInterval);
 
@@ -475,61 +477,85 @@ class AudioRecorder {
         
         // Special case: First chunk (startIndex = 0) - this IS the new audio, no extraction needed
         if (chunkData.startIndex === 0) {
-          fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
+          // Write raw blob first
+          const tempRawPath = path.join(this.chunksDir, `temp_raw_${ts}.webm`);
+          fs.writeFileSync(tempRawPath, Buffer.from(chunkData.audio, 'base64'));
           
-          // Convert to MP3 and transcribe
-          const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
-          const ok = await this.convertToMp3(chunkPath, mp3Path);
-          const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
-          console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) \n- Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
-          
-          if (ok && this.transcriptionService) {
-            // Retry transcription up to 2 times if it fails
-            let retries = 2;
-            let result = null;
-            while (retries >= 0) {
+          // Remux to ensure valid WebM structure (raw blobs from MediaRecorder may be incomplete)
+          const remuxSuccess = await new Promise((resolve) => {
+            const ffmpegPath = ffmpeg.path;
+            const remuxCommand = `"${ffmpegPath}" -i "${tempRawPath}" -c copy "${chunkPath}" -y 2>&1`;
+            
+            exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
+              // Clean up temp file
               try {
-                result = await this.transcriptionService.transcribe(mp3Path, idx);
+                if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath);
+              } catch (e) {}
+              
+              if (remuxError || !fs.existsSync(chunkPath) || fs.statSync(chunkPath).size < 1000) {
+                resolve(false);
+              } else {
+                resolve(true);
+              }
+            });
+          });
+          
+          if (!remuxSuccess) {
+            console.error(`💾 Failed to remux chunk ${chunkData.startIndex}, skipping transcription`);
+            return;
+          }
+          
+          // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
+          console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) - Saved: ${path.basename(chunkPath)}`);
+          
+          if (this.transcriptionService && this.isRecording) {
+            // Check if request is already pending before creating new one
+            const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
+            if (pendingPromise) {
+              // Request already pending, wait for it instead of creating duplicate
+              try {
+                const result = await pendingPromise;
                 if (result && result.success) {
-                  break; // Success, exit retry loop
+                  // Success from pending request
+                } else {
+                  console.warn(`   ⚠️  Pending transcription request failed: ${result?.error || 'Unknown error'}`);
                 }
-              } catch (transcribeError) {
-                console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
+              } catch (error) {
+                console.error(`   ❌ Pending transcription request error:`, error.message);
+              }
+            } else {
+              // No pending request, proceed with transcription (with retry logic)
+              let retries = 2;
+              let result = null;
+              while (retries >= 0 && this.isRecording) {
+                try {
+                  result = await this.transcriptionService.transcribe(chunkPath, idx);
+                  if (result && result.success) {
+                    break; // Success, exit retry loop
+                  }
+                } catch (transcribeError) {
+                  // Check if recording stopped (graceful cancellation)
+                  if (!this.isRecording) {
+                    console.log(`   ⏹️  Recording stopped, cancelling transcription retry for chunk ${idx}`);
+                    break;
+                  }
+                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
+                }
+                
+                if (retries > 0 && (!result || !result.success) && this.isRecording) {
+                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+                }
+                retries--;
               }
               
-              if (retries > 0 && (!result || !result.success)) {
-                console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-              }
-              retries--;
-            }
-            
-            if (!result || !result.success) {
-              console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
-            }
-          } else if (this.transcriptionService) {
-            // Retry transcription up to 2 times if it fails
-            let retries = 2;
-            let result = null;
-            while (retries >= 0) {
-              try {
-                result = await this.transcriptionService.transcribe(chunkPath, idx);
-                if (result && result.success) {
-                  break; // Success, exit retry loop
+              if (!result || !result.success) {
+                if (this.isRecording) {
+                  console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
+                } else {
+                  console.log(`   ⏹️  Transcription cancelled (recording stopped)`);
                 }
-              } catch (transcribeError) {
-                console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
               }
-              
-              if (retries > 0 && (!result || !result.success)) {
-                console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-              }
-              retries--;
-            }
-            
-            if (!result || !result.success) {
-              console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
             }
           }
         } else {
@@ -571,59 +597,57 @@ class AudioRecorder {
           }
 
           if (extractSuccess) {
-            // Convert to MP3 and transcribe (now only ~3 seconds of NEW audio!)
-            const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
-            const ok = await this.convertToMp3(chunkPath, mp3Path);
-            const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
-            console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
+            // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
+            console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)}`);
             
-            if (ok && this.transcriptionService) {
-              // Retry transcription up to 2 times if it fails
-              let retries = 2;
-              let result = null;
-              while (retries >= 0) {
+            if (this.transcriptionService && this.isRecording) {
+              // Check if request is already pending before creating new one
+              const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
+              if (pendingPromise) {
+                // Request already pending, wait for it instead of creating duplicate
                 try {
-                  result = await this.transcriptionService.transcribe(mp3Path, idx);
+                  const result = await pendingPromise;
                   if (result && result.success) {
-                    break; // Success, exit retry loop
+                    // Success from pending request
+                  } else {
+                    console.warn(`   ⚠️  Pending transcription request failed: ${result?.error || 'Unknown error'}`);
                   }
-                } catch (transcribeError) {
-                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
+                } catch (error) {
+                  console.error(`   ❌ Pending transcription request error:`, error.message);
+                }
+              } else {
+                // No pending request, proceed with transcription (with retry logic)
+                let retries = 2;
+                let result = null;
+                while (retries >= 0 && this.isRecording) {
+                  try {
+                    result = await this.transcriptionService.transcribe(chunkPath, idx);
+                    if (result && result.success) {
+                      break; // Success, exit retry loop
+                    }
+                  } catch (transcribeError) {
+                    // Check if recording stopped (graceful cancellation)
+                    if (!this.isRecording) {
+                      console.log(`   ⏹️  Recording stopped, cancelling transcription retry for chunk ${idx}`);
+                      break;
+                    }
+                    console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
+                  }
+                  
+                  if (retries > 0 && (!result || !result.success) && this.isRecording) {
+                    console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+                  }
+                  retries--;
                 }
                 
-                if (retries > 0 && (!result || !result.success)) {
-                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
-                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-                }
-                retries--;
-              }
-              
-              if (!result || !result.success) {
-                console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
-              }
-            } else if (this.transcriptionService) {
-              // Retry transcription up to 2 times if it fails
-              let retries = 2;
-              let result = null;
-              while (retries >= 0) {
-                try {
-                  result = await this.transcriptionService.transcribe(chunkPath, idx);
-                  if (result && result.success) {
-                    break; // Success, exit retry loop
+                if (!result || !result.success) {
+                  if (this.isRecording) {
+                    console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
+                  } else {
+                    console.log(`   ⏹️  Transcription cancelled (recording stopped)`);
                   }
-                } catch (transcribeError) {
-                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
-                
-                if (retries > 0 && (!result || !result.success)) {
-                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
-                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-                }
-                retries--;
-              }
-              
-              if (!result || !result.success) {
-                console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
               }
             }
           } else {
@@ -728,28 +752,19 @@ class AudioRecorder {
         fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
       }
 
-      const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
-      
+      // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
       // CRITICAL FIX: Don't wait for transcription - do it in background
       // The transcription might hang and we need to proceed to save the complete recording
       if (this.transcriptionService) {
         const finalChunkIdx = idx; // Capture idx for use in promise
-        this.convertToMp3(chunkPath, mp3Path)
-          .then((ok) => {
-            const mp3Status = ok ? path.basename(mp3Path) : 'MP3 conversion failed';
-            console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
-            if (ok) {
-              return this.transcriptionService.transcribe(mp3Path, finalChunkIdx);
-            } else {
-              return this.transcriptionService.transcribe(chunkPath, finalChunkIdx);
-            }
-          })
+        console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)}`);
+        // Transcribe WebM directly in background
+        this.transcriptionService.transcribe(chunkPath, finalChunkIdx)
           .catch((err) => {
             console.error('   ❌ Background transcription error:', err.message);
           });
       } else {
-        const mp3Status = 'MP3 conversion skipped (no transcription service)';
-        console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)} and ${mp3Status}`);
+        console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)}`);
       }
       
     } catch (err) {
@@ -827,6 +842,14 @@ class AudioRecorder {
    * NOTE: This stops the streamRecorder only. The completeRecorder is stopped by saveCompleteRecording()
    */
   async stopRecording() {
+    // Mark recording as stopped to cancel pending transcriptions gracefully
+    this.isRecording = false;
+    
+    // Cancel all pending transcription requests gracefully
+    if (this.transcriptionService) {
+      this.transcriptionService.cancelPendingRequests();
+    }
+    
     // Clear interval
     if (this.chunkFlushInterval) {
       clearInterval(this.chunkFlushInterval);

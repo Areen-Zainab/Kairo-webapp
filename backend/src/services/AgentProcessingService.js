@@ -24,16 +24,39 @@
 
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
-// Path to the Python entrypoint that runs all agents
-const AGENT_SCRIPT_PATH = path.resolve(
-  __dirname,
-  '../../../ai-layer/agents/run_agents.py'
-);
+// Venv Python paths (same as TranscriptionService)
+const ROOT_VENV_PYTHON_WIN = path.resolve(__dirname, '../../../venv/Scripts/python.exe');
+const ROOT_VENV_PYTHON_UNIX = path.resolve(__dirname, '../../../venv/bin/python');
+
+// Path to ai-layer directory (for module execution)
+const AI_LAYER_DIR = path.resolve(__dirname, '../../../ai-layer');
 
 class AgentProcessingService {
   constructor() {
-    this.pythonCandidates = ['py -3.10', 'python3.10', 'python', 'py'];
+    // Check for venv Python first (has all required packages)
+    const venvPython = this.getPythonExecutable();
+    this.pythonCandidates = venvPython
+      ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
+      : ['py -3.10', 'python3.10', 'python', 'py'];
+  }
+
+  /**
+   * Get Python executable path (prefer root venv, fallback to system Python)
+   * Same logic as TranscriptionService and ModelPreloader
+   */
+  getPythonExecutable() {
+    // Check for root venv Python (Windows)
+    if (process.platform === 'win32' && fs.existsSync(ROOT_VENV_PYTHON_WIN)) {
+      return ROOT_VENV_PYTHON_WIN;
+    }
+    // Check for root venv Python (Unix/Mac)
+    if (fs.existsSync(ROOT_VENV_PYTHON_UNIX)) {
+      return ROOT_VENV_PYTHON_UNIX;
+    }
+    // Fallback to system Python
+    return null;
   }
 
   /**
@@ -46,7 +69,6 @@ class AgentProcessingService {
    * @private
    */
   async _runAgents(transcriptText, agentKey = null) {
-    const scriptPath = AGENT_SCRIPT_PATH;
     const candidates = this.pythonCandidates.slice();
 
     return new Promise((resolve, reject) => {
@@ -61,10 +83,17 @@ class AgentProcessingService {
         }
 
         const cmd = candidates[attempt++];
-        const args = agentKey ? [scriptPath, agentKey] : [scriptPath];
+        // Run as module: python -m agents.run_agents [agentKey]
+        // This fixes the relative import error
+        const args = agentKey ? ['-m', 'agents.run_agents', agentKey] : ['-m', 'agents.run_agents'];
+
+        // Determine if cmd is a full path or command
+        const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
+        const useShell = isFullPath ? false : (process.platform === 'win32');
 
         const proc = spawn(cmd, args, {
-          shell: process.platform === 'win32',
+          cwd: AI_LAYER_DIR, // Set working directory to ai-layer for module resolution
+          shell: useShell,
         });
 
         let stdout = '';

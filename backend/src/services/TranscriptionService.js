@@ -15,8 +15,9 @@ class TranscriptionService {
     this.meetingId = meetingId; // Meeting ID for preloaded model lookup
     this.pythonProc = null;
     this.pythonStdoutBuffer = '';
-    this.pythonResolvers = [];
-    this.pythonProcExited = false;
+    this.pythonResolvers = []; // Keep for backward compatibility, but use pendingRequests as source of truth
+    this.pendingRequests = new Map(); // Map<requestId, {resolver, chunkIndex, audioPath, timestamp}>
+    this.nextRequestId = 1; // Auto-incrementing request ID
     this.pythonProcExited = false;
     this.transcriptionQueue = []; // Queue for sequential processing
     this.processingTranscription = false; // Flag to prevent concurrent processing
@@ -169,8 +170,7 @@ class TranscriptionService {
         }
         
         // Log transcription result
-        const preview = cleanedText.length > 100 ? cleanedText.substring(0, 100) + '…' : cleanedText;
-        console.log(`📝 Transcribed: ${preview}`);
+        console.log(`✅ Chunk ${chunkNum} transcription done`);
         
         return {
           success: true,
@@ -189,6 +189,60 @@ class TranscriptionService {
       // Use chunkIndex from parameter as fallback (finalChunkIndex may not be defined in catch block)
       return { success: false, error: error.message, chunk: chunkIndex };
     }
+  }
+
+  /**
+   * Validate that a response line looks like transcription text (Issue 8)
+   * @param {string} line - Line from Python stdout
+   * @returns {boolean} - True if line appears to be transcription text
+   * @private
+   */
+  _validateTranscriptionResponse(line) {
+    if (!line || typeof line !== 'string') {
+      return false;
+    }
+    
+    // Must be at least 5 characters (very short lines are likely not transcription)
+    if (line.length < 5) {
+      return false;
+    }
+    
+    // Must contain at least one letter (transcription should have words)
+    if (!line.match(/[a-zA-Z]/)) {
+      return false;
+    }
+    
+    // Should not be all uppercase (likely a status message or command)
+    if (line.length > 10 && line === line.toUpperCase() && !line.match(/[a-z]/)) {
+      return false;
+    }
+    
+    // Should not start with common log prefixes
+    if (line.match(/^(Using|Loading|Starting|Error|Warning|Failed|Success|Model|Device|Compute|Detected|Performing|Audio|Language|Preloading|Streaming|Send|Type|EXIT|Quit)/i)) {
+      return false;
+    }
+    
+    // Should not be a command or instruction
+    if (line.match(/^(Type|Send|Enter|Press|Click|Select|Choose|Input|Output|Command|Usage|Help|Options|Arguments)/i)) {
+      return false;
+    }
+    
+    // Should contain some lowercase letters (transcription is usually mixed case)
+    // Exception: Very short lines might be all caps (like "OK" or "YES")
+    if (line.length > 15 && !line.match(/[a-z]/)) {
+      return false;
+    }
+    
+    // Should not be mostly numbers or symbols
+    const letterCount = (line.match(/[a-zA-Z]/g) || []).length;
+    const totalChars = line.replace(/\s/g, '').length;
+    if (totalChars > 0 && letterCount / totalChars < 0.3) {
+      // Less than 30% letters - likely not transcription
+      return false;
+    }
+    
+    // If we get here, it might be transcription
+    return true;
   }
 
   /**
@@ -270,254 +324,299 @@ class TranscriptionService {
   }
 
   /**
-   * Ensure Python process is running
+   * Set up stdout/stderr/event handlers for a Python process
+   * @param {ChildProcess} proc - Python process to set up handlers for
+   * @param {boolean} isSharedProcess - If true, don't remove existing listeners (for global model)
+   * @private
    */
-  async ensurePythonProc() {
-    // Check if process is actually alive (not just not killed)
-    if (this.isPythonProcAlive()) return;
+  _setupProcessHandlers(proc, isSharedProcess = false) {
+    // Only remove existing handlers if this is NOT a shared process
+    // Shared processes (global model) may have handlers from other instances
+    if (!isSharedProcess) {
+      proc.removeAllListeners('data');
+      proc.removeAllListeners('close');
+      proc.removeAllListeners('error');
+      proc.stdout.removeAllListeners('data');
+      proc.stderr.removeAllListeners('data');
+    }
     
-    // Check if there's a preloaded model for this meeting
-    if (this.meetingId) {
-      const ModelPreloader = require('./ModelPreloader');
-      // Normalize meetingId to number (ModelPreloader stores it as number from Meeting.create)
-      const meetingIdNum = typeof this.meetingId === 'string' ? parseInt(this.meetingId, 10) : this.meetingId;
+    // Handle leftover stdout data BEFORE setting up new handlers
+    // Try to match leftover data to pending requests
+    if (!isSharedProcess && proc.stdout.readableLength > 0) {
+      const leftover = proc.stdout.read();
+      const leftoverStr = leftover.toString();
+      console.log(`⚠️  Found ${leftoverStr.length} bytes of leftover stdout data, attempting to match...`);
       
-      // First check if preload is in progress - wait for it to complete
-      if (ModelPreloader.isPreloadInProgress(meetingIdNum)) {
-        console.log(`⏳ Preload in progress for meeting ${this.meetingId}, waiting for completion...`);
-        const preloaded = await ModelPreloader.waitForPreload(meetingIdNum);
-      if (preloaded && preloaded.process) {
-        const proc = preloaded.process;
-        // Check if preloaded process is still alive
-        if (proc && !proc.killed && proc.exitCode === null && proc.stdin && !proc.stdin.destroyed) {
-            console.log(`✅ Reusing preloaded model for meeting ${this.meetingId} (looked up as ${meetingIdNum}) after waiting`);
-            
-            // Transfer ownership from preloader to TranscriptionService (removes from Map without killing process)
-            ModelPreloader.transferModel(meetingIdNum);
-            
-            // Take ownership of the process
-            this.pythonProc = proc;
-            this.pythonStdoutBuffer = '';
-            this.pythonResolvers = [];
-            this.pythonProcExited = false;
-            
-            // Remove old handlers and set up TranscriptionService handlers
-            proc.removeAllListeners('data');
-            proc.removeAllListeners('close');
-            proc.removeAllListeners('error');
-            
-            // Drain any leftover data from stdout before setting up new handlers
-            // This prevents PRELOAD's empty line or any buffered data from consuming resolvers
-            if (proc.stdout.readableLength > 0) {
-              const leftover = proc.stdout.read();
-              console.log(`⚠️  Drained ${leftover ? leftover.length : 0} bytes of leftover stdout data from preloaded process`);
-            }
-            
-            // Set up stdout handler for transcription results
-            proc.stdout.removeAllListeners('data');
-            proc.stdout.on('data', (data) => {
-              this.pythonStdoutBuffer += data.toString();
-              let idx;
-              while ((idx = this.pythonStdoutBuffer.indexOf('\n')) !== -1) {
-                const line = this.pythonStdoutBuffer.slice(0, idx).trim();
-                this.pythonStdoutBuffer = this.pythonStdoutBuffer.slice(idx + 1);
-                
-                // Skip empty lines (they shouldn't consume resolvers)
-                if (line === '') {
-                  console.log(`⚠️  Received empty line from Python stdout, skipping (should not happen)`);
-                  continue;
-                }
-                
-                // Filter out log messages that might have leaked to stdout
-                // These look like: "2025-12-05 19:52:28 - whisperx.asr - WARNING - ..."
-                if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+\w+\.\w+\s+-\s+(WARNING|INFO|DEBUG|ERROR)/)) {
-                  console.warn(`⚠️  Filtered out log message from stdout (should be in stderr): "${line.substring(0, 80)}..."`);
-                  continue; // Don't consume a resolver for log messages
-                }
-                
-                const resolver = this.pythonResolvers.shift();
-                if (resolver) {
-                  // Resolve with text and the chunkIndex stored in the resolver
-                  resolver.resolve(line);
-                } else {
-                  console.warn(`⚠️  Received transcription response but no resolver waiting: "${line.substring(0, 50)}..."`);
-                }
-              }
-            });
-            
-            // Set up stderr handler
-            proc.stderr.removeAllListeners('data');
-            proc.stderr.on('data', (data) => {
-              const stderrText = data.toString();
-              if (stderrText.includes('[Error]') || stderrText.includes('Traceback')) {
-                console.error(`[Python Error]: ${stderrText.trim()}`);
-                if (this.pythonResolvers.length > 0) {
-                  const resolver = this.pythonResolvers[0];
-                  if (stderrText.includes('Traceback')) {
-                    this.pythonResolvers.shift();
-                    resolver.reject(new Error(stderrText));
-                  }
-                }
-              }
-            });
-            
-            // Set up process event handlers
-            proc.on('close', (code) => {
-              this.pythonProcExited = true;
-              console.log(`⚠️  Python process closed with code ${code}`);
-              while (this.pythonResolvers.length) {
-                const r = this.pythonResolvers.shift();
-                r.reject(new Error(`Python process closed with code ${code}`));
-              }
-            });
-            
-            proc.on('error', (error) => {
-              this.pythonProcExited = true;
-              console.error(`❌ Python process error: ${error.message}`);
-              while (this.pythonResolvers.length) {
-                const r = this.pythonResolvers.shift();
-                r.reject(error);
-              }
-            });
-            
-            console.log(`✅ Preloaded process transferred to TranscriptionService for meeting ${this.meetingId}`);
-            return;
-          } else {
-            // Preloaded process is dead after waiting, remove it
-            console.log(`⚠️  Preloaded process for meeting ${this.meetingId} (looked up as ${meetingIdNum}) is dead after waiting, creating new one`);
-            ModelPreloader.releaseModel(meetingIdNum);
-          }
-        } else {
-          // Preload failed or timed out, continue to create new process
-          console.log(`⚠️  Preload for meeting ${this.meetingId} did not complete successfully, creating new process`);
+      // Try to parse leftover data as response lines
+      const lines = leftoverStr.split('\n').map(l => l.trim()).filter(l => l);
+      for (const line of lines) {
+        // Skip empty lines
+        if (line === '') continue;
+        
+        // Apply same comprehensive filtering as main stdout handler (Issue 6)
+        // Pattern 1: Timestamped log messages
+        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+\w+\.\w+\s+-\s+(WARNING|INFO|DEBUG|ERROR)/)) {
+          console.warn(`⚠️  Leftover data contains log message, skipping: "${line.substring(0, 50)}..."`);
+          continue;
         }
-      }
-      
-      // Check if there's already a completed preloaded model
-      const preloaded = ModelPreloader.getPreloadedProcess(meetingIdNum);
-      if (preloaded && preloaded.process) {
-        const proc = preloaded.process;
-        // Check if preloaded process is still alive
-        if (proc && !proc.killed && proc.exitCode === null && proc.stdin && !proc.stdin.destroyed) {
-          console.log(`✅ Reusing preloaded model for meeting ${this.meetingId} (looked up as ${meetingIdNum})`);
-          
-          // Transfer ownership from preloader to TranscriptionService (removes from Map without killing process)
-          ModelPreloader.transferModel(meetingIdNum);
-          
-          // Take ownership of the process
-          this.pythonProc = proc;
-          this.pythonStdoutBuffer = '';
-          this.pythonResolvers = [];
-          this.pythonProcExited = false;
-          
-          // Remove old handlers and set up TranscriptionService handlers
-          proc.removeAllListeners('data');
-          proc.removeAllListeners('close');
-          proc.removeAllListeners('error');
-          
-          // Drain any leftover data from stdout before setting up new handlers
-          // This prevents PRELOAD's empty line or any buffered data from consuming resolvers
-          if (proc.stdout.readableLength > 0) {
-            const leftover = proc.stdout.read();
-            console.log(`⚠️  Drained ${leftover ? leftover.length : 0} bytes of leftover stdout data from preloaded process`);
-          }
-          
-          // Set up stdout handler for transcription results
-          proc.stdout.removeAllListeners('data');
-          proc.stdout.on('data', (data) => {
-            this.pythonStdoutBuffer += data.toString();
-            let idx;
-            while ((idx = this.pythonStdoutBuffer.indexOf('\n')) !== -1) {
-              const line = this.pythonStdoutBuffer.slice(0, idx).trim();
-              this.pythonStdoutBuffer = this.pythonStdoutBuffer.slice(idx + 1);
-              
-              // Skip empty lines (they shouldn't consume resolvers)
-              if (line === '') {
-                console.log(`⚠️  Received empty line from Python stdout, skipping (should not happen)`);
-                continue;
-              }
-              
-              // Filter out log messages that might have leaked to stdout
-              // These look like: "2025-12-05 19:52:28 - whisperx.asr - WARNING - ..."
-              if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+\w+\.\w+\s+-\s+(WARNING|INFO|DEBUG|ERROR)/)) {
-                console.warn(`⚠️  Filtered out log message from stdout (should be in stderr): "${line.substring(0, 80)}..."`);
-                continue; // Don't consume a resolver for log messages
-              }
-              
-              const resolver = this.pythonResolvers.shift();
-              if (resolver) {
-                // Resolve with text and the chunkIndex stored in the resolver
-                resolver.resolve(line);
-              } else {
-                console.warn(`⚠️  Received transcription response but no resolver waiting: "${line.substring(0, 50)}..."`);
-              }
-            }
-          });
-          
-          // Set up stderr handler
-          proc.stderr.removeAllListeners('data');
-          proc.stderr.on('data', (data) => {
-            const stderrText = data.toString();
-            if (stderrText.includes('[Error]') || stderrText.includes('Traceback')) {
-              console.error(`[Python Error]: ${stderrText.trim()}`);
-              if (this.pythonResolvers.length > 0) {
-                const resolver = this.pythonResolvers[0];
-                if (stderrText.includes('Traceback')) {
-                  this.pythonResolvers.shift();
-                  resolver.reject(new Error(stderrText));
-                }
-              }
-            }
-          });
-          
-          // Set up process event handlers
-          proc.on('close', (code) => {
-            this.pythonProcExited = true;
-            console.log(`⚠️  Python process closed with code ${code}`);
-            while (this.pythonResolvers.length) {
-              const r = this.pythonResolvers.shift();
-              r.reject(new Error(`Python process closed with code ${code}`));
-            }
-          });
-          
-          proc.on('error', (error) => {
-            this.pythonProcExited = true;
-            console.error(`❌ Python process error: ${error.message}`);
-            while (this.pythonResolvers.length) {
-              const r = this.pythonResolvers.shift();
-              r.reject(error);
-            }
-          });
-          
-          console.log(`✅ Preloaded process transferred to TranscriptionService for meeting ${this.meetingId}`);
-          return;
-        } else {
-          // Preloaded process is dead, remove it
-          console.log(`⚠️  Preloaded process for meeting ${this.meetingId} (looked up as ${meetingIdNum}) is dead, creating new one`);
-          ModelPreloader.releaseModel(meetingIdNum);
+        
+        // Pattern 2: Status messages
+        if (line.match(/^(Global model loaded successfully|Model loaded successfully|Model was trained|Detected language:|Performing voice activity|Audio is shorter|language will be detected)/i)) {
+          console.warn(`⚠️  Leftover data contains status message, skipping: "${line.substring(0, 50)}..."`);
+          continue;
         }
-      } else {
-        // No preloaded model found - log for debugging
-        const allPreloadedIds = ModelPreloader.getPreloadedMeetingIds();
-        const inProgressIds = ModelPreloader.getPreloadsInProgressIds();
-        console.log(`ℹ️  No preloaded model found for meeting ${this.meetingId} (looked up as ${meetingIdNum}). Available preloaded meetings: [${allPreloadedIds.join(', ')}]. Preloads in progress: [${inProgressIds.join(', ')}]`);
+        
+        // Pattern 3: Python/torch warnings and info messages
+        if (line.match(/(torch|UserWarning|deprecated|pyannote|whisperx\.|\[Kairo\]|Starting streaming mode|Send audio file paths|Preloading model|Loading WhisperX model)/i)) {
+          console.warn(`⚠️  Leftover data contains Python log message, skipping: "${line.substring(0, 50)}..."`);
+          continue;
+        }
+        
+        // Pattern 4: Suspicious lines (too short, all caps, etc.)
+        if (line.length < 3 || line.match(/^[A-Z\s]{10,}$/)) {
+          console.warn(`⚠️  Leftover data contains suspicious line, skipping: "${line.substring(0, 50)}..."`);
+          continue;
+        }
+        
+        // Issue 8: Validate response looks like transcription before matching
+        if (!this._validateTranscriptionResponse(line)) {
+          console.warn(`⚠️  Leftover data failed validation, skipping: "${line.substring(0, 50)}..."`);
+          continue;
+        }
+        
+        // Try to match to oldest pending request (Python processes sequentially)
+        const oldestRequestId = Array.from(this.pendingRequests.keys())[0];
+        if (oldestRequestId) {
+          const pending = this.pendingRequests.get(oldestRequestId);
+          console.log(`✅ Matched leftover data to pending request ${oldestRequestId} (chunk ${pending.chunkIndex})`);
+          this.pendingRequests.delete(oldestRequestId);
+          // Also remove from resolver array for backward compatibility
+          const resolverIdx = this.pythonResolvers.findIndex(r => r.requestId === oldestRequestId);
+          if (resolverIdx !== -1) {
+            this.pythonResolvers.splice(resolverIdx, 1);
+          }
+          pending.resolver.resolve(line);
+        } else {
+          console.warn(`⚠️  Leftover data has no matching pending request: "${line.substring(0, 50)}..."`);
+        }
       }
     }
     
-    // If process exists but is dead, clear it
+    // Set up stdout handler for transcription results
+    proc.stdout.on('data', (data) => {
+      this.pythonStdoutBuffer += data.toString();
+      let idx;
+      while ((idx = this.pythonStdoutBuffer.indexOf('\n')) !== -1) {
+        const line = this.pythonStdoutBuffer.slice(0, idx).trim();
+        this.pythonStdoutBuffer = this.pythonStdoutBuffer.slice(idx + 1);
+        
+        // Skip empty lines
+        if (line === '') {
+          console.log(`⚠️  Received empty line from Python stdout, skipping`);
+          continue;
+        }
+        
+        // Filter out log messages BEFORE matching to resolver
+        // Pattern 1: Timestamped log messages (e.g., "2025-12-08 21:22:02 - whisperx.asr - WARNING - ...")
+        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+\w+\.\w+\s+-\s+(WARNING|INFO|DEBUG|ERROR)/)) {
+          console.warn(`⚠️  Filtered out log message from stdout: "${line.substring(0, 80)}..."`);
+          continue; // Don't consume a resolver for log messages
+        }
+        
+        // Pattern 2: "Global model loaded successfully" and similar status messages
+        if (line.match(/^(Global model loaded successfully|Model loaded successfully|Model was trained|Detected language:|Performing voice activity|Audio is shorter|language will be detected)/i)) {
+          console.warn(`⚠️  Filtered out status message from stdout: "${line.substring(0, 80)}..."`);
+          continue;
+        }
+        
+        // Pattern 3: Python/torch warnings and info messages
+        if (line.match(/(torch|UserWarning|deprecated|pyannote|whisperx\.|\[Kairo\]|Starting streaming mode|Send audio file paths|Preloading model|Loading WhisperX model)/i)) {
+          console.warn(`⚠️  Filtered out Python log message from stdout: "${line.substring(0, 80)}..."`);
+          continue;
+        }
+        
+        // Pattern 4: Lines that are clearly not transcription (too short, all caps, etc.)
+        if (line.length < 3 || line.match(/^[A-Z\s]{10,}$/)) {
+          console.warn(`⚠️  Filtered out suspicious line (likely not transcription): "${line.substring(0, 50)}..."`);
+          continue;
+        }
+        
+        // Issue 8: Validate response looks like transcription before matching
+        if (!this._validateTranscriptionResponse(line)) {
+          console.warn(`⚠️  Response failed validation, skipping: "${line.substring(0, 50)}..."`);
+          continue;
+        }
+        
+        // Match response to oldest pending request (Python processes sequentially)
+        // This ensures responses are matched correctly even if some are delayed or lost
+        const oldestRequestId = Array.from(this.pendingRequests.keys())[0];
+        if (oldestRequestId) {
+          const pending = this.pendingRequests.get(oldestRequestId);
+          this.pendingRequests.delete(oldestRequestId);
+          
+          // Also remove from resolver array for backward compatibility
+          const resolverIdx = this.pythonResolvers.findIndex(r => r.requestId === oldestRequestId);
+          if (resolverIdx !== -1) {
+            this.pythonResolvers.splice(resolverIdx, 1);
+          }
+          
+          pending.resolver.resolve(line);
+        } else {
+          console.warn(`⚠️  Received transcription response but no pending request: "${line.substring(0, 50)}..."`);
+        }
+      }
+    });
+    
+    // Set up stderr handler
+    proc.stderr.on('data', (data) => {
+      const stderrText = data.toString();
+      if (stderrText.includes('[Error]') || stderrText.includes('Traceback')) {
+        console.error(`[Python Error]: ${stderrText.trim()}`);
+        // Reject oldest pending request on error
+        if (stderrText.includes('Traceback')) {
+          const oldestRequestId = Array.from(this.pendingRequests.keys())[0];
+          if (oldestRequestId) {
+            const pending = this.pendingRequests.get(oldestRequestId);
+            this.pendingRequests.delete(oldestRequestId);
+            
+            // Also remove from resolver array
+            const resolverIdx = this.pythonResolvers.findIndex(r => r.requestId === oldestRequestId);
+            if (resolverIdx !== -1) {
+              this.pythonResolvers.splice(resolverIdx, 1);
+            }
+            
+            pending.resolver.reject(new Error(stderrText));
+          }
+        }
+      }
+    });
+    
+    // Set up process event handlers
+    proc.on('close', (code) => {
+      this.pythonProcExited = true;
+      console.log(`⚠️  Python process closed with code ${code}`);
+      
+      // Reject all pending requests
+      for (const [requestId, pending] of this.pendingRequests.entries()) {
+        pending.resolver.reject(new Error(`Python process closed with code ${code}`));
+      }
+      this.pendingRequests.clear();
+      
+      // Also clear resolver array for backward compatibility
+      while (this.pythonResolvers.length) {
+        const r = this.pythonResolvers.shift();
+        if (r.reject) {
+          r.reject(new Error(`Python process closed with code ${code}`));
+        }
+      }
+    });
+    
+    proc.on('error', (error) => {
+      this.pythonProcExited = true;
+      console.error(`❌ Python process error: ${error.message}`);
+      
+      // Reject all pending requests
+      for (const [requestId, pending] of this.pendingRequests.entries()) {
+        pending.resolver.reject(error);
+      }
+      this.pendingRequests.clear();
+      
+      // Also clear resolver array for backward compatibility
+      while (this.pythonResolvers.length) {
+        const r = this.pythonResolvers.shift();
+        if (r.reject) {
+          r.reject(error);
+        }
+      }
+    });
+  }
+
+  /**
+   * Ensure Python process is running
+   */
+  async ensurePythonProc() {
+    // Check if process is actually alive
+    if (this.isPythonProcAlive()) return;
+    
+    const ModelPreloader = require('./ModelPreloader');
+    
+    // PRIORITY 1: Try to get global model first
+    console.log('🔍 Checking for global transcription model...');
+    const globalModel = await ModelPreloader.getGlobalModel();
+    
+    if (globalModel && ModelPreloader.isProcessHealthy(globalModel.process)) {
+      console.log('✅ Using global transcription model');
+      this.pythonProc = globalModel.process;
+      this.pythonStdoutBuffer = '';
+      this.pythonResolvers = [];
+      this.pendingRequests.clear(); // Clear any stale pending requests
+      this.pythonProcExited = false;
+      
+      // Set up handlers for the global process (isSharedProcess=true to preserve other instances' handlers)
+      this._setupProcessHandlers(globalModel.process, true);
+      
+      // IMPORTANT: Don't transfer ownership - global model stays in ModelPreloader
+      // This allows multiple TranscriptionService instances to share the same process
+      return;
+    }
+    
+    // PRIORITY 2: Fallback to per-meeting preloaded model
+    if (this.meetingId) {
+      const meetingIdNum = typeof this.meetingId === 'string' ? parseInt(this.meetingId, 10) : this.meetingId;
+      
+      // Check if preload is in progress - wait for it
+      if (ModelPreloader.isPreloadInProgress(meetingIdNum)) {
+        console.log(`⏳ Per-meeting preload in progress for meeting ${this.meetingId}, waiting...`);
+        const preloaded = await ModelPreloader.waitForPreload(meetingIdNum);
+        
+        if (preloaded && preloaded.process && ModelPreloader.isProcessHealthy(preloaded.process)) {
+          console.log(`✅ Using per-meeting preloaded model for meeting ${this.meetingId}`);
+          ModelPreloader.transferModel(meetingIdNum);
+          
+          this.pythonProc = preloaded.process;
+          this.pythonStdoutBuffer = '';
+          this.pythonResolvers = [];
+          this.pendingRequests.clear(); // Clear any stale pending requests
+          this.pythonProcExited = false;
+          
+          this._setupProcessHandlers(preloaded.process);
+          return;
+        }
+      }
+      
+      // Check if already preloaded
+      const preloaded = ModelPreloader.getPreloadedProcess(meetingIdNum);
+      if (preloaded && preloaded.process && ModelPreloader.isProcessHealthy(preloaded.process)) {
+        console.log(`✅ Using per-meeting preloaded model for meeting ${this.meetingId}`);
+        ModelPreloader.transferModel(meetingIdNum);
+        
+        this.pythonProc = preloaded.process;
+        this.pythonStdoutBuffer = '';
+        this.pythonResolvers = [];
+        this.pendingRequests.clear(); // Clear any stale pending requests
+        this.pythonProcExited = false;
+        
+        this._setupProcessHandlers(preloaded.process);
+        return;
+      }
+    }
+    
+    // PRIORITY 3: Create new process (fallback if global and per-meeting both fail)
+    console.log('⚠️  No preloaded model available, creating new process...');
+    
+    // Clear dead process if exists
     if (this.pythonProc) {
-      console.log('⚠️  Python process is dead, restarting...');
       try {
         if (!this.pythonProc.killed) {
           this.pythonProc.kill();
         }
       } catch (e) {
-        // Ignore errors when killing dead process
+        // Ignore
       }
       this.pythonProc = null;
     }
     
-    // Try root venv Python first, then fallback to system Python
+    // Spawn new process
     const venvPython = this.getPythonExecutable();
     const candidates = venvPython 
       ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
@@ -526,107 +625,29 @@ class TranscriptionService {
     
     for (const cmd of candidates) {
       try {
-        // Check if cmd is a full path (contains path separators)
         const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
-        
-        // For full paths, don't use shell mode and pass executable + script separately
-        // For command strings like 'py -3.10', use shell mode
         const spawnOptions = isFullPath 
-          ? { shell: false } // Direct execution, no shell
-          : { shell: process.platform === 'win32' }; // Use shell for command strings
+          ? { shell: false }
+          : { shell: process.platform === 'win32' };
         
-        const proc = spawn(cmd, [PY_SCRIPT_PATH], spawnOptions);
+        const proc = spawn(cmd, [PY_SCRIPT_PATH], {
+          cwd: path.dirname(PY_SCRIPT_PATH),
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env },
+          ...spawnOptions
+        });
         
         this.pythonProc = proc;
         this.pythonStdoutBuffer = '';
         this.pythonResolvers = [];
-        this.pythonProcExited = false; // Track if process has exited
+        this.pendingRequests.clear(); // Clear any stale pending requests
+        this.pythonProcExited = false;
         
-        proc.stdout.on('data', (data) => {
-          this.pythonStdoutBuffer += data.toString();
-          let idx;
-          while ((idx = this.pythonStdoutBuffer.indexOf('\n')) !== -1) {
-            const line = this.pythonStdoutBuffer.slice(0, idx).trim();
-            this.pythonStdoutBuffer = this.pythonStdoutBuffer.slice(idx + 1);
-            
-            // Skip empty lines (they shouldn't consume resolvers)
-            if (line === '') {
-              console.log(`⚠️  Received empty line from Python stdout, skipping`);
-              continue;
-            }
-            
-            // Filter out log messages that might have leaked to stdout
-            // These look like: "2025-12-05 19:52:28 - whisperx.asr - WARNING - ..."
-            if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+\w+\.\w+\s+-\s+(WARNING|INFO|DEBUG|ERROR)/)) {
-              console.warn(`⚠️  Filtered out log message from stdout (should be in stderr): "${line.substring(0, 80)}..."`);
-              continue; // Don't consume a resolver for log messages
-            }
-            
-            const resolver = this.pythonResolvers.shift();
-            if (resolver) {
-              resolver.resolve(line);
-            } else {
-              console.warn(`⚠️  Received transcription response but no resolver waiting: "${line.substring(0, 50)}..."`);
-            }
-          }
-        });
-        
-        proc.stderr.on('data', (data) => {
-          // Log stderr but don't reject - it might be warnings/info, not errors
-          // DO NOT shift resolvers here - stderr is separate from stdout
-          const stderrText = data.toString();
-          // Only log actual errors, filter out warnings/info
-          if (stderrText.includes('[Error]') || stderrText.includes('Traceback')) {
-            console.error(`[Python Error]: ${stderrText.trim()}`);
-            // Only reject if there's a resolver waiting (but don't shift it here)
-            if (this.pythonResolvers.length > 0) {
-              const resolver = this.pythonResolvers[0]; // Peek, don't shift
-              // Only reject if it's a critical error
-              if (stderrText.includes('Traceback')) {
-                this.pythonResolvers.shift();
-                resolver.reject(new Error(stderrText));
-              }
-            }
-          } else {
-            // Log warnings/info to console but don't treat as fatal
-            // Filter out common warnings that aren't errors
-            if (!stderrText.includes('UserWarning') && 
-                !stderrText.includes('deprecated') &&
-                !stderrText.includes('INFO') &&
-                !stderrText.includes('WARNING') &&
-                !stderrText.includes('Model was trained')) {
-              // Only log if it's not a common warning
-              if (stderrText.trim().length > 0) {
-                console.log(`[Python stderr]: ${stderrText.trim()}`);
-              }
-            }
-          }
-        });
-        
-        proc.on('close', (code) => {
-          this.pythonProcExited = true;
-          console.log(`⚠️  Python process closed with code ${code}`);
-          // Reject all pending resolvers
-          while (this.pythonResolvers.length) {
-            const r = this.pythonResolvers.shift();
-            r.reject(new Error(`Python process closed with code ${code}`));
-          }
-        });
-        
-        proc.on('error', (error) => {
-          this.pythonProcExited = true;
-          console.error(`❌ Python process error: ${error.message}`);
-          // Reject all pending resolvers
-          while (this.pythonResolvers.length) {
-            const r = this.pythonResolvers.shift();
-            r.reject(error);
-          }
-        });
+        this._setupProcessHandlers(proc);
         
         started = true;
         break;
       } catch (error) {
-        // Try next candidate
         continue;
       }
     }
@@ -680,6 +701,40 @@ class TranscriptionService {
   }
 
   /**
+   * Check if a transcription request is already pending for the given audioPath and chunkIndex
+   * @param {string} audioPath - Path to audio file
+   * @param {number|null} chunkIndex - Chunk index
+   * @returns {Promise<{text: string, chunkIndex: number|null}>|null} - Existing promise if pending, null otherwise
+   */
+  getPendingRequest(audioPath, chunkIndex = null) {
+    const existingRequest = Array.from(this.pendingRequests.values())
+      .find(p => p.audioPath === audioPath && p.chunkIndex === chunkIndex);
+    
+    if (existingRequest) {
+      // Return a promise that resolves/rejects when the existing request does
+      return new Promise((resolve, reject) => {
+        // Store original resolvers
+        const originalResolve = existingRequest.resolver.resolve;
+        const originalReject = existingRequest.resolver.reject;
+        
+        // Wrap original resolve to also resolve our promise
+        existingRequest.resolver.resolve = (text) => {
+          originalResolve(text);
+          resolve({ text, chunkIndex });
+        };
+        
+        // Wrap original reject to also reject our promise
+        existingRequest.resolver.reject = (error) => {
+          originalReject(error);
+          reject(error);
+        };
+      });
+    }
+    
+    return null;
+  }
+
+  /**
    * Send a single transcription request to Python process
    * @param {string} audioPath - Path to audio file
    * @param {number|null} chunkIndex - Chunk index for correlation
@@ -689,12 +744,31 @@ class TranscriptionService {
   _sendSingleRequest(audioPath, chunkIndex = null) {
     return new Promise((resolve, reject) => {
       let timeout = null;
+      const requestId = this.nextRequestId++;
+      
+      // Check if this exact audioPath is already pending (prevent duplicate retries)
+      const existingRequest = Array.from(this.pendingRequests.values())
+        .find(p => p.audioPath === audioPath && p.chunkIndex === chunkIndex);
+      
+      if (existingRequest) {
+        console.warn(`⚠️  Request for ${path.basename(audioPath)} (chunk ${chunkIndex}) is already pending, reusing existing request`);
+        // Return the existing promise instead of creating a new one
+        existingRequest.resolver.resolve = (text) => {
+          resolve({ text, chunkIndex });
+        };
+        existingRequest.resolver.reject = (error) => {
+          reject(error);
+        };
+        return; // Don't create duplicate request
+      }
       
       const cleanup = () => {
         if (timeout) {
           clearTimeout(timeout);
           timeout = null;
         }
+        // Remove from pending requests
+        this.pendingRequests.delete(requestId);
       };
       
       // Add timeout to prevent hanging forever
@@ -705,6 +779,7 @@ class TranscriptionService {
       
       // Create resolver wrapper that cleans up timeout and stores chunkIndex
       const resolverWrapper = {
+        requestId: requestId, // Track request ID
         chunkIndex: chunkIndex, // Store chunkIndex with resolver
         resolve: (text) => {
           cleanup();
@@ -716,20 +791,26 @@ class TranscriptionService {
         }
       };
       
-      // Add to resolver queue (only one at a time since we process sequentially)
+      // Add to pending requests map (keyed by requestId for tracking)
+      this.pendingRequests.set(requestId, {
+        resolver: resolverWrapper,
+        chunkIndex: chunkIndex,
+        audioPath: audioPath,
+        timestamp: Date.now()
+      });
+      
+      // Also add to resolver array for backward compatibility
       this.pythonResolvers.push(resolverWrapper);
       
       try {
         if (!this.pythonProc.stdin || this.pythonProc.stdin.destroyed) {
           cleanup();
-          this.pythonResolvers.pop(); // Remove the resolver we just added
           return reject(new Error('Python process stdin is not available'));
         }
         
         this.pythonProc.stdin.write(audioPath + '\n');
       } catch (e) {
         cleanup();
-        this.pythonResolvers.pop(); // Remove the resolver we just added
         return reject(e);
       }
     });
@@ -1197,6 +1278,42 @@ class TranscriptionService {
   }
 
   /**
+   * Cancel all pending transcription requests gracefully
+   */
+  cancelPendingRequests() {
+    const pendingCount = this.pendingRequests.size;
+    if (pendingCount > 0) {
+      console.log(`⏹️  Cancelling ${pendingCount} pending transcription request(s)...`);
+      
+      // Reject all pending requests with cancellation error
+      for (const [requestId, pending] of this.pendingRequests.entries()) {
+        try {
+          pending.resolver.reject(new Error('Transcription cancelled - recording stopped'));
+        } catch (e) {
+          // Ignore errors from already-resolved promises
+        }
+      }
+      
+      // Clear pending requests
+      this.pendingRequests.clear();
+      
+      // Also clear resolver array for backward compatibility
+      while (this.pythonResolvers.length) {
+        const r = this.pythonResolvers.shift();
+        if (r.reject) {
+          try {
+            r.reject(new Error('Transcription cancelled - recording stopped'));
+          } catch (e) {
+            // Ignore errors from already-resolved promises
+          }
+        }
+      }
+      
+      console.log(`✅ Cancelled ${pendingCount} pending transcription request(s)`);
+    }
+  }
+
+  /**
    * Cleanup: Stop Python process and clear resources
    */
   cleanup() {
@@ -1206,23 +1323,35 @@ class TranscriptionService {
       console.log(`   Total chunks processed: ${this.chunkCount}`);
       console.log(`   Total utterances: ${this.utterances.length}`);
       
+      // Cancel all pending requests gracefully before cleanup
+      this.cancelPendingRequests();
+      
       if (this.pythonProc && !this.pythonProc.killed) {
-        // Send EXIT command to Python process
-        try {
-          this.pythonProc.stdin?.write('EXIT\n');
-        } catch (e) {
-          // stdin might be closed
-        }
+        // Check if this is the global model - don't kill it
+        const ModelPreloader = require('./ModelPreloader');
+        const globalProcess = ModelPreloader.getGlobalModelProcessSync();
         
-        // Kill the process
-        this.pythonProc.kill();
-        this.pythonProc = null;
-        console.log('✅ Python process stopped');
+        if (globalProcess && this.pythonProc === globalProcess) {
+          console.log('ℹ️  Skipping cleanup of global model (shared resource)');
+          // Clear reference but don't kill the process
+          this.pythonProc = null;
+        } else {
+          // This is a per-meeting process, kill it
+          try {
+            this.pythonProc.stdin?.write('EXIT\n');
+          } catch (e) {
+            // stdin might be closed
+          }
+          this.pythonProc.kill();
+          this.pythonProc = null;
+          console.log('✅ Python process stopped');
+        }
       }
       
       // Clear state
       this.pythonStdoutBuffer = '';
       this.pythonResolvers = [];
+      this.pendingRequests.clear();
       
       console.log('✅ TranscriptionService cleanup completed');
     } catch (error) {
