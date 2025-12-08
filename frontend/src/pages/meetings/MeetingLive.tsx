@@ -259,7 +259,8 @@ const LiveMeetingView = () => {
   const meetingIdNum = id ? parseInt(id, 10) : null;
   const { actionItems: dbActionItems, loading: actionItemsLoading, confirmActionItem, rejectActionItem } = useActionItems(
     Number.isNaN(meetingIdNum) ? null : meetingIdNum,
-    12000 // Poll every 12 seconds
+    12000, // Poll every 12 seconds
+    true   // Enable WebSocket
   );
 
   // Map database action items to UI format
@@ -478,7 +479,7 @@ const LiveMeetingView = () => {
     // Set flags atomically to prevent race conditions
     pollingActiveRef.current = true;
     joinRequestInProgressRef.current = true;
-    
+
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const meetingId = meeting.id;
@@ -582,15 +583,15 @@ const LiveMeetingView = () => {
           const result = await meetService.joinMeeting(meetingId, meetingLink);
           // Clear join request flag after API call completes
           joinRequestInProgressRef.current = false;
-          
+
           if (!result.success) {
             // Show auth errors clearly - user needs to know if they need to log in
-            const isAuthError = result.message?.toLowerCase().includes('token') || 
-                               result.message?.toLowerCase().includes('access') || 
-                               result.message?.toLowerCase().includes('authentication') || 
-                               result.message?.toLowerCase().includes('log in') ||
-                               result.message?.toLowerCase().includes('unauthorized');
-            
+            const isAuthError = result.message?.toLowerCase().includes('token') ||
+              result.message?.toLowerCase().includes('access') ||
+              result.message?.toLowerCase().includes('authentication') ||
+              result.message?.toLowerCase().includes('log in') ||
+              result.message?.toLowerCase().includes('unauthorized');
+
             if (isAuthError) {
               toastError(
                 result.message || 'Authentication required. Please log in to join the meeting with the bot. The bot will join automatically via the scheduled job if you are logged in.',
@@ -608,13 +609,13 @@ const LiveMeetingView = () => {
         } catch (e: any) {
           // Clear join request flag on error
           joinRequestInProgressRef.current = false;
-          
+
           // Show auth errors clearly
-          const isAuthError = e?.message?.toLowerCase().includes('token') || 
-                             e?.message?.toLowerCase().includes('access') || 
-                             e?.message?.toLowerCase().includes('unauthorized') ||
-                             e?.message?.toLowerCase().includes('authentication');
-          
+          const isAuthError = e?.message?.toLowerCase().includes('token') ||
+            e?.message?.toLowerCase().includes('access') ||
+            e?.message?.toLowerCase().includes('unauthorized') ||
+            e?.message?.toLowerCase().includes('authentication');
+
           if (isAuthError) {
             toastError(
               'Authentication required. Please log in to join the meeting with the bot. The bot will join automatically via the scheduled job if you are logged in.',
