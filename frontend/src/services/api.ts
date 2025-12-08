@@ -117,22 +117,188 @@ class ApiService {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
+    // Always refresh token from localStorage before making request
+    // This ensures we have the latest token even if it was updated elsewhere
+    // CRITICAL: Don't clear existing token if localStorage is temporarily unavailable
+    try {
+      const storedToken = localStorage.getItem('authToken');
+      if (storedToken && storedToken.trim()) {
+        // Token exists in localStorage - use it
+        this.token = storedToken.trim();
+      } else if (!storedToken) {
+        // Token is missing from localStorage
+        // Only clear from memory if we're certain it was intentionally removed
+        // Don't clear if we already have a token in memory (might be a localStorage access issue)
+        if (!this.token) {
+          // No token in memory either - this is expected for unauthenticated requests
+          // Don't log warning for auth endpoints
+          const isAuthEndpoint = endpoint.startsWith('/auth/');
+          if (!isAuthEndpoint) {
+            console.warn(`[ApiService] No token in localStorage or memory for ${endpoint}`);
+          }
+        }
+        // Keep existing token in memory if localStorage is empty but we have one
+        // This prevents clearing valid tokens due to localStorage timing issues
+      }
+    } catch (error) {
+      console.error('[ApiService] Error reading token from localStorage:', error);
+      // Continue with existing token if localStorage access fails
+      // Don't clear this.token - it might still be valid
+    }
+    
     const url = `${this.baseURL}${endpoint}`;
     
+    // Build headers - ensure Authorization is included if token exists
+    // CRITICAL: Build headers object carefully to ensure Authorization is always included when token exists
+    const headers: Record<string, string> = {};
+    
+    // First, set Content-Type
+    headers['Content-Type'] = 'application/json';
+    
+    // Then, spread any custom headers from options (but don't let them overwrite Authorization)
+    if (options.headers) {
+      // Handle both Headers object and plain object
+      if (options.headers instanceof Headers) {
+        options.headers.forEach((value, key) => {
+          // Don't copy Authorization from options.headers - we'll set it ourselves
+          if (key.toLowerCase() !== 'authorization') {
+            headers[key] = value;
+          }
+        });
+      } else if (typeof options.headers === 'object') {
+        // Plain object - spread it but exclude Authorization
+        Object.entries(options.headers).forEach(([key, value]) => {
+          if (key.toLowerCase() !== 'authorization' && value) {
+            headers[key] = String(value);
+          }
+        });
+      }
+    }
+    
+    // Always include Authorization header if token is available
+    // Set it LAST to ensure it's never overwritten
+    if (this.token && this.token.trim()) {
+      const authValue = `Bearer ${this.token.trim()}`;
+      headers['Authorization'] = authValue;
+      
+      // Log for debugging
+      if (endpoint.includes('/meetings')) {
+        console.log(`[ApiService] Adding Authorization header for ${endpoint} (token length: ${this.token.length})`);
+      }
+    } else {
+      // Log warning if token is missing for protected endpoints
+      // (Some endpoints like /auth/login don't need tokens)
+      const isAuthEndpoint = endpoint.startsWith('/auth/');
+      if (!isAuthEndpoint) {
+        console.warn(`[ApiService] No token available for request to ${endpoint}`);
+        // Try one more time to get token from localStorage
+        const lastChanceToken = localStorage.getItem('authToken');
+        if (lastChanceToken && lastChanceToken.trim()) {
+          console.log(`[ApiService] Recovered token from localStorage for ${endpoint}`);
+          this.token = lastChanceToken.trim();
+          headers['Authorization'] = `Bearer ${this.token.trim()}`;
+        }
+      }
+    }
+    
+    // Verify Authorization header is set before making request
+    if (!headers['Authorization'] && !endpoint.startsWith('/auth/')) {
+      console.error(`[ApiService] CRITICAL: Authorization header missing for ${endpoint} even though token exists: ${!!this.token}`);
+    }
+    
+    // CRITICAL: Build config carefully - options.headers should NOT overwrite our headers
+    // Extract headers from options separately to prevent overwrite
+    const { headers: optionsHeaders, ...restOptions } = options;
+    
+    // Final check: ensure Authorization is in headers before building config
+    const finalHeaders = { ...headers };
+    if (this.token && this.token.trim() && !finalHeaders['Authorization']) {
+      console.error(`[ApiService] CRITICAL BUG: Token exists but Authorization header missing! Adding it now.`);
+      finalHeaders['Authorization'] = `Bearer ${this.token.trim()}`;
+    }
+    
     const config: RequestInit = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.token && { Authorization: `Bearer ${this.token}` }),
-        ...options.headers,
-      },
-      ...options,
+      ...restOptions, // Spread options first (without headers)
+      headers: finalHeaders, // Then set our carefully constructed headers (this takes precedence)
+      method: options.method || 'GET', // Ensure method is set
     };
+    
+    // Final verification: ensure Authorization header is in the final config
+    if (finalHeaders['Authorization'] && endpoint.includes('/meetings')) {
+      const authHeader = typeof config.headers === 'object' && !(config.headers instanceof Headers)
+        ? (config.headers as any)['Authorization']
+        : null;
+      if (authHeader) {
+        console.log(`[ApiService] Verified Authorization header in config for ${endpoint} (${authHeader.substring(0, 20)}...)`);
+      } else {
+        console.error(`[ApiService] CRITICAL: Authorization header missing from final config for ${endpoint}!`);
+      }
+    }
 
     try {
       const response = await fetch(url, config);
       const data = await response.json();
 
       if (!response.ok) {
+        // Handle 401 Unauthorized - only clear token if it's actually expired or invalid
+        if (response.status === 401) {
+          // Try to extract a more detailed error message
+          let errorMessage = data.error || data.message || 'Authentication required';
+          
+          // If there's nested error information, extract it
+          if (typeof data === 'object' && data.details) {
+            errorMessage = data.details;
+          }
+          
+          // Only clear token for actual expiration or invalid token errors
+          // Don't clear for "Access token required" - that might just mean token wasn't sent
+          const shouldClearToken = errorMessage.toLowerCase().includes('token expired') ||
+                                   errorMessage.toLowerCase().includes('invalid token') ||
+                                   errorMessage.toLowerCase().includes('invalid or inactive user');
+          
+          if (shouldClearToken && this.token) {
+            console.warn(`[ApiService] Received 401 with token error for ${endpoint}: ${errorMessage}`);
+            console.warn(`[ApiService] Clearing token due to: ${errorMessage}`);
+            this.clearToken();
+          } else if (!this.token) {
+            console.warn(`[ApiService] Received 401 for ${endpoint}, but no token was sent`);
+            // Try to recover token from localStorage one more time
+            const recoveredToken = localStorage.getItem('authToken');
+            if (recoveredToken && recoveredToken.trim()) {
+              console.log(`[ApiService] Token recovered from localStorage after 401 - this suggests a timing issue`);
+              this.token = recoveredToken.trim();
+            }
+          } else {
+            // Token exists in memory but got 401
+            // This could mean:
+            // 1. Token wasn't sent in header (bug)
+            // 2. Token is invalid/expired (but we're not clearing it because error message doesn't indicate expiration)
+            // 3. Backend issue
+            console.warn(`[ApiService] Received 401 for ${endpoint}, but token exists in memory (error: ${errorMessage})`);
+            console.warn(`[ApiService] Token in memory: ${this.token ? 'exists' : 'missing'}, length: ${this.token?.length || 0}`);
+            
+            // If error is "Access token required", it means header wasn't sent
+            // This is a bug - token exists but wasn't included
+            if (errorMessage.toLowerCase().includes('access token required')) {
+              console.error(`[ApiService] BUG: Token exists but wasn't sent in Authorization header for ${endpoint}`);
+            }
+          }
+          
+          // Provide more helpful error message
+          if (errorMessage === 'Access token required' || errorMessage === 'Authentication required') {
+            // If we have a token but got this error, it's likely a bug
+            if (this.token) {
+              errorMessage = 'Authentication error occurred. Please try again or refresh the page.';
+            } else {
+              errorMessage = 'Please log in to continue. Your session may have expired.';
+            }
+          }
+          
+          return {
+            error: errorMessage,
+          };
+        }
+        
         // Try to extract a more detailed error message
         let errorMessage = data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
         
@@ -170,6 +336,7 @@ class ApiService {
     if (credentials.email.toLowerCase() === 'areeba@kairo.com' && credentials.password === 'Kairo123') {
       const demoToken = 'demo_token_' + Date.now();
       this.setToken(demoToken);
+      console.log('[ApiService] Demo login successful, token set');
       
       return {
         data: {
@@ -197,14 +364,17 @@ class ApiService {
       body: JSON.stringify(credentials),
     });
 
-    if (response.data) {
+    if (response.data && response.data.token) {
       this.setToken(response.data.token);
+      console.log('[ApiService] Login successful, token set');
       // If switching from demo to real account, clear any demo user data
       if (!response.data.token.startsWith('demo_token_')) {
         try {
           localStorage.removeItem('demoUser');
         } catch {}
       }
+    } else {
+      console.warn('[ApiService] Login response missing token');
     }
 
     return response;
@@ -216,14 +386,17 @@ class ApiService {
       body: JSON.stringify(userData),
     });
 
-    if (response.data) {
+    if (response.data && response.data.token) {
       this.setToken(response.data.token);
+      console.log('[ApiService] Signup successful, token set');
       // Ensure demo data is cleared after real signup
       if (!response.data.token.startsWith('demo_token_')) {
         try {
           localStorage.removeItem('demoUser');
         } catch {}
       }
+    } else {
+      console.warn('[ApiService] Signup response missing token');
     }
 
     return response;
@@ -294,8 +467,18 @@ class ApiService {
 
   // Token management
   setToken(token: string): void {
-    this.token = token;
-    localStorage.setItem('authToken', token);
+    if (!token || !token.trim()) {
+      console.warn('[ApiService] Attempted to set empty token');
+      return;
+    }
+    this.token = token.trim();
+    try {
+      localStorage.setItem('authToken', this.token);
+      console.log('[ApiService] Token set successfully');
+    } catch (error) {
+      console.error('[ApiService] Error setting token in localStorage:', error);
+      // Still keep token in memory even if localStorage fails
+    }
   }
 
   clearToken(): void {
@@ -308,7 +491,46 @@ class ApiService {
   }
 
   isAuthenticated(): boolean {
-    return !!this.token;
+    // Always check localStorage for the latest token
+    const storedToken = localStorage.getItem('authToken');
+    if (storedToken && storedToken.trim()) {
+      this.token = storedToken.trim();
+      return true;
+    }
+    // Clear token from memory if not in localStorage
+    if (this.token) {
+      this.token = null;
+    }
+    return false;
+  }
+
+  /**
+   * Refresh token from localStorage
+   * Call this before making requests if you suspect the token might be stale
+   */
+  refreshToken(): void {
+    try {
+      const storedToken = localStorage.getItem('authToken');
+      if (storedToken && storedToken.trim()) {
+        this.token = storedToken.trim();
+        console.log('[ApiService] Token refreshed from localStorage');
+      } else if (!storedToken) {
+        // Token missing from localStorage
+        // Only clear from memory if we're certain it was intentionally removed
+        // Keep existing token in memory to prevent race conditions
+        if (!this.token) {
+          // No token in memory either - this is fine, user might not be logged in
+        } else {
+          // We have a token in memory but not in localStorage
+          // This could be a localStorage issue or the token was cleared elsewhere
+          // Keep the token in memory for this request - it might still be valid
+          console.warn('[ApiService] Token not found in localStorage, but keeping token in memory (may still be valid)');
+        }
+      }
+    } catch (error) {
+      console.error('[ApiService] Error refreshing token:', error);
+      // Don't clear this.token on error - keep existing token
+    }
   }
 
   // Workspace methods
@@ -393,6 +615,24 @@ class ApiService {
 
   // Meeting methods
   async createMeeting(meetingData: any): Promise<ApiResponse<{ meeting: any }>> {
+    // Ensure token is refreshed before making request
+    // Note: request() will also refresh token, but this ensures we have it before the request
+    this.refreshToken();
+    
+    // Double-check token is available before making request
+    if (!this.token) {
+      const tokenFromStorage = localStorage.getItem('authToken');
+      if (tokenFromStorage && tokenFromStorage.trim()) {
+        this.token = tokenFromStorage.trim();
+        console.log('[ApiService] Token recovered from localStorage in createMeeting');
+      } else {
+        console.error('[ApiService] No token available for createMeeting - user may need to log in');
+        return {
+          error: 'Please log in to create a meeting. Your session may have expired.'
+        };
+      }
+    }
+    
     return this.request<{ meeting: any }>('/meetings', {
       method: 'POST',
       body: JSON.stringify(meetingData),
@@ -446,6 +686,17 @@ class ApiService {
   }
 
   async updateMeetingStatus(meetingId: number, status: string): Promise<ApiResponse<{ meeting: any }>> {
+    // Ensure token is refreshed before making request
+    this.refreshToken();
+    
+    // Double-check token is available
+    if (!this.token) {
+      const tokenFromStorage = localStorage.getItem('authToken');
+      if (tokenFromStorage && tokenFromStorage.trim()) {
+        this.token = tokenFromStorage.trim();
+      }
+    }
+    
     return this.request<{ meeting: any }>(`/meetings/${meetingId}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),

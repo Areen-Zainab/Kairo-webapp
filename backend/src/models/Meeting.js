@@ -111,42 +111,48 @@ class Meeting {
         await Promise.all(notificationPromises);
       }
 
-      // Preload model for immediate meetings (startTime is now or very soon)
+      // Safety preload for very immediate meetings (fallback - global model should handle most cases)
+      // Only preload if meeting starts within 1 minute as extra safety net
       const meetingStartTime = new Date(startTime);
       const now = new Date();
       const timeUntilStart = meetingStartTime.getTime() - now.getTime();
-      
-      // Check if this is an instant meeting (status is 'in-progress' and starts now/very soon)
-      // OR if meeting starts within 5 minutes
       const isInstantMeeting = status === 'in-progress' && timeUntilStart <= 60 * 1000; // Within 1 minute
-      const isImmediateMeeting = timeUntilStart <= 5 * 60 * 1000; // Within 5 minutes
       
-      if ((isInstantMeeting || isImmediateMeeting) && meetingLink) {
-        console.log(`🔄 Preloading model for immediate meeting ${meeting.id}...`, {
-          status,
-          timeUntilStart: `${(timeUntilStart / 1000).toFixed(1)}s`,
-          isInstantMeeting,
-          isImmediateMeeting,
-          hasMeetingLink: !!meetingLink
-        });
+      if (isInstantMeeting && meetingLink) {
+        // Check if global model is available first - skip preload if it is
+        if (ModelPreloader.isGlobalModelAvailable()) {
+          console.log(`✅ Global model available, skipping safety preload for meeting ${meeting.id}`);
+        } else {
+          console.log(`🔄 Safety preload for immediate meeting ${meeting.id} (global model unavailable)`);
         // Preload in background (don't await - don't block meeting creation)
         ModelPreloader.preloadModel(meeting.id)
           .then(() => {
-            console.log(`✅ Model preloaded for immediate meeting ${meeting.id}`);
+              console.log(`✅ Safety preload completed for meeting ${meeting.id}`);
           })
           .catch((error) => {
-            console.error(`⚠️  Failed to preload model for immediate meeting ${meeting.id}:`, error.message);
-            // Don't fail meeting creation if preload fails
+              console.warn(`⚠️  Safety preload failed (will use global model):`, error.message);
+              // Don't fail meeting creation if preload fails - global model will handle it
           });
-      } else {
-        // Debug log to understand why preload didn't trigger
-        if (timeUntilStart <= 10 * 60 * 1000) { // Only log if within 10 minutes to avoid spam
-          console.log(`ℹ️  Model preload skipped for meeting ${meeting.id}:`, {
-            status,
-            timeUntilStart: `${(timeUntilStart / 1000).toFixed(1)}s`,
-            hasMeetingLink: !!meetingLink,
-            reason: !meetingLink ? 'no meeting link' : `timeUntilStart (${timeUntilStart}ms) > 5 minutes`
-          });
+        }
+        
+        // DO NOT trigger auto-join for instant meetings - let the route handler handle it
+        // This prevents duplicate bot instances when frontend calls the route handler
+        // Auto-join is only for scheduled meetings that reach their start time
+        if (meetingType !== 'instant') {
+          // Only trigger auto-join for scheduled meetings, not instant ones
+          const { triggerAutoJoinImmediately } = require('../config/cron');
+          triggerAutoJoinImmediately()
+            .then((result) => {
+              if (result.success && result.triggered > 0) {
+                console.log(`✅ Immediate auto-join triggered for meeting ${meeting.id}`);
+              }
+            })
+            .catch((error) => {
+              console.warn(`⚠️  Failed to trigger immediate auto-join for meeting ${meeting.id}:`, error.message);
+              // Don't fail meeting creation - cron job will handle it
+            });
+        } else {
+          console.log(`ℹ️  Skipping auto-join for instant meeting ${meeting.id} - route handler will handle bot join`);
         }
       }
 

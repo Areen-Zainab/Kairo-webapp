@@ -215,6 +215,7 @@ const LiveMeetingView = () => {
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const pollingActiveRef = useRef(false);
+  const joinRequestInProgressRef = useRef(false); // Atomic flag to prevent duplicate join requests
 
   const participants: Participant[] = [
     { id: '1', name: 'Kairo Bot', avatar: 'KB', isMuted: false, isVideoOn: false, isSpeaking: false },
@@ -448,9 +449,13 @@ const LiveMeetingView = () => {
 
   // Auto-trigger bot join on live page if not yet triggered, and poll for join status
   useEffect(() => {
-    if (!meeting || isBotJoined || pollingActiveRef.current) return;
+    // Atomic check: if already processing or bot joined, return immediately
+    if (!meeting || isBotJoined || pollingActiveRef.current || joinRequestInProgressRef.current) return;
 
+    // Set flags atomically to prevent race conditions
     pollingActiveRef.current = true;
+    joinRequestInProgressRef.current = true;
+    
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const meetingId = meeting.id;
@@ -468,6 +473,7 @@ const LiveMeetingView = () => {
       if (!hasValidLink || !isLive) {
         // If no valid link or not live, we can't join, so stop waiting
         setIsWaitingForBot(false);
+        joinRequestInProgressRef.current = false;
         return;
       }
 
@@ -478,6 +484,7 @@ const LiveMeetingView = () => {
       if (alreadyTriggered && meetingStatus === 'in-progress') {
         setIsBotJoined(true);
         setIsWaitingForBot(false);
+        joinRequestInProgressRef.current = false;
         toastSuccess('Bot has successfully joined the meeting', 'Bot Joined');
         return;
       }
@@ -506,6 +513,7 @@ const LiveMeetingView = () => {
               setIsWaitingForBot(false);
               setIsBotJoining(false);
               pollingActiveRef.current = false;
+              joinRequestInProgressRef.current = false;
               toastSuccess('Bot has successfully joined the meeting', 'Bot Joined');
               if (pollInterval) {
                 clearInterval(pollInterval);
@@ -523,6 +531,7 @@ const LiveMeetingView = () => {
               setIsWaitingForBot(false);
               setIsBotJoining(false);
               pollingActiveRef.current = false;
+              joinRequestInProgressRef.current = false;
               toastError(updatedMeeting.metadata.botJoinError || 'Bot failed to join the meeting', 'Bot Join Failed');
               if (pollInterval) {
                 clearInterval(pollInterval);
@@ -543,30 +552,71 @@ const LiveMeetingView = () => {
         }
       }, 2000); // Poll every 2 seconds
 
-      // Trigger bot join if not already triggered
+      // Trigger bot join if not already triggered - use atomic check
       if (!alreadyTriggered) {
         try {
           setIsBotJoining(true);
           const result = await meetService.joinMeeting(meetingId, meetingLink);
+          // Clear join request flag after API call completes
+          joinRequestInProgressRef.current = false;
+          
           if (!result.success) {
-            // Only show error for explicit failures, not auth errors
-            if (result.message && !result.message.includes('token') && !result.message.includes('Access')) {
+            // Show auth errors clearly - user needs to know if they need to log in
+            const isAuthError = result.message?.toLowerCase().includes('token') || 
+                               result.message?.toLowerCase().includes('access') || 
+                               result.message?.toLowerCase().includes('authentication') || 
+                               result.message?.toLowerCase().includes('log in') ||
+                               result.message?.toLowerCase().includes('unauthorized');
+            
+            if (isAuthError) {
+              toastError(
+                result.message || 'Authentication required. Please log in to join the meeting with the bot. The bot will join automatically via the scheduled job if you are logged in.',
+                'Authentication Required'
+              );
+              // Don't keep polling if auth failed - user needs to log in
+              setIsWaitingForBot(false);
+              setIsBotJoining(false);
+            } else if (result.message) {
+              // Show other errors
               toastError(result.message, 'Bot Join Failed');
+              // Keep polling for non-auth errors - backend might still join via cron
             }
-            // Keep polling even if trigger failed - backend might still join via cron
           }
         } catch (e: any) {
-          // Suppress auth/token errors - they're transient
-          if (!e?.message?.includes('token') && !e?.message?.includes('Access') && !e?.message?.includes('Unauthorized')) {
+          // Clear join request flag on error
+          joinRequestInProgressRef.current = false;
+          
+          // Show auth errors clearly
+          const isAuthError = e?.message?.toLowerCase().includes('token') || 
+                             e?.message?.toLowerCase().includes('access') || 
+                             e?.message?.toLowerCase().includes('unauthorized') ||
+                             e?.message?.toLowerCase().includes('authentication');
+          
+          if (isAuthError) {
+            toastError(
+              'Authentication required. Please log in to join the meeting with the bot. The bot will join automatically via the scheduled job if you are logged in.',
+              'Authentication Required'
+            );
+            // Don't keep polling if auth failed - user needs to log in
+            setIsWaitingForBot(false);
+            setIsBotJoining(false);
+          } else {
             console.error('Error triggering bot join:', e);
+            if (e?.message) {
+              toastError(e.message, 'Bot Join Error');
+            }
+            // Keep polling for non-auth errors - backend might still join via cron
           }
-          // Keep polling even if trigger failed - backend might still join via cron
         }
+      } else {
+        // If already triggered, clear the flag
+        joinRequestInProgressRef.current = false;
       }
 
       // Stop polling after 120 seconds max (give more time for bot to join)
       timeoutId = setTimeout(() => {
         pollingActiveRef.current = false;
+        joinRequestInProgressRef.current = false;
         if (pollInterval) {
           clearInterval(pollInterval);
           pollInterval = null;
@@ -583,6 +633,7 @@ const LiveMeetingView = () => {
 
     return () => {
       pollingActiveRef.current = false;
+      joinRequestInProgressRef.current = false;
       if (pollInterval) {
         clearInterval(pollInterval);
       }
@@ -590,7 +641,7 @@ const LiveMeetingView = () => {
         clearTimeout(timeoutId);
       }
     };
-  }, [meeting?.id, isBotJoined, toastSuccess, toastError]); // Only depend on meeting ID to prevent re-runs on meeting updates
+  }, [meeting?.id, isBotJoined]); // Removed toastSuccess/toastError from dependencies to prevent re-runs
 
   const addNote = async () => {
     if (!newNote.trim() || !meeting?.id) return;

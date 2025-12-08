@@ -4,6 +4,9 @@ const MeetingBot = require('../services/MeetingBot');
 // Track active meeting sessions
 const activeSessions = new Map();
 
+// Track join requests in progress to prevent duplicate joins (lock mechanism)
+const joinLocks = new Map();
+
 /**
  * Auto-join job
  * - Finds meetings whose startTime has arrived and should be joined by the bot
@@ -32,18 +35,34 @@ async function autoJoinMeetings() {
     let skipped = 0;
     const errors = [];
 
+    // Get join locks for checking
+    const joinLocksMap = getJoinLocks();
+
     // Sequentially iterate to keep logs clean and avoid stampedes
     for (const meeting of candidates) {
       try {
+        // PRIORITY 1: Check activeSessions FIRST (most reliable - in-memory, immediate)
+        // This prevents duplicates even if metadata hasn't been updated yet
+        if (activeSessions.has(meeting.id)) {
+          skipped++;
+          continue;
+        }
+
+        // PRIORITY 2: Check joinLocks SECOND (prevents concurrent join attempts)
+        // This catches joins that are in progress but not yet in activeSessions
+        if (joinLocksMap.has(meeting.id)) {
+          skipped++;
+          continue;
+        }
+
+        // PRIORITY 3: Check metadata LAST (least reliable due to database timing)
+        // Only check if metadata says join was triggered
         const meta = meeting.metadata || {};
-        
-        // Skip if already joined
         if (meta && meta.botJoinTriggeredAt) {
-          // Check if session is still active
-          if (activeSessions.has(meeting.id)) {
-            skipped++;
-            continue;
-          }
+          // If metadata says triggered, skip to avoid duplicates
+          // (Even if no active session, it means join is in progress or failed)
+          skipped++;
+          continue;
         }
 
         const link = meeting.meetingLink;
@@ -198,11 +217,41 @@ async function stopMeetingSession(meetingId) {
   }
 }
 
+/**
+ * Lock mechanism functions to prevent duplicate join requests
+ */
+function getJoinLocks() {
+  return joinLocks;
+}
+
+function setJoinLock(meetingId) {
+  // Atomic check-and-set: if lock already exists, return false
+  // If lock doesn't exist, set it and return true
+  if (joinLocks.has(meetingId)) {
+    return false; // Lock already exists
+  }
+  joinLocks.set(meetingId, Date.now());
+  console.log(`🔒 [Lock] Set join lock for meeting ${meetingId}`);
+  return true; // Lock was successfully set
+}
+
+function clearJoinLock(meetingId) {
+  const removed = joinLocks.delete(meetingId);
+  if (removed) {
+    console.log(`🔓 [Lock] Cleared join lock for meeting ${meetingId}`);
+  }
+  return removed;
+}
+
 module.exports = autoJoinMeetings;
 module.exports.getActiveSessions = getActiveSessions;
 module.exports.stopMeetingSession = stopMeetingSession;
 module.exports.removeFromActiveSessions = removeFromActiveSessions;
 // Export activeSessions Map so routes can add sessions to it
 module.exports.activeSessions = activeSessions;
+// Export lock mechanism functions
+module.exports.getJoinLocks = getJoinLocks;
+module.exports.setJoinLock = setJoinLock;
+module.exports.clearJoinLock = clearJoinLock;
 
 

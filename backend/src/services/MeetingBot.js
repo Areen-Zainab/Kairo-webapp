@@ -301,7 +301,10 @@ class MeetingBot {
         // Join the meeting (waits 2 seconds after clicking join)
         await this.joinMeeting();
         
-        // If we get here, join was successful
+        // If we get here, join was successful - start transcription immediately
+        // This prevents chunk accumulation before processing begins
+        await this.audioRecorder.startRealtimeTranscription();
+        
         break; // Exit retry loop
         
       } catch (error) {
@@ -328,9 +331,9 @@ class MeetingBot {
       }
     }
 
-    // If we get here, join was successful - continue with recording setup
-    // Start audio recording
-    await this.audioRecorder.startRealtimeTranscription();
+    // If we get here, join was successful - continue with setup
+    // Note: startRealtimeTranscription() is now called immediately after joinMeeting() 
+    // to prevent chunk accumulation (moved above)
 
     // Start action item extraction
     await this.startActionItemExtraction();
@@ -466,29 +469,41 @@ class MeetingBot {
         }
         
         // Finalize transcription with complete audio file if available
+        // NOTE: This runs in the background (non-blocking) so bot can leave meeting immediately
+        // Diarization will complete asynchronously and update files when done
         if (this.audioRecorder.transcriptionService) {
-          try {
-            if (saveResult?.mp3Path) {
-              console.log(`\n🎭 [MeetingBot.stop] Finalizing transcription with diarization...`);
-              await this.audioRecorder.transcriptionService.finalize(saveResult.mp3Path);
-              console.log(`   ✅ Transcription finalization complete`);
+          const transcriptionService = this.audioRecorder.transcriptionService;
+          const audioPath = saveResult?.mp3Path || null;
+          
+          if (audioPath) {
+            console.log(`\n🎭 [MeetingBot.stop] Starting transcription finalization with diarization (background)...`);
+            console.log(`   Audio file: ${path.basename(audioPath)}`);
+            console.log(`   Bot will leave meeting while diarization runs in background`);
             } else {
-              console.log(`\n🎭 [MeetingBot.stop] Finalizing transcription without diarization (no complete audio)...`);
-              await this.audioRecorder.transcriptionService.finalize(null);
-              console.log(`   ✅ Transcription finalization complete (without diarization)`);
-            }
-          } catch (error) {
-            console.error(`   ⚠️  Transcription finalization failed: ${error.message}`);
-            console.error(`   Error stack:`, error.stack);
-          } finally {
-            // Cleanup transcription service after finalization (whether it succeeded or failed)
-            if (this.audioRecorder.transcriptionService) {
-              this.audioRecorder.transcriptionService.cleanup();
-              this.audioRecorder.transcriptionService = null;
-            }
+            console.log(`\n🎭 [MeetingBot.stop] Starting transcription finalization without diarization (background)...`);
+            console.log(`   Bot will leave meeting while finalization runs in background`);
           }
+          
+          // Run finalization in background (don't await - non-blocking)
+          transcriptionService.finalize(audioPath)
+            .then(() => {
+              console.log(`✅ [Background] Transcription finalization complete`);
+            })
+            .catch((error) => {
+              console.error(`⚠️  [Background] Transcription finalization failed: ${error.message}`);
+            console.error(`   Error stack:`, error.stack);
+            })
+            .finally(() => {
+            // Cleanup transcription service after finalization (whether it succeeded or failed)
+              if (transcriptionService) {
+                transcriptionService.cleanup();
+              }
+            });
+          
+          // Clear reference immediately (cleanup happens in background promise)
+              this.audioRecorder.transcriptionService = null;
         } else {
-          console.log(`   ⚠️  No transcription service available to finalize`);
+          console.log(`   ⚚️  No transcription service available to finalize`);
         }
 
         // Process pending action items post-meeting

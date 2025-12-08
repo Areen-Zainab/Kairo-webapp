@@ -102,8 +102,29 @@ function stopCronJobs() {
   console.log('✅ All cron jobs stopped');
 }
 
+/**
+ * Trigger auto-join job immediately (for immediate meetings)
+ * This bypasses the cron schedule and runs the job right away
+ */
+async function triggerAutoJoinImmediately() {
+  try {
+    console.log('🚀 Triggering auto-join job immediately...');
+    const result = await autoJoinMeetings();
+    if (!result.success) {
+      console.error('❌ Immediate auto-join job failed:', result.error);
+    } else {
+      console.log(`✅ Immediate auto-join completed: triggered=${result.triggered}, skipped=${result.skipped}`);
+    }
+    return result;
+  } catch (error) {
+    console.error('❌ Error in immediate auto-join job:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   initializeCronJobs,
-  stopCronJobs
+  stopCronJobs,
+  triggerAutoJoinImmediately
 };
 

@@ -162,14 +162,36 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       const response = await apiService.getCurrentUser();
       if (response.data?.user) {
         setUser(response.data.user);
-      } else {
+      } else if (response.error) {
+        // Only clear token if it's an actual auth error (expired/invalid token)
+        // Don't clear on network errors or other issues
+        const isAuthError = response.error.toLowerCase().includes('token expired') ||
+                           response.error.toLowerCase().includes('invalid token') ||
+                           response.error.toLowerCase().includes('authentication required');
+        
+        if (isAuthError) {
+          console.warn('[UserContext] Auth check failed with auth error, clearing token:', response.error);
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('demoUser');
+        } else {
+          console.warn('[UserContext] Auth check failed but not an auth error, keeping token:', response.error);
+        }
+      }
+    } catch (error: any) {
+      // Only clear token on actual auth errors, not network errors
+      const errorMessage = error?.message || error?.error || String(error);
+      const isAuthError = errorMessage.toLowerCase().includes('token expired') ||
+                         errorMessage.toLowerCase().includes('invalid token') ||
+                         errorMessage.toLowerCase().includes('401') ||
+                         errorMessage.toLowerCase().includes('unauthorized');
+      
+      if (isAuthError) {
+        console.error('[UserContext] Auth check failed with auth error, clearing token:', errorMessage);
         localStorage.removeItem('authToken');
         localStorage.removeItem('demoUser');
+      } else {
+        console.error('[UserContext] Auth check failed but not an auth error, keeping token:', errorMessage);
       }
-    } catch (error) {
-      console.error('Failed to check auth:', error);
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('demoUser');
     } finally {
       setLoading(false);
     }

@@ -1000,12 +1000,40 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `Cannot join a ${meeting.status} meeting` });
     }
 
-    // Check if bot is already active for this meeting
-    const { getActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
+    // Atomic check and lock mechanism to prevent duplicate bot instances
+    const { getActiveSessions, activeSessions, getJoinLocks, setJoinLock, clearJoinLock } = require("../jobs/autoJoinMeetings");
+    
+    // Check if bot is already active for this meeting (atomic check)
     const activeSessionIds = getActiveSessions();
     if (activeSessionIds.includes(meetingId)) {
       console.log(`⚠️ [ROUTE] Bot already active for meeting ${meetingId}`);
       return res.status(400).json({ error: 'Bot is already active for this meeting' });
+    }
+
+    // Atomic check-and-set lock to prevent concurrent joins
+    // setJoinLock returns false if lock already exists, true if successfully set
+    const lockSet = setJoinLock(meetingId);
+    if (!lockSet) {
+      console.log(`⚠️ [ROUTE] Bot join already in progress for meeting ${meetingId}`);
+      return res.status(409).json({ error: 'Bot join is already in progress for this meeting' });
+    }
+
+    // Update database metadata IMMEDIATELY to prevent cron job from starting duplicate
+    // This happens synchronously before bot.start() to ensure cron job sees it
+    try {
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: {
+          metadata: {
+            ...(meeting.metadata || {}),
+            botJoinTriggeredAt: new Date().toISOString()
+          }
+        }
+      });
+      console.log(`📝 [ROUTE] Updated metadata with botJoinTriggeredAt for meeting ${meetingId}`);
+    } catch (metadataError) {
+      console.error(`⚠️ [ROUTE] Failed to update metadata for meeting ${meetingId}:`, metadataError);
+      // Continue anyway - lock mechanism will still prevent duplicates
     }
 
     // Use MeetingBot class (same as autoJoinMeetings) to ensure session is tracked
@@ -1034,14 +1062,45 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
     // Start bot and store session in activeSessions
     bot.start()
       .then((session) => {
-        // Store session in activeSessions Map so it can be stopped later
-        activeSessions.set(meetingId, session);
-        console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
-        console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+        // Double-check before storing (atomic operation to prevent race conditions)
+        if (!activeSessions.has(meetingId)) {
+          // Store session in activeSessions Map so it can be stopped later
+          activeSessions.set(meetingId, session);
+          console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
+          console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+        } else {
+          console.log(`⚠️ [ROUTE] Bot session already exists for meeting ${meetingId}, stopping duplicate`);
+          // Stop the duplicate session if it was created
+          if (session && session.stop) {
+            session.stop().catch((err) => {
+              console.error(`Error stopping duplicate bot session for meeting ${meetingId}:`, err);
+            });
+          }
+        }
+        // Clear lock after session is stored or duplicate is handled
+        clearJoinLock(meetingId);
       })
       .catch((error) => {
         console.error(`❌ [ROUTE] Error starting bot for meeting ${meetingId}:`, error);
         console.error(error.stack);
+        
+        // Update metadata to indicate failure (allows cron job to retry if needed)
+        prisma.meeting.update({
+          where: { id: meetingId },
+          data: {
+            metadata: {
+              ...(meeting.metadata || {}),
+              botJoinError: error.message,
+              botJoinFailedAt: new Date().toISOString()
+              // Keep botJoinTriggeredAt to prevent immediate retry by cron
+            }
+          }
+        }).catch((updateErr) => {
+          console.error(`⚠️ [ROUTE] Failed to update metadata on error for meeting ${meetingId}:`, updateErr);
+        });
+        
+        // Clear lock on error
+        clearJoinLock(meetingId);
       });
 
     return res.status(200).json({
@@ -1092,11 +1151,40 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `Cannot join a ${meeting.status} meeting` });
     }
 
-    // Check if bot is already active for this meeting
+    // Atomic check and lock mechanism to prevent duplicate bot instances (same as primary route)
+    const { getActiveSessions, activeSessions, getJoinLocks, setJoinLock, clearJoinLock } = require("../jobs/autoJoinMeetings");
+    
+    // Check if bot is already active for this meeting (atomic check)
     const activeSessionIds = getActiveSessions();
     if (activeSessionIds.includes(meetingId)) {
       console.log(`⚠️ [ROUTE] Bot already active for meeting ${meetingId}`);
       return res.status(400).json({ error: 'Bot is already active for this meeting' });
+    }
+
+    // Atomic check-and-set lock to prevent concurrent joins
+    // setJoinLock returns false if lock already exists, true if successfully set
+    const lockSet = setJoinLock(meetingId);
+    if (!lockSet) {
+      console.log(`⚠️ [ROUTE] Bot join already in progress for meeting ${meetingId}`);
+      return res.status(409).json({ error: 'Bot join is already in progress for this meeting' });
+    }
+
+    // Update database metadata IMMEDIATELY to prevent cron job from starting duplicate
+    // This happens synchronously before bot.start() to ensure cron job sees it
+    try {
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: {
+          metadata: {
+            ...(meeting.metadata || {}),
+            botJoinTriggeredAt: new Date().toISOString()
+          }
+        }
+      });
+      console.log(`📝 [ROUTE] Updated metadata with botJoinTriggeredAt for meeting ${meetingId}`);
+    } catch (metadataError) {
+      console.error(`⚠️ [ROUTE] Failed to update metadata for meeting ${meetingId}:`, metadataError);
+      // Continue anyway - lock mechanism will still prevent duplicates
     }
 
     // Use MeetingBot class (same as autoJoinMeetings) to ensure session is tracked
@@ -1125,14 +1213,45 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
     // Start bot and store session in activeSessions
     bot.start()
       .then((session) => {
-        // Store session in activeSessions Map so it can be stopped later
-        activeSessions.set(meetingId, session);
-        console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
-        console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+        // Double-check before storing (atomic operation to prevent race conditions)
+        if (!activeSessions.has(meetingId)) {
+          // Store session in activeSessions Map so it can be stopped later
+          activeSessions.set(meetingId, session);
+          console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
+          console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+        } else {
+          console.log(`⚠️ [ROUTE] Bot session already exists for meeting ${meetingId}, stopping duplicate`);
+          // Stop the duplicate session if it was created
+          if (session && session.stop) {
+            session.stop().catch((err) => {
+              console.error(`Error stopping duplicate bot session for meeting ${meetingId}:`, err);
+            });
+          }
+        }
+        // Clear lock after session is stored or duplicate is handled
+        clearJoinLock(meetingId);
       })
       .catch((error) => {
         console.error(`❌ [ROUTE] Error starting bot for meeting ${meetingId}:`, error);
         console.error(error.stack);
+        
+        // Update metadata to indicate failure (allows cron job to retry if needed)
+        prisma.meeting.update({
+          where: { id: meetingId },
+          data: {
+            metadata: {
+              ...(meeting.metadata || {}),
+              botJoinError: error.message,
+              botJoinFailedAt: new Date().toISOString()
+              // Keep botJoinTriggeredAt to prevent immediate retry by cron
+            }
+          }
+        }).catch((updateErr) => {
+          console.error(`⚠️ [ROUTE] Failed to update metadata on error for meeting ${meetingId}:`, updateErr);
+        });
+        
+        // Clear lock on error
+        clearJoinLock(meetingId);
       });
 
     return res.status(200).json({
