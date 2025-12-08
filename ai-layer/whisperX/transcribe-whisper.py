@@ -93,14 +93,8 @@ logging.basicConfig(
 )
 
 # Suppress WhisperX INFO and DEBUG logs (they're too verbose)
-# Set to ERROR to prevent warnings from leaking to stdout
-logging.getLogger('whisperx').setLevel(logging.ERROR)
-logging.getLogger('whisperx.asr').setLevel(logging.ERROR)
-logging.getLogger('whisperx.vad').setLevel(logging.ERROR)
-logging.getLogger('whisperx.diarize').setLevel(logging.ERROR)
-logging.getLogger('whisperx.alignment').setLevel(logging.ERROR)
-logging.getLogger('pyannote').setLevel(logging.ERROR)
-logging.getLogger('pyannote.audio').setLevel(logging.ERROR)
+logging.getLogger('whisperx').setLevel(logging.WARNING)
+logging.getLogger('whisperx.asr').setLevel(logging.WARNING)
 
 # Now import whisperx
 import whisperx
@@ -324,9 +318,9 @@ def main():
                         print(text)
                         sys.stdout.flush()
                     else:
-                        # This looks like a log message, don't output anything
-                        # Skip it entirely to avoid consuming a resolver
-                        pass
+                        # This looks like a log message, don't output it
+                        print("", file=sys.stdout)
+                        sys.stdout.flush()
                 else:
                     # Empty string = no speech found (silent audio)
                     # Output empty line so backend knows transcription succeeded but was silent
