@@ -4,6 +4,8 @@ require("dotenv").config();
 
 // Initialize cron jobs
 const { initializeCronJobs, stopCronJobs } = require("./config/cron");
+// Initialize WebSocket server
+const { initializeWebSocketServer } = require("./services/WebSocketServer");
 
 const app = express();
 
@@ -71,6 +73,9 @@ const server = app.listen(PORT, async () => {
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Database: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
   
+  // Initialize WebSocket server
+  initializeWebSocketServer(server);
+  
   // Initialize cron jobs after server starts
   initializeCronJobs();
   
@@ -97,7 +102,7 @@ process.on('SIGTERM', async () => {
   console.log('\n⚠️  SIGTERM signal received: closing HTTP server...');
   stopCronJobs();
   
-  // Cleanup global model
+  // Cleanup global model (stops monitoring automatically)
   const ModelPreloader = require('./services/ModelPreloader');
   ModelPreloader.releaseGlobalModel();
   
@@ -111,7 +116,7 @@ process.on('SIGINT', async () => {
   console.log('\n⚠️  SIGINT signal received: closing HTTP server...');
   stopCronJobs();
   
-  // Cleanup global model
+  // Cleanup global model (stops monitoring automatically)
   const ModelPreloader = require('./services/ModelPreloader');
   ModelPreloader.releaseGlobalModel();
   

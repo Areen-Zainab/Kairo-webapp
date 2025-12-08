@@ -526,6 +526,22 @@ class MeetingBot {
       }
 
       console.log(`\n🚪 [MeetingBot.stop] Step 4: Leaving meeting and closing browser...`);
+      
+      // Close WebSocket connections for this meeting
+      if (this.meetingId) {
+        try {
+          const { closeMeetingConnections } = require('./WebSocketServer');
+          const meetingIdNum = typeof this.meetingId === 'string' 
+            ? parseInt(this.meetingId, 10) 
+            : this.meetingId;
+          if (!isNaN(meetingIdNum)) {
+            closeMeetingConnections(meetingIdNum);
+          }
+        } catch (wsError) {
+          console.warn(`⚠️  Error closing WebSocket connections: ${wsError.message}`);
+        }
+      }
+      
       // Leave meeting and close browser
       await this.cleanup();
       console.log(`\n✅ [MeetingBot.stop] Stop process completed successfully!`);

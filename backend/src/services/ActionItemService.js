@@ -162,6 +162,18 @@ class ActionItemService {
         }
       }
 
+      // Broadcast action items via WebSocket if any were added or updated
+      if ((added > 0 || updated > 0) && processedItems.length > 0) {
+        try {
+          const WebSocketServer = require('./WebSocketServer');
+          const formattedItems = processedItems.map((item) => this._toDTO(item));
+          WebSocketServer.broadcastActionItems(meetingId, formattedItems);
+        } catch (wsError) {
+          // Don't fail the extraction if WebSocket broadcast fails
+          console.warn('⚠️ Failed to broadcast action items via WebSocket:', wsError.message);
+        }
+      }
+
       return { added, updated, items: processedItems };
     } catch (error) {
       console.error('Error extracting action items:', error);
@@ -204,7 +216,7 @@ class ActionItemService {
    * Confirm an action item.
    */
   static async confirm(id, userId) {
-    return prisma.actionItem.update({
+    const updated = await prisma.actionItem.update({
       where: { id },
       data: {
         status: 'confirmed',
@@ -214,16 +226,30 @@ class ActionItemService {
       include: {
         confirmedByUser: {
           select: { id: true, name: true, email: true }
+        },
+        meeting: {
+          select: { id: true }
         }
       }
     });
+
+    // Broadcast update via WebSocket
+    try {
+      const WebSocketServer = require('./WebSocketServer');
+      const formattedItem = this._toDTO(updated);
+      WebSocketServer.broadcastActionItems(updated.meeting.id, [formattedItem]);
+    } catch (wsError) {
+      console.warn('⚠️ Failed to broadcast action item confirmation via WebSocket:', wsError.message);
+    }
+
+    return updated;
   }
 
   /**
    * Reject an action item.
    */
   static async reject(id, userId) {
-    return prisma.actionItem.update({
+    const updated = await prisma.actionItem.update({
       where: { id },
       data: {
         status: 'rejected',
@@ -233,9 +259,23 @@ class ActionItemService {
       include: {
         rejectedByUser: {
           select: { id: true, name: true, email: true }
+        },
+        meeting: {
+          select: { id: true }
         }
       }
     });
+
+    // Broadcast update via WebSocket
+    try {
+      const WebSocketServer = require('./WebSocketServer');
+      const formattedItem = this._toDTO(updated);
+      WebSocketServer.broadcastActionItems(updated.meeting.id, [formattedItem]);
+    } catch (wsError) {
+      console.warn('⚠️ Failed to broadcast action item rejection via WebSocket:', wsError.message);
+    }
+
+    return updated;
   }
 
   /**

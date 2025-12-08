@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { broadcastTranscript } = require('./WebSocketServer');
 
 const PY_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/whisperX/transcribe-whisper.py');
 // Check for venv in root directory (where backend runs with venv activated)
@@ -133,10 +134,12 @@ class TranscriptionService {
       // Clean the transcription text - remove any log lines
       const cleanedText = this.cleanTranscriptionText(text);
 
-      // If transcription returned empty or whitespace, log warning but don't fail
+      // If transcription returned empty or whitespace, treat as success (silent audio)
+      // Empty transcription means no speech was detected, which is valid
       if (!cleanedText || !cleanedText.trim()) {
-        console.warn(`⚠️  Empty transcription result for ${path.basename(audioPath)}`);
-        return { success: false, text: '', chunk: finalChunkIndex, error: 'Empty transcription result' };
+        console.log(`ℹ️  Empty transcription result for ${path.basename(audioPath)} (no speech detected)`);
+        // Return success with empty text - don't broadcast to WebSocket for silent chunks
+        return { success: true, text: '', chunk: finalChunkIndex };
       }
 
       // Process transcription result
@@ -217,7 +220,32 @@ class TranscriptionService {
 
         // Log transcription result
         console.log(`✅ Chunk ${chunkNum} transcription done`);
-        
+
+        // Broadcast to WebSocket clients (non-blocking)
+        if (this.meetingId) {
+          try {
+            const meetingIdNum = typeof this.meetingId === 'string' 
+              ? parseInt(this.meetingId, 10) 
+              : this.meetingId;
+            
+            if (!isNaN(meetingIdNum)) {
+              broadcastTranscript(meetingIdNum, {
+                chunkIndex: chunkNum,
+                text: cleanedText.trim(),
+                timestamp: timestamp,
+                speaker: 'Speaker 1' // Will be updated after diarization
+              });
+            } else {
+              console.warn(`⚠️  Cannot broadcast: invalid meetingId ${this.meetingId} (not a number)`);
+            }
+          } catch (broadcastError) {
+            // Don't fail transcription if broadcast fails
+            console.warn(`⚠️  Failed to broadcast transcript chunk ${chunkNum}:`, broadcastError.message);
+          }
+        } else {
+          console.warn(`⚠️  Cannot broadcast: no meetingId set for TranscriptionService`);
+        }
+
         return {
           success: true,
           text: cleanedText.trim(),
@@ -541,6 +569,28 @@ class TranscriptionService {
           continue;
         }
         
+        // Handle explicit failure marker from Python
+        if (line.trim() === '[TRANSCRIPTION_FAILED]') {
+          console.warn(`⚠️  Received [TRANSCRIPTION_FAILED] marker from Python`);
+          // Reject oldest pending request (Python processes sequentially)
+          const oldestRequestId = Array.from(this.pendingRequests.keys())[0];
+          if (oldestRequestId) {
+            const pending = this.pendingRequests.get(oldestRequestId);
+            this.pendingRequests.delete(oldestRequestId);
+            
+            // Also remove from resolver array for backward compatibility
+            const resolverIdx = this.pythonResolvers.findIndex(r => r.requestId === oldestRequestId);
+            if (resolverIdx !== -1) {
+              this.pythonResolvers.splice(resolverIdx, 1);
+            }
+            
+            pending.resolver.reject(new Error('Transcription failed: Python returned [TRANSCRIPTION_FAILED]'));
+          } else {
+            console.warn(`⚠️  Received [TRANSCRIPTION_FAILED] but no pending request`);
+          }
+          continue;
+        }
+        
         // Issue 8: Validate response looks like transcription before matching
         if (!this._validateTranscriptionResponse(line)) {
           console.warn(`⚠️  Response failed validation, skipping: "${line.substring(0, 50)}..."`);
@@ -560,6 +610,12 @@ class TranscriptionService {
             this.pythonResolvers.splice(resolverIdx, 1);
           }
           
+          // CRITICAL FIX #3: Mark success for monitoring
+          const ModelPreloader = require('./ModelPreloader');
+          if (this.pythonProc && ModelPreloader.getGlobalModelProcessSync() === this.pythonProc) {
+            ModelPreloader.markGlobalModelSuccess();
+          }
+          
           pending.resolver.resolve(line);
         } else {
           console.warn(`⚠️  Received transcription response but no pending request: "${line.substring(0, 50)}..."`);
@@ -567,13 +623,44 @@ class TranscriptionService {
       }
     });
     
-    // Set up stderr handler
+    // Set up stderr handler (CRITICAL FIX #4: Better error detection)
     proc.stderr.on('data', (data) => {
       const stderrText = data.toString();
+      
+      // Check for critical errors that indicate process failure
+      if (stderrText.includes('ModuleNotFoundError') && stderrText.includes('whisperx')) {
+        console.error(`[Python Error] ModuleNotFoundError: whisperx not found`);
+        // Mark global model as dead if this is the global process
+        const ModelPreloader = require('./ModelPreloader');
+        if (isSharedProcess && ModelPreloader.getGlobalModelProcessSync() === proc) {
+          ModelPreloader.markGlobalModelDead('ModuleNotFoundError: whisperx not found');
+        }
+        // Reject oldest pending request
+        const oldestRequestId = Array.from(this.pendingRequests.keys())[0];
+        if (oldestRequestId) {
+          const pending = this.pendingRequests.get(oldestRequestId);
+          this.pendingRequests.delete(oldestRequestId);
+          const resolverIdx = this.pythonResolvers.findIndex(r => r.requestId === oldestRequestId);
+          if (resolverIdx !== -1) {
+            this.pythonResolvers.splice(resolverIdx, 1);
+          }
+          pending.resolver.reject(new Error('ModuleNotFoundError: whisperx not found'));
+        }
+        return;
+      }
+      
       if (stderrText.includes('[Error]') || stderrText.includes('Traceback')) {
         console.error(`[Python Error]: ${stderrText.trim()}`);
-        // Reject oldest pending request on error
+        
+        // Check for Python crashes (Traceback)
         if (stderrText.includes('Traceback')) {
+          // Mark global model as dead if this is the global process
+          const ModelPreloader = require('./ModelPreloader');
+          if (isSharedProcess && ModelPreloader.getGlobalModelProcessSync() === proc) {
+            ModelPreloader.markGlobalModelDead('Python crash detected (Traceback)');
+          }
+          
+          // Reject oldest pending request on error
           const oldestRequestId = Array.from(this.pendingRequests.keys())[0];
           if (oldestRequestId) {
             const pending = this.pendingRequests.get(oldestRequestId);
@@ -585,20 +672,35 @@ class TranscriptionService {
               this.pythonResolvers.splice(resolverIdx, 1);
             }
             
-            pending.resolver.reject(new Error(stderrText));
+            pending.resolver.reject(new Error(`Python process crashed: ${stderrText.substring(0, 200)}`));
           }
         }
       }
     });
     
-    // Set up process event handlers
+    // Set up process event handlers (CRITICAL FIX #4: Better error detection)
     proc.on('close', (code) => {
       this.pythonProcExited = true;
-      console.log(`⚠️  Python process closed with code ${code}`);
+      const exitCode = code === null ? 'null (killed)' : code;
+      console.log(`⚠️  Python process closed with code ${exitCode}`);
+      
+      // CRITICAL FIX #4: Mark global model as dead if this is the global process
+      const ModelPreloader = require('./ModelPreloader');
+      if (isSharedProcess && ModelPreloader.getGlobalModelProcessSync() === proc) {
+        if (code === 0) {
+          ModelPreloader.markGlobalModelDead('Process exited normally (unexpected)');
+        } else {
+          ModelPreloader.markGlobalModelDead(`Process exited with code ${exitCode}`);
+        }
+      }
       
       // Reject all pending requests
       for (const [requestId, pending] of this.pendingRequests.entries()) {
-        pending.resolver.reject(new Error(`Python process closed with code ${code}`));
+        try {
+          pending.resolver.reject(new Error(`Python process closed with code ${exitCode}`));
+        } catch (e) {
+          // Ignore errors from already-resolved promises
+        }
       }
       this.pendingRequests.clear();
       
@@ -606,7 +708,11 @@ class TranscriptionService {
       while (this.pythonResolvers.length) {
         const r = this.pythonResolvers.shift();
         if (r.reject) {
-          r.reject(new Error(`Python process closed with code ${code}`));
+          try {
+            r.reject(new Error(`Python process closed with code ${exitCode}`));
+          } catch (e) {
+            // Ignore errors from already-resolved promises
+          }
         }
       }
     });
@@ -615,9 +721,19 @@ class TranscriptionService {
       this.pythonProcExited = true;
       console.error(`❌ Python process error: ${error.message}`);
       
+      // CRITICAL FIX #4: Mark global model as dead if this is the global process
+      const ModelPreloader = require('./ModelPreloader');
+      if (isSharedProcess && ModelPreloader.getGlobalModelProcessSync() === proc) {
+        ModelPreloader.markGlobalModelDead(`Process error: ${error.message}`);
+      }
+      
       // Reject all pending requests
       for (const [requestId, pending] of this.pendingRequests.entries()) {
-        pending.resolver.reject(error);
+        try {
+          pending.resolver.reject(error);
+        } catch (e) {
+          // Ignore errors from already-resolved promises
+        }
       }
       this.pendingRequests.clear();
       
@@ -625,7 +741,11 @@ class TranscriptionService {
       while (this.pythonResolvers.length) {
         const r = this.pythonResolvers.shift();
         if (r.reject) {
-          r.reject(error);
+          try {
+            r.reject(error);
+          } catch (e) {
+            // Ignore errors from already-resolved promises
+          }
         }
       }
     });
@@ -644,7 +764,8 @@ class TranscriptionService {
     console.log('🔍 Checking for global transcription model...');
     const globalModel = await ModelPreloader.getGlobalModel();
     
-    if (globalModel && ModelPreloader.isProcessHealthy(globalModel.process)) {
+    // CRITICAL FIX #1: Use comprehensive health check
+    if (globalModel && ModelPreloader.isGlobalModelHealthy()) {
       console.log('✅ Using global transcription model');
       this.pythonProc = globalModel.process;
       this.pythonStdoutBuffer = '';
@@ -658,6 +779,10 @@ class TranscriptionService {
       // IMPORTANT: Don't transfer ownership - global model stays in ModelPreloader
       // This allows multiple TranscriptionService instances to share the same process
       return;
+    } else if (globalModel) {
+      // Global model exists but is unhealthy - mark as dead
+      console.warn('⚠️  Global model exists but is unhealthy, will recreate');
+      ModelPreloader.markGlobalModelDead('Health check failed in ensurePythonProc');
     }
     
     // PRIORITY 2: Fallback to per-meeting preloaded model
@@ -778,9 +903,17 @@ class TranscriptionService {
         // Ensure process exists and is alive (wait for preload if in progress)
         await this.ensurePythonProc();
 
+        // CRITICAL FIX #1: Health check before using process
         if (!this.isPythonProcAlive()) {
           // Process is dead - clear it and fallback to one-shot mode
           console.log('⚠️  Persistent Python process not alive, clearing and using one-shot mode');
+          
+          // Mark global model as dead if this was the global process
+          const ModelPreloader = require('./ModelPreloader');
+          if (this.pythonProc && ModelPreloader.getGlobalModelProcessSync() === this.pythonProc) {
+            ModelPreloader.markGlobalModelDead('Process not alive in transcription queue');
+          }
+          
           try {
             if (this.pythonProc && !this.pythonProc.killed) {
               this.pythonProc.kill();
@@ -799,9 +932,32 @@ class TranscriptionService {
         const result = await this._sendSingleRequest(audioPath, chunkIndex);
         resolve(result);
       } catch (error) {
-        // Check if persistent process has wrong Python environment
-        if (error.message && error.message.includes('ModuleNotFoundError')) {
+        // CRITICAL FIX #1 & #2: Handle different error types appropriately
+        const ModelPreloader = require('./ModelPreloader');
+        const isGlobalProcess = this.pythonProc && ModelPreloader.getGlobalModelProcessSync() === this.pythonProc;
+        
+        // Check error codes from health checks and stdin validation
+        if (error.code === 'PROCESS_DEAD' || error.code === 'STDIN_MISSING' || 
+            error.code === 'STDIN_DESTROYED' || error.code === 'STDIN_NOT_WRITABLE' ||
+            error.code === 'STDIN_INVALID' || error.code === 'WRITE_FAILED') {
+          console.warn(`⚠️  Process health/stdin issue (${error.code}), marking as dead and using one-shot`);
+          if (isGlobalProcess) {
+            ModelPreloader.markGlobalModelDead(`Process health issue: ${error.code}`);
+          }
+          // Clear the process
+          try {
+            if (this.pythonProc && !this.pythonProc.killed) {
+              this.pythonProc.kill();
+            }
+            this.pythonProc = null;
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        } else if (error.message && error.message.includes('ModuleNotFoundError')) {
           console.error('❌ Persistent process error: wrong Python environment');
+          if (isGlobalProcess) {
+            ModelPreloader.markGlobalModelDead('ModuleNotFoundError: wrong Python environment');
+          }
           // Clear the process so it can be restarted with correct Python
           try {
             if (this.pythonProc && !this.pythonProc.killed) {
@@ -874,6 +1030,32 @@ class TranscriptionService {
    */
   _sendSingleRequest(audioPath, chunkIndex = null) {
     return new Promise((resolve, reject) => {
+      // CRITICAL FIX #1: Health check before sending request
+      if (!this.isPythonProcAlive()) {
+        const error = new Error('Python process is not alive');
+        error.code = 'PROCESS_DEAD';
+        return reject(error);
+      }
+      
+      // CRITICAL FIX #2: Stdin validation before writing
+      if (!this.pythonProc.stdin) {
+        const error = new Error('Python process has no stdin');
+        error.code = 'STDIN_MISSING';
+        return reject(error);
+      }
+      
+      if (this.pythonProc.stdin.destroyed) {
+        const error = new Error('Python process stdin is destroyed');
+        error.code = 'STDIN_DESTROYED';
+        return reject(error);
+      }
+      
+      if (!this.pythonProc.stdin.writable) {
+        const error = new Error('Python process stdin is not writable');
+        error.code = 'STDIN_NOT_WRITABLE';
+        return reject(error);
+      }
+      
       let timeout = null;
       const requestId = this.nextRequestId++;
       
@@ -933,16 +1115,27 @@ class TranscriptionService {
       // Also add to resolver array for backward compatibility
       this.pythonResolvers.push(resolverWrapper);
 
+      // CRITICAL FIX #2: Stdin validation and write with comprehensive error handling
       try {
-        if (!this.pythonProc.stdin || this.pythonProc.stdin.destroyed) {
+        // Double-check stdin is still writable (race condition protection)
+        if (!this.pythonProc.stdin || this.pythonProc.stdin.destroyed || !this.pythonProc.stdin.writable) {
           cleanup();
-          return reject(new Error('Python process stdin is not available'));
+          const error = new Error('Python process stdin became invalid before write');
+          error.code = 'STDIN_INVALID';
+          return reject(error);
         }
-
+        
+        // Send audio path to Python process
         this.pythonProc.stdin.write(audioPath + '\n');
-      } catch (e) {
+        if (this.pythonProc.stdin.flush) {
+          this.pythonProc.stdin.flush();
+        }
+      } catch (writeError) {
         cleanup();
-        return reject(e);
+        const error = new Error(`Failed to write to Python process: ${writeError.message}`);
+        error.code = 'WRITE_FAILED';
+        error.originalError = writeError;
+        return reject(error);
       }
     });
   }
