@@ -608,45 +608,46 @@ class AudioRecorder {
                 try {
                   const result = await pendingPromise;
                   if (result && result.success) {
-                    break; // Success, exit retry loop
+                    // Success from pending request
+                  } else {
+                    console.warn(`   ⚠️  Pending transcription request failed: ${result?.error || 'Unknown error'}`);
                   }
-                } catch (transcribeError) {
-                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
+                } catch (error) {
+                  console.error(`   ❌ Pending transcription request error:`, error.message);
+                }
+              } else {
+                // No pending request, proceed with transcription (with retry logic)
+                let retries = 2;
+                let result = null;
+                while (retries >= 0 && this.isRecording) {
+                  try {
+                    result = await this.transcriptionService.transcribe(chunkPath, idx);
+                    if (result && result.success) {
+                      break; // Success, exit retry loop
+                    }
+                  } catch (transcribeError) {
+                    // Check if recording stopped (graceful cancellation)
+                    if (!this.isRecording) {
+                      console.log(`   ⏹️  Recording stopped, cancelling transcription retry for chunk ${idx}`);
+                      break;
+                    }
+                    console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
+                  }
+                  
+                  if (retries > 0 && (!result || !result.success) && this.isRecording) {
+                    console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+                  }
+                  retries--;
                 }
                 
-                if (retries > 0 && (!result || !result.success)) {
-                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
-                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-                }
-                retries--;
-              }
-              
-              if (!result || !result.success) {
-                console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
-              }
-            } else if (this.transcriptionService) {
-              // Retry transcription up to 2 times if it fails
-              let retries = 2;
-              let result = null;
-              while (retries >= 0) {
-                try {
-                  result = await this.transcriptionService.transcribe(chunkPath, idx);
-                  if (result && result.success) {
-                    break; // Success, exit retry loop
+                if (!result || !result.success) {
+                  if (this.isRecording) {
+                    console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
+                  } else {
+                    console.log(`   ⏹️  Transcription cancelled (recording stopped)`);
                   }
-                } catch (transcribeError) {
-                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
-                
-                if (retries > 0 && (!result || !result.success)) {
-                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
-                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-                }
-                retries--;
-              }
-              
-              if (!result || !result.success) {
-                console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
               }
             }
           } else {
@@ -751,8 +752,7 @@ class AudioRecorder {
         fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
       }
 
-      const mp3Path = chunkPath.replace(/\.webm$/i, '.mp3');
-      
+      // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
       // CRITICAL FIX: Don't wait for transcription - do it in background
       // The transcription might hang and we need to proceed to save the complete recording
       if (this.transcriptionService) {
