@@ -398,6 +398,163 @@ class AudioRecorder {
   }
 
   /**
+   * Reinject audio capture for Zoom meetings (called AFTER "Join Audio" button is clicked)
+   * This handles the case where Zoom creates RTCPeerConnection instances after initial page load
+   */
+  async reinjectAudioCaptureForZoom() {
+    console.log('🔄 [Zoom] Attempting to reinject audio capture...');
+
+    try {
+      if (!this.page || this.page.isClosed()) {
+        console.log('⚠️ [Zoom] Page is closed, cannot reinject audio capture');
+        return false;
+      }
+
+      const result = await this.page.evaluate(() => {
+        // Check if audio capture is already working
+        if (window.audioCapture?.isRecording && window.audioCapture?.trackToRecord) {
+          return {
+            success: true,
+            alreadyWorking: true,
+            message: 'Audio capture already active'
+          };
+        }
+
+        console.log('[KAIRO-ZOOM] Searching for audio tracks...');
+
+        // Strategy 1: Look for video elements with audio tracks
+        const videos = document.querySelectorAll('video');
+        let foundTrack = null;
+
+        for (let i = 0; i < videos.length; i++) {
+          const video = videos[i];
+          if (video.srcObject && video.srcObject.getTracks) {
+            const tracks = video.srcObject.getTracks();
+            const audioTrack = tracks.find(t => t.kind === 'audio' && t.readyState === 'live');
+
+            if (audioTrack) {
+              console.log(`[KAIRO-ZOOM] Found audio track in video element ${i}`);
+              foundTrack = audioTrack;
+              break;
+            }
+          }
+        }
+
+        // Strategy 2: If no track found in video elements, try to intercept new RTCPeerConnection
+        if (!foundTrack) {
+          console.log('[KAIRO-ZOOM] No audio track in video elements, setting up RTCPeerConnection hook...');
+
+          // Store reference to original RTCPeerConnection
+          const OriginalRTC = window.RTCPeerConnection;
+
+          // Get all existing RTCPeerConnection instances (if browser exposes them)
+          // This is a fallback - most browsers don't expose existing instances
+          try {
+            // Try to find existing peer connections through global objects
+            const possiblePCs = [];
+
+            // Check if Zoom stores peer connections in global scope
+            for (const key in window) {
+              try {
+                if (window[key] && window[key].constructor &&
+                  window[key].constructor.name === 'RTCPeerConnection') {
+                  possiblePCs.push(window[key]);
+                }
+              } catch (e) {
+                // Skip properties that throw errors
+              }
+            }
+
+            // Try to get tracks from existing peer connections
+            for (const pc of possiblePCs) {
+              try {
+                const receivers = pc.getReceivers ? pc.getReceivers() : [];
+                for (const receiver of receivers) {
+                  if (receiver.track && receiver.track.kind === 'audio' &&
+                    receiver.track.readyState === 'live') {
+                    console.log('[KAIRO-ZOOM] Found audio track in existing RTCPeerConnection');
+                    foundTrack = receiver.track;
+                    break;
+                  }
+                }
+                if (foundTrack) break;
+              } catch (e) {
+                console.log('[KAIRO-ZOOM] Error checking peer connection:', e.message);
+              }
+            }
+          } catch (e) {
+            console.log('[KAIRO-ZOOM] Could not search existing peer connections:', e.message);
+          }
+        }
+
+        // If we found a track, set it up for recording
+        if (foundTrack) {
+          console.log('[KAIRO-ZOOM] Setting up audio capture with found track...');
+
+          // Initialize audio capture if not already initialized
+          if (!window.audioCapture) {
+            window.audioCapture = {
+              audioContext: null,
+              completeRecorder: null,
+              completeChunks: [],
+              streamRecorder: null,
+              streamChunks: [],
+              lastProcessedIndex: 0,
+              isRecording: false,
+              trackToRecord: null
+            };
+          }
+
+          // Set the track
+          window.audioCapture.trackToRecord = foundTrack;
+
+          // Try to start recording
+          try {
+            if (window.startAudioRecording) {
+              window.startAudioRecording();
+              return {
+                success: true,
+                alreadyWorking: false,
+                message: 'Audio capture started with found track'
+              };
+            } else {
+              return {
+                success: false,
+                message: 'startAudioRecording function not available'
+              };
+            }
+          } catch (e) {
+            return {
+              success: false,
+              message: 'Error starting audio recording: ' + e.message
+            };
+          }
+        }
+
+        return {
+          success: false,
+          message: 'No audio tracks found'
+        };
+      });
+
+      if (result.success) {
+        if (result.alreadyWorking) {
+          console.log('✅ [Zoom] Audio capture already working');
+        } else {
+          console.log('✅ [Zoom] Audio capture reinjected successfully');
+        }
+        return true;
+      } else {
+        console.log(`⚠️ [Zoom] Failed to reinject audio capture: ${result.message}`);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ [Zoom] Error reinjecting audio capture:', error.message);
+      return false;
+    }
+  }
+
+  /**
    * Start real-time transcription with event-driven chunk retrieval
    */
   async startRealtimeTranscription() {
@@ -480,18 +637,18 @@ class AudioRecorder {
           // Write raw blob first
           const tempRawPath = path.join(this.chunksDir, `temp_raw_${ts}.webm`);
           fs.writeFileSync(tempRawPath, Buffer.from(chunkData.audio, 'base64'));
-          
+
           // Remux to ensure valid WebM structure (raw blobs from MediaRecorder may be incomplete)
           const remuxSuccess = await new Promise((resolve) => {
             const ffmpegPath = ffmpeg.path;
             const remuxCommand = `"${ffmpegPath}" -i "${tempRawPath}" -c copy "${chunkPath}" -y 2>&1`;
-            
+
             exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
               // Clean up temp file
               try {
                 if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath);
-              } catch (e) {}
-              
+              } catch (e) { }
+
               if (remuxError || !fs.existsSync(chunkPath) || fs.statSync(chunkPath).size < 1000) {
                 resolve(false);
               } else {
@@ -499,15 +656,15 @@ class AudioRecorder {
               }
             });
           });
-          
+
           if (!remuxSuccess) {
             console.error(`💾 Failed to remux chunk ${chunkData.startIndex}, skipping transcription`);
             return;
           }
-          
+
           // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
           console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) - Saved: ${path.basename(chunkPath)}`);
-          
+
           if (this.transcriptionService && this.isRecording) {
             // Check if request is already pending before creating new one
             const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
@@ -541,14 +698,14 @@ class AudioRecorder {
                   }
                   console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
-                
+
                 if (retries > 0 && (!result || !result.success) && this.isRecording) {
                   console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
                   await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
                 }
                 retries--;
               }
-              
+
               if (!result || !result.success) {
                 if (this.isRecording) {
                   console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
@@ -599,7 +756,7 @@ class AudioRecorder {
           if (extractSuccess) {
             // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
             console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)}`);
-            
+
             if (this.transcriptionService && this.isRecording) {
               // Check if request is already pending before creating new one
               const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
@@ -633,14 +790,14 @@ class AudioRecorder {
                     }
                     console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                   }
-                  
+
                   if (retries > 0 && (!result || !result.success) && this.isRecording) {
                     console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
                     await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
                   }
                   retries--;
                 }
-                
+
                 if (!result || !result.success) {
                   if (this.isRecording) {
                     console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
@@ -844,12 +1001,12 @@ class AudioRecorder {
   async stopRecording() {
     // Mark recording as stopped to cancel pending transcriptions gracefully
     this.isRecording = false;
-    
+
     // Cancel all pending transcription requests gracefully
     if (this.transcriptionService) {
       this.transcriptionService.cancelPendingRequests();
     }
-    
+
     // Clear interval
     if (this.chunkFlushInterval) {
       clearInterval(this.chunkFlushInterval);

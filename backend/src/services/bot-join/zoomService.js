@@ -38,24 +38,24 @@ function buildBrowserJoinURL(meetingId, password, botName) {
 async function ensureMicMuted(page, maxAttempts = 8) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await sleep(1000);
-    
+
     const result = await page.evaluate(() => {
       const buttons = document.querySelectorAll('button, div[role="button"]');
       for (const btn of buttons) {
         const ariaLabel = (btn.getAttribute('aria-label') || '').trim();
         const text = (btn.textContent || '').trim();
-        
+
         // Check if button is disabled or loading
         if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
           return { clicked: false, state: 'loading' };
         }
-        
+
         // If button says "Mute" - mic is ON, click to mute
         if (ariaLabel === 'Mute' || text === 'Mute') {
           btn.click();
           return { clicked: true, state: 'muted' };
         }
-        
+
         // If button says "Unmute" - mic is already OFF
         if (ariaLabel === 'Unmute' || text === 'Unmute') {
           return { clicked: false, state: 'already_muted' };
@@ -63,16 +63,16 @@ async function ensureMicMuted(page, maxAttempts = 8) {
       }
       return { clicked: false, state: 'not_found' };
     });
-    
+
     if (result.state === 'loading') {
       continue;
     }
-    
+
     if (result.state === 'muted' || result.state === 'already_muted') {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -82,24 +82,24 @@ async function ensureMicMuted(page, maxAttempts = 8) {
 async function ensureVideoOff(page, maxAttempts = 8) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await sleep(1000);
-    
+
     const result = await page.evaluate(() => {
       const buttons = document.querySelectorAll('button, div[role="button"]');
       for (const btn of buttons) {
         const ariaLabel = (btn.getAttribute('aria-label') || '').trim();
         const text = (btn.textContent || '').trim();
-        
+
         // Check if button is disabled or loading
         if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
           return { clicked: false, state: 'loading' };
         }
-        
+
         // If button says "Stop Video" - camera is ON, click to stop
         if (ariaLabel === 'Stop Video' || text === 'Stop Video') {
           btn.click();
           return { clicked: true, state: 'stopped' };
         }
-        
+
         // If button says "Start Video" - camera is already OFF
         if (ariaLabel === 'Start Video' || text === 'Start Video') {
           return { clicked: false, state: 'already_off' };
@@ -107,16 +107,16 @@ async function ensureVideoOff(page, maxAttempts = 8) {
       }
       return { clicked: false, state: 'not_found' };
     });
-    
+
     if (result.state === 'loading') {
       continue;
     }
-    
+
     if (result.state === 'stopped' || result.state === 'already_off') {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -132,7 +132,7 @@ async function navigateToMeeting(page, meetUrl, botName) {
   }
 
   const { meetingId, password } = extractZoomInfo(meetUrl);
-  
+
   if (!meetingId) {
     throw new Error('Invalid Zoom meeting URL');
   }
@@ -160,13 +160,13 @@ async function enterBotName(page, botName) {
 
   try {
     const nameSelectors = [
-      '#inputname', 
-      'input[name="username"]', 
-      'input[placeholder*="name" i]', 
+      '#inputname',
+      'input[name="username"]',
+      'input[placeholder*="name" i]',
       'input[aria-label*="name" i]',
       'input[type="text"]'
     ];
-    
+
     let nameInput = null;
     for (const selector of nameSelectors) {
       try {
@@ -174,7 +174,7 @@ async function enterBotName(page, botName) {
         if (nameInput) {
           break;
         }
-      } catch {}
+      } catch { }
     }
 
     if (nameInput) {
@@ -208,12 +208,12 @@ async function disableCameraAndMic(page) {
   if (!micMuted || !videoOff) {
     console.log('⚠️ WARNING: Could not confirm mic/video are off!');
     console.log('   Will keep trying...');
-    
+
     let retries = 0;
     while ((!micMuted || !videoOff) && retries < 3) {
       console.log(`🔄 Retry ${retries + 1}/3: Waiting 3 more seconds...`);
       await sleep(3000);
-      
+
       if (!micMuted) {
         const newMicResult = await ensureMicMuted(page, 5);
         if (newMicResult) micMuted = true;
@@ -222,10 +222,10 @@ async function disableCameraAndMic(page) {
         const newVideoResult = await ensureVideoOff(page, 5);
         if (newVideoResult) videoOff = true;
       }
-      
+
       retries++;
     }
-    
+
     if (!micMuted || !videoOff) {
       throw new Error('Could not disable mic/camera after multiple attempts');
     }
@@ -270,14 +270,14 @@ async function clickJoinButton(page) {
   // Handle "Join Audio by Computer" dialog
   console.log('🔊 Checking for audio dialog...');
   await sleep(2000);
-  
+
   const audioJoined = await page.evaluate(() => {
     const buttons = document.querySelectorAll('button');
     for (const btn of buttons) {
       const text = (btn.textContent || '').toLowerCase();
       const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-      if (text.includes('join audio') || text.includes('computer audio') || 
-          ariaLabel.includes('join audio')) {
+      if (text.includes('join audio') || text.includes('computer audio') ||
+        ariaLabel.includes('join audio')) {
         btn.click();
         return true;
       }
@@ -288,53 +288,34 @@ async function clickJoinButton(page) {
   if (audioJoined) {
     console.log('✅ Clicked "Join Audio by Computer"');
     console.log('⚠️ NOTE: Joining audio auto-unmutes mic - will mute again...');
-    
+
     // CRITICAL: Mute mic again after joining audio
     await sleep(2000);
     await ensureMicMuted(page, 5);
-    
+
     // NEW: Wait for audio to fully initialize
     console.log('⏳ Waiting for audio to initialize...');
     await sleep(5000);
+
+    // CRITICAL: Ensure audio capture is active after Zoom audio initialization
+    const audioCaptureActive = await ensureAudioCaptureActive(page);
+    if (!audioCaptureActive) {
+      console.log('⚠️ WARNING: Audio capture may not be working properly!');
+      console.log('   Transcription and recording may be affected.');
+    }
   } else {
     console.log('⚠️ Audio dialog not found - audio may not be joined!');
   }
 
-  // NEW: Debug audio capture
+
+  // Debug audio capture for final verification
   const audioDebug = await debugAudioCapture(page);
-  
-  // NEW: If audio capture isn't working, try to find and capture audio
+
+  // If audio capture still isn't working, log detailed warning
   if (!audioDebug.hasAudioCapture || !audioDebug.audioCaptureDetails?.hasTrack) {
-    console.log('\n⚠️ Audio capture not working! Attempting to find audio streams...');
-    
-    await page.evaluate(() => {
-      console.log('[ZOOM DEBUG] Looking for audio streams...');
-      
-      // Try to find video elements with audio
-      const videos = document.querySelectorAll('video');
-      console.log(`[ZOOM DEBUG] Found ${videos.length} video elements`);
-      
-      videos.forEach((video, idx) => {
-        console.log(`[ZOOM DEBUG] Video ${idx}:`, {
-          hasSrcObject: !!video.srcObject,
-          muted: video.muted,
-          paused: video.paused,
-          readyState: video.readyState
-        });
-        
-        if (video.srcObject) {
-          const tracks = video.srcObject.getTracks();
-          console.log(`[ZOOM DEBUG] Video ${idx} tracks:`, tracks.map(t => ({
-            kind: t.kind,
-            enabled: t.enabled,
-            muted: t.muted,
-            readyState: t.readyState
-          })));
-        }
-      });
-    });
-    
-    await sleep(2000);
+    console.log('\n⚠️ Audio capture verification failed after all attempts!');
+    console.log('   This indicates an issue with Zoom audio initialization.');
+    console.log('   Recording and transcription will likely not work correctly.');
   }
 
   // Final verification
@@ -343,17 +324,17 @@ async function clickJoinButton(page) {
     const buttons = document.querySelectorAll('button, div[role="button"]');
     let micState = 'unknown';
     let videoState = 'unknown';
-    
+
     for (const btn of buttons) {
       const ariaLabel = (btn.getAttribute('aria-label') || '').trim();
       const text = (btn.textContent || '').trim();
-      
+
       if (ariaLabel === 'Unmute' || text === 'Unmute') micState = 'muted';
       if (ariaLabel === 'Mute' || text === 'Mute') micState = 'unmuted';
       if (ariaLabel === 'Start Video' || text === 'Start Video') videoState = 'off';
       if (ariaLabel === 'Stop Video' || text === 'Stop Video') videoState = 'on';
     }
-    
+
     return { micState, videoState };
   });
 
@@ -367,16 +348,16 @@ async function clickJoinButton(page) {
  */
 async function debugAudioCapture(page) {
   console.log('\n🔍 DEBUG: Checking audio capture status...');
-  
+
   await sleep(3000);
-  
+
   const audioDebug = await page.evaluate(() => {
     return {
       hasAudioCapture: !!window.audioCapture,
       hasGetDisplayMedia: !!navigator.mediaDevices?.getDisplayMedia,
       hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
       hasAudioContext: !!window.AudioContext || !!window.webkitAudioContext,
-      
+
       // Check if audioCapture was initialized
       audioCaptureDetails: window.audioCapture ? {
         isRecording: window.audioCapture.isRecording,
@@ -385,13 +366,13 @@ async function debugAudioCapture(page) {
         hasRecorder: !!window.audioCapture.completeRecorder,
         streamChunks: window.audioCapture.streamChunks?.length || 0,
       } : null,
-      
+
       // Check for audio/video elements on page
       audioElements: document.querySelectorAll('audio').length,
       videoElements: document.querySelectorAll('video').length,
-      
+
       // Check for media streams
-      hasMediaStream: (function() {
+      hasMediaStream: (function () {
         const videos = document.querySelectorAll('video');
         let count = 0;
         videos.forEach(v => {
@@ -401,7 +382,7 @@ async function debugAudioCapture(page) {
       })()
     };
   });
-  
+
   console.log('📊 Audio Debug Info:');
   console.log('  Browser APIs Available:');
   console.log(`    - getDisplayMedia: ${audioDebug.hasGetDisplayMedia}`);
@@ -409,7 +390,7 @@ async function debugAudioCapture(page) {
   console.log(`    - AudioContext: ${audioDebug.hasAudioContext}`);
   console.log('  Audio Capture:');
   console.log(`    - window.audioCapture exists: ${audioDebug.hasAudioCapture}`);
-  
+
   if (audioDebug.audioCaptureDetails) {
     console.log(`    - isRecording: ${audioDebug.audioCaptureDetails.isRecording}`);
     console.log(`    - hasTrack: ${audioDebug.audioCaptureDetails.hasTrack}`);
@@ -419,13 +400,118 @@ async function debugAudioCapture(page) {
   } else {
     console.log('    - ⚠️ audioCapture not initialized!');
   }
-  
+
   console.log('  Page Elements:');
   console.log(`    - <audio> elements: ${audioDebug.audioElements}`);
   console.log(`    - <video> elements: ${audioDebug.videoElements}`);
   console.log(`    - videos with streams: ${audioDebug.hasMediaStream}`);
-  
+
   return audioDebug;
+}
+
+/**
+ * Ensure audio capture is active after joining Zoom audio
+ * This function waits for audio to initialize and verifies capture is working
+ * @param {Page} page - Puppeteer page object
+ * @returns {Promise<boolean>} - True if audio capture is active, false otherwise
+ */
+async function ensureAudioCaptureActive(page) {
+  console.log('\n🔍 [Zoom] Ensuring audio capture is active...');
+
+  const maxAttempts = 3;
+  const delayBetweenAttempts = 2000; // 2 seconds
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`   Attempt ${attempt}/${maxAttempts}...`);
+
+    // Wait for audio to initialize
+    await sleep(delayBetweenAttempts);
+
+    // Check current audio capture status
+    const status = await page.evaluate(() => {
+      return {
+        hasAudioCapture: !!window.audioCapture,
+        isRecording: window.audioCapture?.isRecording || false,
+        hasTrack: !!window.audioCapture?.trackToRecord,
+        trackState: window.audioCapture?.trackToRecord?.readyState || 'none',
+        streamChunks: window.audioCapture?.streamChunks?.length || 0
+      };
+    });
+
+    console.log(`   Status: recording=${status.isRecording}, hasTrack=${status.hasTrack}, trackState=${status.trackState}, chunks=${status.streamChunks}`);
+
+    // If audio capture is working, we're done
+    if (status.isRecording && status.hasTrack && status.trackState === 'live') {
+      console.log('✅ [Zoom] Audio capture is active and working!');
+      return true;
+    }
+
+    // If not working, try to manually start it
+    if (!status.isRecording || !status.hasTrack) {
+      console.log(`   ⚠️ Audio capture not active, attempting to start manually...`);
+
+      const manualStartResult = await page.evaluate(() => {
+        // Try to find audio tracks manually
+        const videos = document.querySelectorAll('video');
+        let foundAudioTrack = false;
+
+        for (let i = 0; i < videos.length; i++) {
+          const video = videos[i];
+          if (video.srcObject && video.srcObject.getTracks) {
+            const tracks = video.srcObject.getTracks();
+            const audioTrack = tracks.find(t => t.kind === 'audio' && t.readyState === 'live');
+
+            if (audioTrack) {
+              console.log(`[KAIRO-ZOOM] Found audio track in video ${i}, setting up...`);
+
+              // Set the track if audioCapture exists
+              if (window.audioCapture) {
+                window.audioCapture.trackToRecord = audioTrack;
+                foundAudioTrack = true;
+
+                // Try to start recording
+                if (window.startAudioRecording && !window.audioCapture.isRecording) {
+                  try {
+                    window.startAudioRecording();
+                    return { success: true, method: 'manual_start' };
+                  } catch (e) {
+                    console.error('[KAIRO-ZOOM] Error starting recording:', e);
+                    return { success: false, error: e.message };
+                  }
+                } else if (window.audioCapture.isRecording) {
+                  return { success: true, method: 'already_recording' };
+                }
+              }
+              break;
+            }
+          }
+        }
+
+        if (!foundAudioTrack) {
+          return { success: false, error: 'No audio tracks found in video elements' };
+        }
+
+        return { success: false, error: 'Unknown error' };
+      });
+
+      if (manualStartResult.success) {
+        console.log(`   ✅ Audio capture started manually (${manualStartResult.method})`);
+        // Wait a bit for recording to stabilize
+        await sleep(1000);
+        return true;
+      } else {
+        console.log(`   ⚠️ Manual start failed: ${manualStartResult.error}`);
+      }
+    }
+
+    // If this is not the last attempt, wait before retrying
+    if (attempt < maxAttempts) {
+      console.log(`   Waiting before retry...`);
+    }
+  }
+
+  console.log('❌ [Zoom] Failed to ensure audio capture is active after all attempts');
+  return false;
 }
 
 /**
@@ -439,20 +525,20 @@ async function leaveMeeting(page) {
   }
 
   console.log('🔍 Searching for leave button...');
-  
+
   const leftMeeting = await page.evaluate(() => {
     const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-    
+
     for (const btn of buttons) {
       const text = (btn.textContent || '').toLowerCase().trim();
       const label = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
-      
+
       // Look for "Leave" or "End" button
       if (label.includes('leave') || text.includes('leave') ||
-          label.includes('end') || text.includes('end')) {
+        label.includes('end') || text.includes('end')) {
         const rect = btn.getBoundingClientRect();
         const isVisible = rect.width > 0 && rect.height > 0;
-        
+
         if (isVisible) {
           btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
           btn.click();
@@ -460,7 +546,7 @@ async function leaveMeeting(page) {
         }
       }
     }
-    
+
     return false;
   });
 
@@ -479,6 +565,7 @@ module.exports = {
   disableCameraAndMic,
   clickJoinButton,
   leaveMeeting,
-  debugAudioCapture  // Export for testing
+  debugAudioCapture,  // Export for testing
+  ensureAudioCaptureActive  // Export for MeetingBot integration
 };
 
