@@ -23,8 +23,8 @@ class ActionItemAgent:
 
     # Groq API configuration (FREE)
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-    GROQ_MODEL = "openai/gpt-oss-120b"  # Updated per Groq curl example
-    # Alternative: "llama-3.1-8b-instant" for slightly better accuracy
+    GROQ_MODEL = "llama-3.1-8b-instant"  # Fast and accurate model for action items
+    # Alternative: "llama-3.2-3b-preview" for faster but less accurate
     GROQ_API_KEY_ENV = "GROQ_API_KEY"
     ACTION_ITEMS_PROVIDER_ENV = "ACTION_ITEMS_PROVIDER"  # groq | hf
     HF_ACTION_MODEL = "google/flan-t5-large"
