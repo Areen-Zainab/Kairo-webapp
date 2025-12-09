@@ -587,6 +587,36 @@ print(result)
     // Convert meetingId to string if it's a number (for UUID compatibility)
     const meetingIdStr = String(meetingId);
 
+    // Fetch existing decisions (to keep if new run returns only placeholder)
+    let existingDecisionsContent = null;
+    let existingDecisionsConfidence = null;
+    try {
+      const existingDecisionRow = await prisma.aiInsight.findFirst({
+        where: { meetingId: meetingIdStr, insightType: 'decisions' },
+        orderBy: { createdAt: 'desc' }
+      });
+      if (existingDecisionRow && existingDecisionRow.content) {
+        const parsed = JSON.parse(existingDecisionRow.content);
+        if (Array.isArray(parsed)) {
+          existingDecisionsContent = parsed;
+        } else if (parsed && parsed.decisions && Array.isArray(parsed.decisions)) {
+          existingDecisionsContent = parsed.decisions;
+        }
+        existingDecisionsConfidence = existingDecisionRow.confidenceScore || null;
+      }
+    } catch (err) {
+      console.warn(`Warning: Could not load existing decisions for preservation: ${err.message}`);
+    }
+
+    const isPlaceholderDecisions = (list) => {
+      return (
+        Array.isArray(list) &&
+        list.length === 1 &&
+        typeof list[0] === 'object' &&
+        (list[0].decision === 'No decisions identified.' || list[0].decision === 'No decisions made')
+      );
+    };
+
     // Use Prisma transaction to ensure atomicity
     await prisma.$transaction(async (tx) => {
       // Delete existing insights for this meeting using Prisma's type-safe method
@@ -623,8 +653,18 @@ print(result)
 
       // Save decisions
       if (insights.decisions && Array.isArray(insights.decisions) && insights.decisions.length > 0) {
-        const content = JSON.stringify(insights.decisions);
-        const avgConfidence = insights.decisions.reduce((sum, d) => sum + (d.confidence || 0.8), 0) / insights.decisions.length;
+        let decisionsToSave = insights.decisions;
+
+        // If new output is placeholder but we have prior good decisions, keep the old ones
+        if (isPlaceholderDecisions(insights.decisions) && existingDecisionsContent && !isPlaceholderDecisions(existingDecisionsContent)) {
+          console.log('   ⚠️ New decisions are placeholder; preserving previous decisions from DB.');
+          decisionsToSave = existingDecisionsContent;
+        }
+
+        const content = JSON.stringify(decisionsToSave);
+        const avgConfidence =
+          decisionsToSave.reduce((sum, d) => sum + (d.confidence || existingDecisionsConfidence || 0.8), 0) /
+          decisionsToSave.length;
 
         await tx.aiInsight.create({
           data: {
@@ -635,7 +675,7 @@ print(result)
             confidenceScore: Number(avgConfidence)
           }
         });
-        console.log(`   ✅ Saved ${insights.decisions.length} decision(s)`);
+        console.log(`   ✅ Saved ${decisionsToSave.length} decision(s)`);
       }
 
       // Save sentiment

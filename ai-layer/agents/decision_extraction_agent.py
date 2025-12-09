@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import time
 import requests
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Any
@@ -52,10 +53,91 @@ class DecisionExtractionAgent:
     )
 
     def __init__(self):
-        self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
-        self.use_api = bool(self.api_key)
-        if not self.api_key:
+        # Multi-key rotation
+        self.api_keys = []
+        key1 = os.getenv(self.GROQ_API_KEY_ENV)
+        key2 = os.getenv("GROQ_API_KEY_2")
+        if key1:
+            self.api_keys.append(key1)
+        if key2:
+            self.api_keys.append(key2)
+
+        self.current_key_index = 0
+        self.use_api = len(self.api_keys) > 0
+        if not self.use_api:
             print("Error: GROQ_API_KEY not set; decision agent will use fallback mode.", file=sys.stderr)
+        elif len(self.api_keys) > 1:
+            print(f"Info: {len(self.api_keys)} Groq API keys configured for rotation.", file=sys.stderr)
+
+    def _get_next_api_key(self) -> str:
+        if not self.api_keys:
+            return None
+        key = self.api_keys[self.current_key_index]
+        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+        return key
+
+    def _call_groq_api(self, payload: Dict[str, Any], timeout: int = 60) -> Dict[str, Any]:
+        """
+        Call Groq API with key rotation and retry on timeout/429.
+        Multiple rounds with backoff. If 429 supplies Retry-After, we honor it.
+        """
+        if not self.api_keys:
+            raise ValueError("No Groq API keys configured")
+
+        total_keys = len(self.api_keys)
+        max_rounds = 3  # first pass + two retries
+        base_wait_seconds = 5
+        last_error = None
+
+        for round_idx in range(max_rounds):
+            for attempt_in_round in range(total_keys):
+                api_key = self._get_next_api_key()
+                try:
+                    response = requests.post(
+                        self.GROQ_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json=payload,
+                        timeout=timeout
+                    )
+                    response.raise_for_status()
+                    return response.json()
+
+                except requests.exceptions.Timeout as e:
+                    last_error = e
+                    print(f"Timeout with key {attempt_in_round + 1}/{total_keys} (round {round_idx + 1}); trying next key...", file=sys.stderr)
+                    continue
+
+                except requests.exceptions.HTTPError as e:
+                    last_error = e
+                    if e.response is not None and e.response.status_code == 429:
+                        retry_after = e.response.headers.get("Retry-After")
+                        wait_hint = None
+                        try:
+                            wait_hint = int(retry_after)
+                        except Exception:
+                            wait_hint = None
+                        print(f"Rate limit (429) with key {attempt_in_round + 1}/{total_keys} (round {round_idx + 1}); trying next key...", file=sys.stderr)
+                        if wait_hint:
+                            print(f"Server suggests waiting {wait_hint}s.", file=sys.stderr)
+                            time.sleep(wait_hint)
+                        continue
+                    raise
+
+                except Exception as e:
+                    last_error = e
+                    raise
+
+            if round_idx < max_rounds - 1:
+                wait_seconds = base_wait_seconds * (round_idx + 1)
+                print(f"All keys failed in round {round_idx + 1}. Waiting {wait_seconds}s before retry...", file=sys.stderr)
+                time.sleep(wait_seconds)
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("Groq API failed after retries.")
 
     def run(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract decisions from transcript using GROQ API or fallback method."""
@@ -65,22 +147,23 @@ class DecisionExtractionAgent:
         # Try GROQ API first if API key is available
         if self.use_api:
             try:
-                return self._extract_with_GROQ(transcript)
+                result = self._extract_with_GROQ(transcript)
+                if result:
+                    return result
+                # If empty, return explicit no-decisions message
+                return [self._no_decisions_placeholder()]
             except Exception as e:
                 print(f"Warning: GROQ API decision extraction failed: {e}. Falling back to pattern matching.", file=sys.stderr)
-                # Fall through to pattern matching
 
         # Fallback to simple pattern matching
-        return self._extract_with_patterns(transcript)
+        pattern_results = self._extract_with_patterns(transcript)
+        if pattern_results:
+            return pattern_results
+        return [self._no_decisions_placeholder()]
 
     def _extract_with_GROQ(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract decisions using GROQ Cloud API."""
         prompt = self._build_extraction_prompt(transcript)
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
 
         payload = {
             "model": self.GROQ_MODEL,
@@ -98,15 +181,7 @@ class DecisionExtractionAgent:
             "max_tokens": 3000
         }
 
-        response = requests.post(
-            self.GROQ_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
-
-        response.raise_for_status()
-        result = response.json()
+        result = self._call_groq_api(payload, timeout=60)
 
         # Extract the content from the response
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
@@ -165,6 +240,8 @@ class DecisionExtractionAgent:
                 )
                 normalized.append(normalized_decision.to_dict())
             
+            if not normalized:
+                return [self._no_decisions_placeholder()]
             return normalized
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse GROQ API JSON response: {e}")
@@ -223,6 +300,17 @@ JSON Response:"""
                 })
 
         return decisions
+
+    def _no_decisions_placeholder(self) -> Dict[str, Any]:
+        """Return a clear placeholder when no decisions are identified."""
+        return {
+            "decision": "No decisions identified.",
+            "context": "",
+            "impact": "Low",
+            "participants": [],
+            "timestamp": None,
+            "confidence": 0.5
+        }
 
     def _split_sentences(self, text: str) -> List[str]:
         raw = [s.strip() for s in text.replace("?", ".").replace("!", ".").split(".")]
