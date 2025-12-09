@@ -36,18 +36,43 @@ class ActionItemService {
     };
 
     const updates = {
-      lastSeenAt: new Date(),
-      updateHistory: [...(existing.updateHistory || []), historyEntry]
+      lastSeenAt: new Date()
     };
+
+    let hasChanges = false;
+
+    // Update title if new one is more detailed (longer and different)
+    if (newItem.title && newItem.title !== existing.title) {
+      if (newItem.title.length > existing.title.length && 
+          !existing.title.toLowerCase().includes(newItem.title.toLowerCase()) &&
+          !newItem.title.toLowerCase().includes(existing.title.toLowerCase())) {
+        updates.title = newItem.title;
+        historyEntry.changes.title = `updated from "${existing.title}" to "${newItem.title}"`;
+        hasChanges = true;
+      }
+    }
 
     // Append description if different and not already contained.
     if (newItem.description && newItem.description !== existing.description) {
-      const existingDesc = existing.description || '';
-      const newDesc = newItem.description || '';
+      const existingDesc = (existing.description || '').toLowerCase();
+      const newDesc = (newItem.description || '').toLowerCase();
 
+      // Check if new description adds meaningful information
       if (!existingDesc.includes(newDesc) && !newDesc.includes(existingDesc)) {
-        updates.description = `${existingDesc}\n\n[Updated ${new Date().toLocaleString()}]: ${newDesc}`;
-        historyEntry.changes.description = 'appended';
+        const timestamp = new Date().toLocaleString('en-US', { 
+          month: 'short', 
+          day: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        updates.description = `${existing.description || ''}\n\n[Updated ${timestamp}]: ${newItem.description}`.trim();
+        historyEntry.changes.description = 'appended new information';
+        hasChanges = true;
+      } else if (newItem.description.length > (existing.description || '').length) {
+        // New description is more detailed, replace it
+        updates.description = newItem.description;
+        historyEntry.changes.description = 'replaced with more detailed version';
+        hasChanges = true;
       }
     }
 
@@ -56,6 +81,7 @@ class ActionItemService {
       const oldAssignee = existing.assignee || 'unassigned';
       updates.assignee = newItem.assignee;
       historyEntry.changes.assignee = `changed from "${oldAssignee}" to "${newItem.assignee}"`;
+      hasChanges = true;
     }
 
     // Update due date if different.
@@ -66,6 +92,7 @@ class ActionItemService {
       if (!existingDueDate || existingDueDate.getTime() !== newDueDate.getTime()) {
         updates.dueDate = newDueDate;
         historyEntry.changes.dueDate = `changed from "${existingDueDate?.toISOString() || 'none'}" to "${newDueDate.toISOString()}"`;
+        hasChanges = true;
       }
     }
 
@@ -73,16 +100,25 @@ class ActionItemService {
     if (newItem.confidence && newItem.confidence > (existing.confidence || 0)) {
       updates.confidence = newItem.confidence;
       historyEntry.changes.confidence = `increased from ${existing.confidence || 0} to ${newItem.confidence}`;
+      hasChanges = true;
     }
 
-    return updates;
+    // Only add history entry if there were actual changes
+    if (hasChanges) {
+      updates.updateHistory = [...(existing.updateHistory || []), historyEntry];
+    } else {
+      // Just update lastSeenAt without adding history
+      updates.updateHistory = existing.updateHistory || [];
+    }
+
+    return { updates, hasChanges };
   }
 
   /**
    * Extract and process action items from transcript.
    * Called periodically during meeting.
    */
-  static async extractAndUpdateActionItems(meetingId, transcriptText, sourceChunk = null) {
+  static async extractAndUpdateActionItems(meetingId, transcriptText, sourceChunk = null, isIncremental = false) {
     try {
       meetingId = parseInt(meetingId, 10);
       if (isNaN(meetingId)) {
@@ -100,7 +136,8 @@ class ActionItemService {
       }
 
       // Filter by confidence threshold to reduce noise
-      const CONFIDENCE_THRESHOLD = 0.5; // Lowered from 0.7 for more action items
+      // Lower threshold for incremental processing to catch items early
+      const CONFIDENCE_THRESHOLD = isIncremental ? 0.4 : 0.5;
       const highConfidenceItems = extractedItems.filter(item =>
         (item.confidence || 0) >= CONFIDENCE_THRESHOLD
       );
@@ -124,6 +161,7 @@ class ActionItemService {
       let added = 0;
       let updated = 0;
       const processedItems = [];
+      const itemsToUpdate = [];
 
       for (const item of highConfidenceItems) {
         const normalizedItem = {
@@ -138,18 +176,28 @@ class ActionItemService {
         const existing = existingMap.get(canonicalKey);
 
         if (existing) {
-          const updates = this._mergeActionItem(existing, {
+          const { updates, hasChanges } = this._mergeActionItem(existing, {
             ...normalizedItem,
             sourceChunk
           });
 
-          const updatedItem = await prisma.actionItem.update({
-            where: { id: existing.id },
-            data: updates
-          });
+          // Only update if there are actual changes (not just lastSeenAt)
+          if (hasChanges) {
+            const updatedItem = await prisma.actionItem.update({
+              where: { id: existing.id },
+              data: updates
+            });
 
-          processedItems.push(updatedItem);
-          updated++;
+            processedItems.push(updatedItem);
+            itemsToUpdate.push(updatedItem);
+            updated++;
+          } else {
+            // Just update lastSeenAt without broadcasting
+            await prisma.actionItem.update({
+              where: { id: existing.id },
+              data: { lastSeenAt: new Date() }
+            });
+          }
         } else {
           const newItem = await prisma.actionItem.create({
             data: {
@@ -163,20 +211,23 @@ class ActionItemService {
               sourceChunk,
               status: 'pending',
               rawData: item,
-              updateHistory: []
+              updateHistory: [],
+              firstSeenAt: new Date(),
+              lastSeenAt: new Date()
             }
           });
 
           processedItems.push(newItem);
+          itemsToUpdate.push(newItem);
           added++;
         }
       }
 
       // Broadcast action items via WebSocket if any were added or updated
-      if ((added > 0 || updated > 0) && processedItems.length > 0) {
+      if ((added > 0 || updated > 0) && itemsToUpdate.length > 0) {
         try {
           const WebSocketServer = require('./WebSocketServer');
-          const formattedItems = processedItems.map((item) => this._toDTO(item));
+          const formattedItems = itemsToUpdate.map((item) => this._toDTO(item));
           WebSocketServer.broadcastActionItems(meetingId, formattedItems);
         } catch (wsError) {
           // Don't fail the extraction if WebSocket broadcast fails

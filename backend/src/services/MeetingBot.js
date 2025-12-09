@@ -637,10 +637,22 @@ class MeetingBot {
     }
 
     const ActionItemService = require('./ActionItemService');
-    const transcriptPath = path.join(this.meetingDataDir, 'transcript_complete.txt');
-    const EXTRACTION_INTERVAL = parseInt(process.env.ACTION_ITEMS_INTERVAL || '60000', 10); // Reduced from 90s to 60s for faster updates
+    
+    // Use live transcript file for real-time extraction
+    const liveTranscriptPath = this.audioRecorder?.transcriptFilepath;
+    
+    // Fallback to complete transcript if live transcript not available
+    const transcriptPath = liveTranscriptPath || path.join(this.meetingDataDir, 'transcript_complete.txt');
+    
+    // Reduced to 30 seconds for faster action item detection
+    const EXTRACTION_INTERVAL = parseInt(process.env.ACTION_ITEMS_INTERVAL || '30000', 10);
+    
+    // Track last processed position to enable incremental processing
+    let lastProcessedLength = 0;
+    let lastFullExtractionTime = Date.now();
+    const FULL_EXTRACTION_INTERVAL = 120000; // Full re-extraction every 2 minutes to catch updates
 
-    console.log('📋 Starting periodic action item extraction...');
+    console.log(`📋 Starting periodic action item extraction (every ${EXTRACTION_INTERVAL / 1000}s)...`);
 
     this.actionItemsInterval = setInterval(async () => {
       if (this.actionItemsRunning || !this.page || this.page.isClosed()) {
@@ -654,21 +666,48 @@ class MeetingBot {
           return;
         }
 
-        const transcriptText = fs.readFileSync(transcriptPath, 'utf8');
-        if (!transcriptText || transcriptText.trim().length < 50) {
+        const fullTranscriptText = fs.readFileSync(transcriptPath, 'utf8');
+        if (!fullTranscriptText || fullTranscriptText.trim().length < 50) {
           return;
         }
 
         const currentChunk = this.audioRecorder?.chunkSequence || null;
+        const currentTime = Date.now();
+        
+        // Determine if we should do full extraction or incremental
+        const shouldDoFullExtraction = (currentTime - lastFullExtractionTime) >= FULL_EXTRACTION_INTERVAL;
+        
+        let transcriptToProcess = fullTranscriptText;
+        let isIncremental = false;
+
+        if (!shouldDoFullExtraction && fullTranscriptText.length > lastProcessedLength) {
+          // Incremental processing: only process new content
+          // Include some overlap (last 500 chars) for context
+          const overlapSize = 500;
+          const startPos = Math.max(0, lastProcessedLength - overlapSize);
+          transcriptToProcess = fullTranscriptText.substring(startPos);
+          isIncremental = true;
+          
+          console.log(`📋 Processing incremental transcript (${transcriptToProcess.length} chars, ${fullTranscriptText.length - lastProcessedLength} new)`);
+        } else if (shouldDoFullExtraction) {
+          // Full re-extraction to catch any updates or changes
+          console.log(`📋 Performing full transcript re-extraction (${fullTranscriptText.length} chars)`);
+          lastFullExtractionTime = currentTime;
+          isIncremental = false;
+        }
+
+        // Update last processed length
+        lastProcessedLength = fullTranscriptText.length;
 
         const result = await ActionItemService.extractAndUpdateActionItems(
           this.meetingId,
-          transcriptText,
-          currentChunk
+          transcriptToProcess,
+          currentChunk,
+          isIncremental
         );
 
         if (result.added > 0 || result.updated > 0) {
-          console.log(`📋 Action items: ${result.added} added, ${result.updated} updated`);
+          console.log(`📋 Action items: ${result.added} added, ${result.updated} updated (${isIncremental ? 'incremental' : 'full'} extraction)`);
         }
       } catch (error) {
         console.error('❌ Error in action item extraction:', error.message);
