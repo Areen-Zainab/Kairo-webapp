@@ -344,85 +344,83 @@ async function clickJoinButton(page) {
 
 /**
  * Debug audio capture after joining
- * Add this right after clickJoinButton in zoomService.js
+ * Simplified to check actual recording state
  */
 async function debugAudioCapture(page) {
   console.log('\n🔍 DEBUG: Checking audio capture status...');
 
-  await sleep(3000);
+  await sleep(2000);
 
   const audioDebug = await page.evaluate(() => {
+    const hasAudioCapture = typeof window.audioCapture !== 'undefined';
+
     return {
-      hasAudioCapture: !!window.audioCapture,
-      hasGetDisplayMedia: !!navigator.mediaDevices?.getDisplayMedia,
+      hasAudioCapture: hasAudioCapture,
       hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
       hasAudioContext: !!window.AudioContext || !!window.webkitAudioContext,
 
       // Check if audioCapture was initialized
-      audioCaptureDetails: window.audioCapture ? {
-        isRecording: window.audioCapture.isRecording,
+      audioCaptureDetails: hasAudioCapture ? {
+        isRecording: window.audioCapture.isRecording || false,
         hasTrack: !!window.audioCapture.trackToRecord,
+        trackState: window.audioCapture.trackToRecord?.readyState || 'none',
         hasContext: !!window.audioCapture.audioContext,
         hasRecorder: !!window.audioCapture.completeRecorder,
         streamChunks: window.audioCapture.streamChunks?.length || 0,
       } : null,
 
       // Check for audio/video elements on page
-      audioElements: document.querySelectorAll('audio').length,
       videoElements: document.querySelectorAll('video').length,
 
-      // Check for media streams
-      hasMediaStream: (function () {
+      // Check for media streams with audio
+      videoStreamsWithAudio: (function () {
         const videos = document.querySelectorAll('video');
         let count = 0;
         videos.forEach(v => {
-          if (v.srcObject) count++;
+          if (v.srcObject && v.srcObject.getAudioTracks) {
+            const audioTracks = v.srcObject.getAudioTracks();
+            if (audioTracks.length > 0) count++;
+          }
         });
         return count;
       })()
     };
   });
 
-  console.log('📊 Audio Debug Info:');
-  console.log('  Browser APIs Available:');
-  console.log(`    - getDisplayMedia: ${audioDebug.hasGetDisplayMedia}`);
-  console.log(`    - getUserMedia: ${audioDebug.hasGetUserMedia}`);
-  console.log(`    - AudioContext: ${audioDebug.hasAudioContext}`);
-  console.log('  Audio Capture:');
-  console.log(`    - window.audioCapture exists: ${audioDebug.hasAudioCapture}`);
+  console.log('📊 Audio Capture Status:');
+  console.log(`  ✓ getUserMedia API: ${audioDebug.hasGetUserMedia ? 'Available' : 'Missing'}`);
+  console.log(`  ✓ AudioContext API: ${audioDebug.hasAudioContext ? 'Available' : 'Missing'}`);
+  console.log(`  ✓ Audio Capture System: ${audioDebug.hasAudioCapture ? 'Initialized' : 'Not Initialized'}`);
 
   if (audioDebug.audioCaptureDetails) {
-    console.log(`    - isRecording: ${audioDebug.audioCaptureDetails.isRecording}`);
-    console.log(`    - hasTrack: ${audioDebug.audioCaptureDetails.hasTrack}`);
-    console.log(`    - hasContext: ${audioDebug.audioCaptureDetails.hasContext}`);
-    console.log(`    - hasRecorder: ${audioDebug.audioCaptureDetails.hasRecorder}`);
-    console.log(`    - streamChunks: ${audioDebug.audioCaptureDetails.streamChunks}`);
+    const details = audioDebug.audioCaptureDetails;
+    console.log(`  ✓ Recording Active: ${details.isRecording ? 'YES ✅' : 'NO ⚠️'}`);
+    console.log(`  ✓ Audio Track: ${details.hasTrack ? `YES (${details.trackState})` : 'NO ⚠️'}`);
+    console.log(`  ✓ Chunks Recorded: ${details.streamChunks}`);
   } else {
-    console.log('    - ⚠️ audioCapture not initialized!');
+    console.log('  ⚠️ Audio capture not initialized - recording will not work!');
   }
 
-  console.log('  Page Elements:');
-  console.log(`    - <audio> elements: ${audioDebug.audioElements}`);
-  console.log(`    - <video> elements: ${audioDebug.videoElements}`);
-  console.log(`    - videos with streams: ${audioDebug.hasMediaStream}`);
+  console.log(`  ✓ Video Elements: ${audioDebug.videoElements}`);
+  console.log(`  ✓ Streams with Audio: ${audioDebug.videoStreamsWithAudio}`);
 
   return audioDebug;
 }
 
 /**
- * Ensure audio capture is active after joining Zoom audio
- * This function waits for audio to initialize and verifies capture is working
+ * Verify audio capture is active after joining Zoom audio
+ * Audio capture should start automatically via getUserMedia override
  * @param {Page} page - Puppeteer page object
  * @returns {Promise<boolean>} - True if audio capture is active, false otherwise
  */
 async function ensureAudioCaptureActive(page) {
-  console.log('\n🔍 [Zoom] Ensuring audio capture is active...');
+  console.log('\n🔍 [Zoom] Verifying audio capture status...');
 
-  const maxAttempts = 3;
+  const maxAttempts = 5;
   const delayBetweenAttempts = 2000; // 2 seconds
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`   Attempt ${attempt}/${maxAttempts}...`);
+    console.log(`   Check ${attempt}/${maxAttempts}...`);
 
     // Wait for audio to initialize
     await sleep(delayBetweenAttempts);
@@ -446,71 +444,19 @@ async function ensureAudioCaptureActive(page) {
       return true;
     }
 
-    // If not working, try to manually start it
-    if (!status.isRecording || !status.hasTrack) {
-      console.log(`   ⚠️ Audio capture not active, attempting to start manually...`);
-
-      const manualStartResult = await page.evaluate(() => {
-        // Try to find audio tracks manually
-        const videos = document.querySelectorAll('video');
-        let foundAudioTrack = false;
-
-        for (let i = 0; i < videos.length; i++) {
-          const video = videos[i];
-          if (video.srcObject && video.srcObject.getTracks) {
-            const tracks = video.srcObject.getTracks();
-            const audioTrack = tracks.find(t => t.kind === 'audio' && t.readyState === 'live');
-
-            if (audioTrack) {
-              console.log(`[KAIRO-ZOOM] Found audio track in video ${i}, setting up...`);
-
-              // Set the track if audioCapture exists
-              if (window.audioCapture) {
-                window.audioCapture.trackToRecord = audioTrack;
-                foundAudioTrack = true;
-
-                // Try to start recording
-                if (window.startAudioRecording && !window.audioCapture.isRecording) {
-                  try {
-                    window.startAudioRecording();
-                    return { success: true, method: 'manual_start' };
-                  } catch (e) {
-                    console.error('[KAIRO-ZOOM] Error starting recording:', e);
-                    return { success: false, error: e.message };
-                  }
-                } else if (window.audioCapture.isRecording) {
-                  return { success: true, method: 'already_recording' };
-                }
-              }
-              break;
-            }
-          }
-        }
-
-        if (!foundAudioTrack) {
-          return { success: false, error: 'No audio tracks found in video elements' };
-        }
-
-        return { success: false, error: 'Unknown error' };
-      });
-
-      if (manualStartResult.success) {
-        console.log(`   ✅ Audio capture started manually (${manualStartResult.method})`);
-        // Wait a bit for recording to stabilize
-        await sleep(1000);
-        return true;
-      } else {
-        console.log(`   ⚠️ Manual start failed: ${manualStartResult.error}`);
-      }
+    // If we have chunks, recording is working even if other checks fail
+    if (status.streamChunks > 0) {
+      console.log('✅ [Zoom] Audio capture is working (chunks detected)!');
+      return true;
     }
 
     // If this is not the last attempt, wait before retrying
     if (attempt < maxAttempts) {
-      console.log(`   Waiting before retry...`);
+      console.log(`   ⏳ Audio not ready yet, waiting...`);
     }
   }
 
-  console.log('❌ [Zoom] Failed to ensure audio capture is active after all attempts');
+  console.log('⚠️ [Zoom] Audio capture verification timed out - recording may not work correctly');
   return false;
 }
 
