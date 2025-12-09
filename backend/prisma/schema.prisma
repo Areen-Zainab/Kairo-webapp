@@ -141,6 +141,10 @@ model Meeting {
   notes           MeetingNote[]
   files           MeetingFile[]
   actionItems     ActionItem[]
+  embeddings          MeetingEmbedding[]
+  memoryContext       MeetingMemoryContext?
+  sourceRelationships MeetingRelationship[] @relation("SourceMeeting")
+  targetRelationships MeetingRelationship[] @relation("TargetMeeting")
 
   @@index([workspaceId, startTime])
   @@index([status, startTime])
@@ -320,3 +324,64 @@ model AiInsight {
   @@index([insightType])
   @@map("ai_insights")
 }
+
+
+model MeetingEmbedding {
+  id              String   @id @default(uuid())
+  meetingId       Int      @map("meeting_id")
+  contentType     String   @map("content_type") // 'transcript', 'summary', 'note', 'action_item', 'decision', 'topic'
+  contentId       String?  @map("content_id")   // Reference to specific content
+  content         String   @db.Text             // Original text content
+  embedding       Unsupported("vector(1536)")   // OpenAI ada-002 embedding
+  metadata        Json?                         // Additional context
+  chunkIndex      Int?     @map("chunk_index")  // For chunked content
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  meeting         Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@index([contentType])
+  @@index([meetingId, contentType])
+  @@map("meeting_embeddings")
+}
+
+model MeetingMemoryContext {
+  id                String   @id @default(uuid())
+  meetingId         Int      @unique @map("meeting_id")
+  summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
+  keyTopics         String[] @map("key_topics")
+  keyDecisions      Json?    @map("key_decisions")
+  keyActionItems    Json?    @map("key_action_items")
+  participants      String[] // Participant names
+  meetingContext    String   @db.Text @map("meeting_context")
+  embeddingCount    Int      @default(0) @map("embedding_count")
+  lastProcessedAt   DateTime @updatedAt @map("last_processed_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  meeting           Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("meeting_memory_contexts")
+}
+
+model MeetingRelationship {
+  id                  String   @id @default(uuid())
+  sourceMeetingId     Int      @map("source_meeting_id")
+  targetMeetingId     Int      @map("target_meeting_id")
+  relationshipType    String   @map("relationship_type") // 'similar', 'follow_up', 'related_topic'
+  similarityScore     Float    @map("similarity_score")  // 0.0 to 1.0
+  sharedTopics        String[] @map("shared_topics")
+  sharedParticipants  String[] @map("shared_participants")
+  metadata            Json?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  sourceMeeting       Meeting  @relation("SourceMeeting", fields: [sourceMeetingId], references: [id], onDelete: Cascade)
+  targetMeeting       Meeting  @relation("TargetMeeting", fields: [targetMeetingId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceMeetingId, targetMeetingId])
+  @@index([sourceMeetingId])
+  @@index([targetMeetingId])
+  @@index([similarityScore])
+  @@map("meeting_relationships")
+}
+

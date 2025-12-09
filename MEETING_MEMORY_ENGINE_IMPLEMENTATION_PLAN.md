@@ -181,6 +181,7 @@ model Meeting {
 
 **Prisma Migration Commands:**
 ```bash
+npm install openai gpt-tokenizer
 # Create migration
 npx prisma migrate dev --name add_meeting_embeddings
 
