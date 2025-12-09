@@ -17,7 +17,12 @@ import requests
 from dataclasses import dataclass, asdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from .hf_client import hf_infer
+
+# Try relative import first (for module execution), fallback to absolute (for direct execution)
+try:
+    from .hf_client import hf_infer
+except ImportError:
+    from hf_client import hf_infer
 
 
 @dataclass

@@ -15,7 +15,12 @@ import json
 import requests
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from .hf_client import hf_infer
+
+# Try relative import first (for module execution), fallback to absolute (for direct execution)
+try:
+    from .hf_client import hf_infer
+except ImportError:
+    from hf_client import hf_infer
 
 
 class ActionItemAgent:
