@@ -49,7 +49,7 @@ class SummaryAgent:
     CHUNK_OVERLAP_WORDS = 300
 
     def __init__(self):
-        self.api_key = os.getenv("GROQ_API_KEY")
+        self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
         
         if self.use_api:
@@ -141,18 +141,15 @@ class SummaryAgent:
         
         if self.use_api:
             try:
-                print("\n[INFO] Generating meeting minutes with Groq API...")
-                result = self._generate_with_groq(
-                    transcript, topic_segments, decisions, 
-                    action_items, sentiment, participants
-                )
-                print("[✓] Meeting minutes generated successfully")
+                print("\n[INFO] Attempting Groq API summary generation...")
+                result = self._generate_with_groq(transcript, topic_segments, decisions, action_items, sentiment, participants)
+                print("[OK] Groq API summary generated successfully")
                 return result
             except Exception as e:
-                print(f"\n[ERROR] API generation failed: {type(e).__name__}: {str(e)}")
+                print(f"\n[ERROR] Groq API summary generation failed: {type(e).__name__}: {str(e)}")
                 print("  Falling back to extractive summary...")
         else:
-            print("\n[INFO] No API key available, using extractive summary...")
+            print("\n→ No API key available, using extractive summary...")
 
         return self._generate_extractive(
             transcript, topic_segments, decisions,
