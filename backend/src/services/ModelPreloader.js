@@ -57,43 +57,43 @@ class ModelPreloader {
    */
   static isGlobalModelHealthy() {
     if (!globalModel || !globalModel.process) return false;
-    
+
     const proc = globalModel.process;
-    
+
     // Check process is not killed
     if (proc.killed) {
       console.warn('⚠️  Global model process is killed');
       return false;
     }
-    
+
     // Check process hasn't exited
     if (proc.exitCode !== null) {
       console.warn(`⚠️  Global model process has exited with code ${proc.exitCode}`);
       return false;
     }
-    
+
     // Check stdin exists and is writable (CRITICAL FIX #2)
     if (!proc.stdin) {
       console.warn('⚠️  Global model process has no stdin');
       return false;
     }
-    
+
     if (proc.stdin.destroyed) {
       console.warn('⚠️  Global model process stdin is destroyed');
       return false;
     }
-    
+
     if (!proc.stdin.writable) {
       console.warn('⚠️  Global model process stdin is not writable');
       return false;
     }
-    
+
     // Check process state
     if (globalModel.state === 'dead' || globalModel.state === 'recovering') {
       console.warn(`⚠️  Global model process is in ${globalModel.state} state`);
       return false;
     }
-    
+
     return true;
   }
 
@@ -105,7 +105,7 @@ class ModelPreloader {
     if (globalModel && globalModel.process) {
       console.error(`❌ Marking global model as dead: ${reason}`);
       globalModel.state = 'dead';
-      
+
       // Try to kill the process if it's still alive
       try {
         if (!globalModel.process.killed) {
@@ -114,9 +114,9 @@ class ModelPreloader {
       } catch (e) {
         // Ignore errors
       }
-      
+
       globalModel.process = null; // Clear reference
-      
+
       // Trigger recovery (will be picked up by monitor or next request)
       this._recoverGlobalModel();
     }
@@ -131,12 +131,12 @@ class ModelPreloader {
       console.log('🔄 Global model recovery already in progress');
       return;
     }
-    
+
     console.log('🔄 Recovering global model process...');
     globalModel = null; // Clear old reference
     globalModelLoading = false;
     globalModelLoadPromise = null;
-    
+
     // Recreate will happen on next getGlobalModel() call or via monitor
   }
 
@@ -165,7 +165,7 @@ class ModelPreloader {
     let preloadPromise;
     preloadPromise = new Promise((resolve, reject) => {
       const venvPython = this.getPythonExecutable();
-      const candidates = venvPython 
+      const candidates = venvPython
         ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
         : ['py -3.10', 'python3.10', 'python', 'py'];
 
@@ -179,25 +179,24 @@ class ModelPreloader {
       // Helper function to check if model loaded (checks accumulated buffer)
       const checkModelLoaded = () => {
         // Check accumulated buffer, not just current chunk (message might be split)
-        if (stderrBuffer.includes('[Kairo] ✓ Model loaded successfully') || 
-            stderrBuffer.includes('[Kairo]') && stderrBuffer.includes('Model loaded successfully')) {
+        if (stderrBuffer.includes('MODEL_LOADED_SUCCESS')) {
           modelLoaded = true;
           if (timeout) {
             clearTimeout(timeout);
             timeout = null;
           }
           console.log(`✅ Model preloaded successfully for meeting ${meetingId}`);
-          
+
           // Move from in-progress to preloaded
           preloadsInProgress.delete(meetingId);
-          
+
           // Store the process for reuse
           preloadedModels.set(meetingId, {
             process: proc,
             loadedAt: new Date(),
             meetingId: meetingId
           });
-          
+
           resolve();
           return true;
         }
@@ -216,10 +215,10 @@ class ModelPreloader {
           // Use shell: false for full paths, shell: true for commands (especially on Windows for commands with spaces)
           // Check if cmd is a full path (contains path separators)
           const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
-          const useShell = isFullPath 
+          const useShell = isFullPath
             ? false // Direct execution, no shell for full paths
             : (process.platform === 'win32'); // Use shell for command strings on Windows
-          
+
           proc = spawn(cmd, [PY_SCRIPT_PATH], { ...spawnOptions, shell: useShell });
 
           // Track this preload as in progress IMMEDIATELY after spawn
@@ -236,12 +235,12 @@ class ModelPreloader {
           proc.stderr.on('data', (data) => {
             const stderrText = data.toString();
             stderrBuffer += stderrText;
-            
+
             // Check accumulated buffer for success message
             if (checkModelLoaded()) {
               return; // Model loaded, exit early
             }
-            
+
             // Log errors
             if (stderrText.includes('[Error]') || stderrText.includes('Traceback')) {
               console.error(`[ModelPreloader Error]: ${stderrText.trim()}`);
@@ -254,34 +253,34 @@ class ModelPreloader {
               clearTimeout(timeout);
               timeout = null;
             }
-            
+
             // If process was killed by timeout, don't reject again (already rejected)
             if (processKilledByTimeout) {
               return;
             }
-            
+
             // Check buffer one last time (process might have exited after loading)
             if (checkModelLoaded()) {
               return; // Model loaded successfully before close
             }
-            
-              // Mark as failed but keep in Map briefly
-              const inProgress = preloadsInProgress.get(meetingId);
-              if (inProgress) {
-                inProgress.failed = true;
+
+            // Mark as failed but keep in Map briefly
+            const inProgress = preloadsInProgress.get(meetingId);
+            if (inProgress) {
+              inProgress.failed = true;
               const exitCode = code === null ? 'null (killed)' : code;
               inProgress.error = new Error(`Python process exited with code ${exitCode}: ${stderrBuffer}`);
-              }
-            
+            }
+
             const exitCode = code === null ? 'null (killed)' : code;
             console.error(`❌ Model preload failed for meeting ${meetingId} - process exited with code ${exitCode}`);
-              preloadedModels.delete(meetingId);
-              
-              // Don't immediately remove - give TranscriptionService time to detect it
-              setTimeout(() => {
-                preloadsInProgress.delete(meetingId);
-              }, 5000); // 5 second delay
-              
+            preloadedModels.delete(meetingId);
+
+            // Don't immediately remove - give TranscriptionService time to detect it
+            setTimeout(() => {
+              preloadsInProgress.delete(meetingId);
+            }, 5000); // 5 second delay
+
             // Reject with error including stderr buffer
             const errorMsg = `Python process exited with code ${exitCode}. ` +
               (stderrBuffer ? `Stderr: ${stderrBuffer.substring(0, 500)}` : 'No stderr output');
@@ -294,12 +293,12 @@ class ModelPreloader {
               clearTimeout(timeout);
               timeout = null;
             }
-            
+
             // If process was killed by timeout, don't reject again
             if (processKilledByTimeout) {
               return;
             }
-            
+
             // Mark as failed but keep in Map briefly so TranscriptionService can detect it
             const inProgress = preloadsInProgress.get(meetingId);
             if (inProgress) {
@@ -308,12 +307,12 @@ class ModelPreloader {
             }
             console.error(`❌ Model preload error for meeting ${meetingId}: ${error.message}`);
             preloadedModels.delete(meetingId);
-            
+
             // Don't immediately remove from Map - give TranscriptionService time to detect it
             setTimeout(() => {
               preloadsInProgress.delete(meetingId);
             }, 5000); // 5 second delay
-            
+
             reject(error);
           });
 
@@ -332,12 +331,12 @@ class ModelPreloader {
           timeout = setTimeout(() => {
             if (!modelLoaded) {
               processKilledByTimeout = true; // Mark as killed by timeout
-              
+
               // Check buffer one last time before killing (might have just loaded)
               if (checkModelLoaded()) {
                 return; // Model loaded, don't kill
               }
-              
+
               // Mark as failed
               const inProgress = preloadsInProgress.get(meetingId);
               if (inProgress) {
@@ -345,22 +344,22 @@ class ModelPreloader {
                 inProgress.error = new Error('Model preload timeout');
               }
               console.error(`❌ Model preload timeout for meeting ${meetingId}`);
-              
+
               // Log stderr buffer for debugging
               if (stderrBuffer) {
                 console.error(`[Debug] Stderr buffer at timeout: ${stderrBuffer.substring(0, 500)}`);
               }
-              
+
               if (proc && !proc.killed) {
                 proc.kill();
               }
               preloadedModels.delete(meetingId);
-              
+
               // Remove after delay
               setTimeout(() => {
                 preloadsInProgress.delete(meetingId);
               }, 5000);
-              
+
               reject(new Error(`Model preload timeout. Stderr: ${stderrBuffer.substring(0, 200)}`));
             }
           }, 120000); // 2 minutes
@@ -398,14 +397,14 @@ class ModelPreloader {
   static isPreloaded(meetingId) {
     const preloaded = preloadedModels.get(meetingId);
     if (!preloaded) return false;
-    
+
     // Check if process is still alive
     const proc = preloaded.process;
     if (!proc || proc.killed || proc.exitCode !== null) {
       preloadedModels.delete(meetingId);
       return false;
     }
-    
+
     return true;
   }
 
@@ -486,12 +485,12 @@ class ModelPreloader {
     if (!inProgress) {
       return false;
     }
-    
+
     // If preload failed, don't consider it in progress (TranscriptionService should create new one)
     if (inProgress.failed) {
       return false;
     }
-    
+
     // Check if process is still alive
     const proc = inProgress.process;
     if (!proc || proc.killed || proc.exitCode !== null) {
@@ -501,7 +500,7 @@ class ModelPreloader {
       }
       return false;
     }
-    
+
     return true;
   }
 
@@ -519,16 +518,16 @@ class ModelPreloader {
     }
 
     console.log(`⏳ Waiting for preload to complete for meeting ${meetingId}...`);
-    
+
     try {
       // Wait for the preload promise to resolve
       await Promise.race([
         inProgress.promise,
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Wait timeout')), maxWaitMs)
         )
       ]);
-      
+
       // After promise resolves, check if model is now preloaded
       return preloadedModels.get(meetingId) || null;
     } catch (error) {
@@ -554,7 +553,7 @@ class ModelPreloader {
         const spawnOptions = isFullPath
           ? { shell: false }
           : { shell: process.platform === 'win32' };
-        
+
         // Quick check: try to import whisperx
         const proc = spawn(pythonCmd, ['-c', 'import whisperx'], {
           ...spawnOptions,
@@ -563,7 +562,7 @@ class ModelPreloader {
 
         let stderr = '';
         proc.stderr.on('data', d => stderr += d.toString());
-        
+
         proc.on('close', (code) => {
           // Code 0 means import succeeded
           resolve(code === 0);
@@ -591,12 +590,12 @@ class ModelPreloader {
   static async createGlobalModelProcess() {
     return new Promise(async (resolve, reject) => {
       console.log('🔄 Creating global transcription model process...');
-      
+
       const venvPython = this.getPythonExecutable();
-      const allCandidates = venvPython 
+      const allCandidates = venvPython
         ? [venvPython, 'py -3.10', 'python3.10', 'python', 'py']
         : ['py -3.10', 'python3.10', 'python', 'py'];
-      
+
       // Validate Python environments first - only use ones with whisperx
       console.log('🔍 Validating Python environments for whisperx...');
       const validatedCandidates = [];
@@ -609,32 +608,31 @@ class ModelPreloader {
           console.warn(`⚠️  Python environment missing whisperx: ${cmd}`);
         }
       }
-      
+
       if (validatedCandidates.length === 0) {
         const errorMsg = venvPython
           ? `No Python environment with whisperx found. Venv Python exists at ${venvPython} but whisperx is not installed. Please install whisperx in the venv.`
           : 'No Python environment with whisperx found. Please ensure whisperx is installed in your Python environment.';
         return reject(new Error(errorMsg));
       }
-      
+
       let proc = null;
       let modelLoaded = false;
       let processKilledByTimeout = false; // Flag to prevent double-rejection
       let stderrBuffer = '';
       let timeout = null;
       let candidateIndex = 0;
-      
+
       // Helper function to check if model loaded (checks accumulated buffer)
       const checkModelLoaded = () => {
         // Check accumulated buffer, not just current chunk (message might be split)
-        if (stderrBuffer.includes('[Kairo] ✓ Model loaded successfully') || 
-            stderrBuffer.includes('[Kairo]') && stderrBuffer.includes('Model loaded successfully')) {
+        if (stderrBuffer.includes('MODEL_LOADED_SUCCESS')) {
           modelLoaded = true;
           if (timeout) {
             clearTimeout(timeout);
             timeout = null;
           }
-          console.log('✅ Global model loaded successfully');
+          console.log('[OK] Global model loaded successfully');
           globalModel = {
             process: proc,
             loadedAt: new Date(),
@@ -642,66 +640,66 @@ class ModelPreloader {
             lastSuccessAt: null
           };
           resolve(globalModel);
-          
+
           // Start monitoring after successful load (CRITICAL FIX #3)
           this._startGlobalModelMonitoring();
-          
+
           return true;
         }
         return false;
       };
-      
+
       const tryCandidate = () => {
         if (candidateIndex >= validatedCandidates.length) {
           return reject(new Error('All validated Python environments failed to load model'));
         }
-        
+
         const cmd = validatedCandidates[candidateIndex++];
         console.log(`🔄 Attempting to create global model with: ${cmd}`);
-        
+
         try {
           const isFullPath = cmd.includes(path.sep) || (process.platform === 'win32' && cmd.includes('\\'));
           const useShell = isFullPath ? false : (process.platform === 'win32');
-          
+
           proc = spawn(cmd, [PY_SCRIPT_PATH], {
             cwd: path.dirname(PY_SCRIPT_PATH),
             stdio: ['pipe', 'pipe', 'pipe'],
             env: { ...process.env },
             shell: useShell
           });
-          
+
           // Timeout after 2 minutes - store reference to clear it
           timeout = setTimeout(() => {
             if (!modelLoaded) {
               processKilledByTimeout = true; // Mark as killed by timeout
               console.error('❌ Global model load timeout');
-              
+
               // Check buffer one last time before killing (might have just loaded)
               if (checkModelLoaded()) {
                 return; // Model loaded, don't kill
               }
-              
+
               // Log stderr buffer for debugging
               if (stderrBuffer) {
                 console.error(`[Debug] Stderr buffer at timeout: ${stderrBuffer.substring(0, 500)}`);
               }
-              
+
               if (proc && !proc.killed) {
                 proc.kill();
               }
               reject(new Error(`Global model load timeout. Stderr: ${stderrBuffer.substring(0, 200)}`));
             }
           }, 120000);
-          
+
           proc.stderr.on('data', (data) => {
             const stderrText = data.toString();
             stderrBuffer += stderrText;
-            
+
             // Check accumulated buffer for success message
             if (checkModelLoaded()) {
               return; // Model loaded, exit early
             }
-            
+
             // CRITICAL FIX #4: Better error detection from Python process
             // Check for ModuleNotFoundError - this means Python doesn't have whisperx
             if (stderrText.includes('ModuleNotFoundError') && stderrText.includes('whisperx')) {
@@ -721,7 +719,7 @@ class ModelPreloader {
               stderrBuffer = '';
               return tryCandidate();
             }
-            
+
             // Check for Python crashes (Traceback)
             if (stderrText.includes('Traceback')) {
               console.error(`[Global Model Error] Python crashed: ${stderrText.substring(0, 200)}`);
@@ -730,36 +728,36 @@ class ModelPreloader {
                 this.markGlobalModelDead('Python crash detected in stderr');
               }
             }
-            
+
             // Log other errors
             if (stderrText.includes('[Error]')) {
               console.error(`[Global Model Error]: ${stderrText.trim()}`);
             }
-            
+
             // Log progress messages for debugging
-            if (stderrText.includes('[Kairo] Loading WhisperX model') || 
-                stderrText.includes('[Kairo] Preloading model')) {
+            if (stderrText.includes('[Kairo] Loading WhisperX model') ||
+              stderrText.includes('[Kairo] Preloading model')) {
               console.log(`[Global Model] ${stderrText.trim()}`);
             }
           });
-          
+
           proc.on('close', (code) => {
             // Clear timeout if still active
             if (timeout) {
               clearTimeout(timeout);
               timeout = null;
             }
-            
+
             // If process was killed by timeout, don't reject again (already rejected)
             if (processKilledByTimeout) {
               return;
             }
-            
+
             // Check buffer one last time (process might have exited after loading)
             if (checkModelLoaded()) {
               return; // Model loaded successfully before close
             }
-            
+
             // CRITICAL FIX #4: Better error detection - check for errors in stderr buffer
             if (stderrBuffer.includes('ModuleNotFoundError') && stderrBuffer.includes('whisperx')) {
               console.error(`❌ ModuleNotFoundError: whisperx not found in ${cmd}`);
@@ -773,7 +771,7 @@ class ModelPreloader {
                 return tryCandidate();
               }
             }
-            
+
             // Check for Python crashes
             if (stderrBuffer.includes('Traceback')) {
               console.error(`❌ Global model process crashed (Traceback detected)`);
@@ -782,10 +780,10 @@ class ModelPreloader {
                 this.markGlobalModelDead('Python crash (Traceback in stderr)');
               }
             }
-            
+
             // Handle exit codes: null on Windows when killed, non-zero = error
             const exitCode = code === null ? 'null (killed)' : code;
-            
+
             // Mark as dead if this is the global model (CRITICAL FIX #4)
             if (globalModel && globalModel.process === proc) {
               if (code === 0) {
@@ -796,40 +794,40 @@ class ModelPreloader {
                 this.markGlobalModelDead(`Process exited with code ${exitCode}`);
               }
             }
-            
+
             // Try next validated candidate if available
             if (candidateIndex < validatedCandidates.length) {
               console.log(`🔄 Trying next Python candidate...`);
               stderrBuffer = '';
               return tryCandidate();
             }
-            
+
             // Include stderr buffer in error for debugging
             const errorMsg = `Python process exited with code ${exitCode}. ` +
               (stderrBuffer ? `Stderr: ${stderrBuffer.substring(0, 500)}` : 'No stderr output');
-            
+
             reject(new Error(errorMsg));
           });
-          
+
           proc.on('error', (error) => {
             // Clear timeout if still active
             if (timeout) {
               clearTimeout(timeout);
               timeout = null;
             }
-            
+
             // If process was killed by timeout, don't reject again
             if (processKilledByTimeout) {
               return;
             }
-            
+
             console.error(`❌ Global model process error with ${cmd}: ${error.message}`);
-            
+
             // Mark as dead if this is the global model (CRITICAL FIX #4)
             if (globalModel && globalModel.process === proc) {
               this.markGlobalModelDead(`Process error: ${error.message}`);
             }
-            
+
             // Try next validated candidate if available
             if (candidateIndex < validatedCandidates.length) {
               console.log(`🔄 Trying next Python candidate...`);
@@ -838,7 +836,7 @@ class ModelPreloader {
             }
             reject(error);
           });
-          
+
           // Send PRELOAD command
           setTimeout(() => {
             if (!modelLoaded && proc && proc.stdin && !proc.stdin.destroyed) {
@@ -858,10 +856,10 @@ class ModelPreloader {
           return reject(error);
         }
       };
-      
+
       // Start with first candidate
       tryCandidate();
-      
+
       if (!proc) {
         reject(new Error('Failed to start Python process for global model'));
       }
@@ -882,16 +880,16 @@ class ModelPreloader {
     if (globalModelMonitorInterval) {
       clearInterval(globalModelMonitorInterval);
     }
-    
+
     // Monitor every 30 seconds
     globalModelMonitorInterval = setInterval(() => {
       if (!globalModel || !globalModel.process) {
         // No global model, nothing to monitor
         return;
       }
-      
+
       const proc = globalModel.process;
-      
+
       // Check if process is still healthy
       if (!this.isGlobalModelHealthy()) {
         console.warn('⚠️  Global model process health check failed, marking as dead');
@@ -902,31 +900,31 @@ class ModelPreloader {
         });
         return;
       }
-      
+
       // If process was dead but is now healthy again, update state
       if (globalModel.state === 'dead') {
         console.log('🔄 Global model process recovered, updating state');
         globalModel.state = 'ready';
       }
-      
+
       // Check if process has been idle too long without success (stale process)
       if (globalModel.lastSuccessAt) {
         const timeSinceLastSuccess = Date.now() - globalModel.lastSuccessAt.getTime();
         const maxIdleTime = 5 * 60 * 1000; // 5 minutes
-        
+
         if (timeSinceLastSuccess > maxIdleTime) {
           console.warn(`⚠️  Global model process idle for ${Math.round(timeSinceLastSuccess / 1000)}s, checking health...`);
           // Don't mark as dead, just log - might be legitimately idle
         }
       }
-      
+
       // Update state to ready if it was transcribing
       if (globalModel.state === 'transcribing') {
         // If we're here, process is still alive, so it's ready again
         globalModel.state = 'ready';
       }
     }, 30000); // Check every 30 seconds
-    
+
     console.log('✅ Started global model process monitoring');
   }
 
@@ -953,7 +951,7 @@ class ModelPreloader {
         return globalModel;
       }
     }
-    
+
     // If loading in progress, wait for it
     if (globalModelLoading && globalModelLoadPromise) {
       console.log('⏳ Global model loading in progress, waiting...');
@@ -964,7 +962,7 @@ class ModelPreloader {
         return null;
       }
     }
-    
+
     // Start loading
     globalModelLoading = true;
     globalModelLoadPromise = this.createGlobalModelProcess()
@@ -979,7 +977,7 @@ class ModelPreloader {
         globalModelLoadPromise = null;
         throw error;
       });
-    
+
     try {
       return await globalModelLoadPromise;
     } catch (error) {
@@ -995,17 +993,17 @@ class ModelPreloader {
    */
   static async waitForGlobalModel(maxWaitMs = 60000) {
     const startTime = Date.now();
-    
+
     while (Date.now() - startTime < maxWaitMs) {
       const model = await this.getGlobalModel();
       if (model && this.isGlobalModelHealthy()) {
         return model;
       }
-      
+
       // Wait 1 second before checking again (longer wait to avoid spam)
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    
+
     console.warn(`⚠️  Global model not ready after ${maxWaitMs}ms`);
     return null;
   }
@@ -1046,7 +1044,7 @@ class ModelPreloader {
   static releaseGlobalModel() {
     // Stop monitoring when releasing
     this._stopGlobalModelMonitoring();
-    
+
     if (globalModel && globalModel.process) {
       try {
         if (!globalModel.process.killed) {
@@ -1056,7 +1054,7 @@ class ModelPreloader {
         // Ignore errors
       }
     }
-    
+
     globalModel = null;
     globalModelLoading = false;
     globalModelLoadPromise = null;

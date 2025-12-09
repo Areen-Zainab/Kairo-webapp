@@ -33,7 +33,7 @@ import { useLiveTranscript } from '../../hooks/useLiveTranscript';
 import { useLiveAIInsights } from '../../hooks/useLiveAIInsights';
 import { useActionItems } from '../../hooks/useActionItems';
 
-type SidebarTab = 'memory' | 'chat' | 'actions' | 'notes' | 'transcript' | 'insights';
+type SidebarTab = 'notes' | 'actions' | 'chat' | 'memory' | 'transcript' | 'insights';
 
 interface Participant {
   id: string;

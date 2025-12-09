@@ -2,7 +2,7 @@
 Sentiment Analysis Agent
 ------------------------
 
-Uses Grok Cloud API (xAI) to analyze sentiment in meeting transcripts.
+Uses GROQ Cloud API (xAI) to analyze sentiment in meeting transcripts.
 Falls back to simple word matching if API is unavailable.
 """
 
@@ -26,12 +26,12 @@ class SentimentSummary:
 
 
 class SentimentAnalysisAgent:
-    """Evaluates emotional tone using Grok Cloud API."""
+    """Evaluates emotional tone using GROQ Cloud API."""
 
-    # Grok API configuration
-    GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-    GROK_MODEL = "grok-4.1-fast"  # Most cost-effective model
-    GROK_API_KEY_ENV = "GROK_API_KEY"
+    # GROQ API configuration
+    GROQ_API_URL = "https://api.x.ai/v1/chat/completions"
+    GROQ_MODEL = "llama-3.3-70b-versatile"  # Most cost-effective model
+    GROQ_API_KEY_ENV = "GROQ_API_KEY"
 
     # Fallback word lists
     POSITIVE_WORDS = {
@@ -61,11 +61,11 @@ class SentimentAnalysisAgent:
     }
 
     def __init__(self):
-        self.api_key = os.getenv(self.GROK_API_KEY_ENV)
+        self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
 
     def run(self, transcript: str) -> Dict[str, Any]:
-        """Analyze sentiment using Grok API or fallback method."""
+        """Analyze sentiment using GROQ API or fallback method."""
         if not transcript:
             return SentimentSummary(
                 overall="Neutral",
@@ -73,19 +73,19 @@ class SentimentAnalysisAgent:
                 breakdown={"positive": 0.0, "neutral": 1.0, "negative": 0.0}
             ).to_dict()
 
-        # Try Grok API first if API key is available
+        # Try GROQ API first if API key is available
         if self.use_api:
             try:
-                return self._analyze_with_grok(transcript)
+                return self._analyze_with_GROQ(transcript)
             except Exception as e:
-                print(f"Warning: Grok API sentiment analysis failed: {e}. Falling back to word matching.")
+                print(f"Warning: GROQ API sentiment analysis failed: {e}. Falling back to word matching.")
                 # Fall through to fallback method
 
         # Fallback to simple word matching
         return self._analyze_with_words(transcript)
 
-    def _analyze_with_grok(self, transcript: str) -> Dict[str, Any]:
-        """Analyze sentiment using Grok Cloud API."""
+    def _analyze_with_GROQ(self, transcript: str) -> Dict[str, Any]:
+        """Analyze sentiment using GROQ Cloud API."""
         prompt = self._build_analysis_prompt(transcript)
 
         headers = {
@@ -94,7 +94,7 @@ class SentimentAnalysisAgent:
         }
 
         payload = {
-            "model": self.GROK_MODEL,
+            "model": self.GROQ_MODEL,
             "messages": [
                 {
                     "role": "system",
@@ -110,7 +110,7 @@ class SentimentAnalysisAgent:
         }
 
         response = requests.post(
-            self.GROK_API_URL,
+            self.GROQ_API_URL,
             headers=headers,
             json=payload,
             timeout=60
@@ -178,7 +178,7 @@ class SentimentAnalysisAgent:
                 breakdown=breakdown_normalized
             ).to_dict()
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse Grok API JSON response: {e}")
+            raise ValueError(f"Failed to parse GROQ API JSON response: {e}")
 
     def _build_analysis_prompt(self, transcript: str) -> str:
         """Build the prompt for sentiment analysis."""
