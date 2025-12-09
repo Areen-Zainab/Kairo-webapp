@@ -40,7 +40,8 @@ const ActionItemsPanel: React.FC<ActionItemsPanelProps> = ({ meeting }) => {
 
   const { actionItems, loading, error, confirmActionItem, rejectActionItem, refresh } = useActionItems(
     Number.isNaN(meetingIdNum) ? null : meetingIdNum,
-    12000
+    12000,
+    false // Disable WebSocket for details view
   );
 
   const pending = actionItems.filter((i) => i.status === 'pending');
@@ -120,22 +121,20 @@ const ActionItemsPanel: React.FC<ActionItemsPanelProps> = ({ meeting }) => {
                       <button
                         disabled={disabledActions}
                         onClick={() => confirmActionItem(item.id)}
-                        className={`px-3 py-1.5 text-sm rounded-lg border transition ${
-                          disabledActions
+                        className={`px-3 py-1.5 text-sm rounded-lg border transition ${disabledActions
                             ? 'border-slate-200 text-slate-400 cursor-not-allowed'
                             : 'border-green-200 text-green-700 hover:bg-green-50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-900/30'
-                        }`}
+                          }`}
                       >
                         Confirm
                       </button>
                       <button
                         disabled={disabledActions}
                         onClick={() => rejectActionItem(item.id)}
-                        className={`px-3 py-1.5 text-sm rounded-lg border transition ${
-                          disabledActions
+                        className={`px-3 py-1.5 text-sm rounded-lg border transition ${disabledActions
                             ? 'border-slate-200 text-slate-400 cursor-not-allowed'
                             : 'border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/30'
-                        }`}
+                          }`}
                       >
                         Reject
                       </button>

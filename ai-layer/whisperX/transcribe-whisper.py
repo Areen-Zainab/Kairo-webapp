@@ -208,7 +208,10 @@ def transcribe_audio(audio_path):
             text = text.strip()
 
         print(f"[Kairo] ✓ Transcription complete. Language: {result.get('language', 'unknown') if isinstance(result, dict) else 'unknown'}", file=sys.stderr)
-        return text.strip() if text else None
+        # Return empty string for silent audio (no speech), not None
+        # This distinguishes between "no speech found" (success with empty result) 
+        # and "transcription error" (None, which triggers [TRANSCRIPTION_FAILED])
+        return text.strip() if text else ""
 
     except Exception as e:
         print(f"[Error] Transcription failed: {e}", file=sys.stderr)
@@ -302,7 +305,13 @@ def main():
                     continue
 
                 text = transcribe_audio(line)
-                if text:
+                if text is None:
+                    # Actual transcription error (exception occurred)
+                    # Output error marker that backend can detect
+                    print("[TRANSCRIPTION_FAILED]", file=sys.stdout)
+                    sys.stdout.flush()
+                elif text:
+                    # Non-empty transcription text
                     # Output only the transcription text to stdout
                     # Filter out any log-like messages that might have leaked
                     if not text.startswith(('2025-', '[', 'WARNING', 'INFO', 'DEBUG', 'ERROR')):
@@ -313,8 +322,9 @@ def main():
                         print("", file=sys.stdout)
                         sys.stdout.flush()
                 else:
-                    # Empty line on failure to keep stream consistent
-                    print("", file=sys.stdout)
+                    # Empty string = no speech found (silent audio)
+                    # Output empty line so backend knows transcription succeeded but was silent
+                    print("")
                     sys.stdout.flush()
         else:
             # Command-line mode: single file

@@ -31,6 +31,7 @@ import InsightsTab from '../../components/meetings/meetingslive/InsightsTab';
 import LeaveMeetingConfirmationModal from '../../modals/LeaveMeetingConfirmationModal';
 import { useLiveTranscript } from '../../hooks/useLiveTranscript';
 import { useLiveAIInsights } from '../../hooks/useLiveAIInsights';
+import { useActionItems } from '../../hooks/useActionItems';
 
 type SidebarTab = 'memory' | 'chat' | 'actions' | 'notes' | 'transcript' | 'insights';
 
@@ -254,34 +255,57 @@ const LiveMeetingView = () => {
   // Fetch live AI insights
   const { insights: aiInsights } = useLiveAIInsights(id);
 
-  // Map AI insights to action items
+  // Fetch live action items from database (extracted during meeting)
+  const meetingIdNum = id ? parseInt(id, 10) : null;
+  const { actionItems: dbActionItems, loading: actionItemsLoading, confirmActionItem, rejectActionItem } = useActionItems(
+    Number.isNaN(meetingIdNum) ? null : meetingIdNum,
+    12000, // Poll every 12 seconds
+    true   // Enable WebSocket
+  );
+
+  // Map database action items to UI format
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   type ActionStatus = 'confirmed' | 'removed' | 'undecided';
   const [actionStatusById, setActionStatusById] = useState<Record<string, ActionStatus>>({});
 
-  // Update action items when AI insights change
+  // Update action items when database action items change
   useEffect(() => {
-    if (aiInsights?.actionItems && aiInsights.actionItems.length > 0) {
-      const mappedItems = aiInsights.actionItems.map((item, index) => ({
-        id: String(item.id || index),
-        text: item.title || item.description,
-        assignee: item.assignee || 'Unassigned',
-        isCompleted: false
-      }));
+    if (dbActionItems && dbActionItems.length > 0) {
+      const mappedItems = dbActionItems
+        .filter(item => item.status === 'pending' || item.status === 'confirmed') // Only show pending/confirmed
+        .map((item) => ({
+          id: String(item.id),
+          text: item.title || item.description || 'Untitled Action Item',
+          assignee: item.assignee || 'Unassigned',
+          isCompleted: item.status === 'confirmed'
+        }));
       setActionItems(mappedItems);
 
-      // Initialize status for new items
+      // Initialize status for new items based on database status
       const newStatuses: Record<string, ActionStatus> = {};
       mappedItems.forEach(item => {
-        if (!(item.id in actionStatusById)) {
+        const dbItem = dbActionItems.find(ai => String(ai.id) === item.id);
+        if (dbItem) {
+          // Map database status to UI status
+          if (dbItem.status === 'confirmed') {
+            newStatuses[item.id] = 'confirmed';
+          } else if (dbItem.status === 'rejected') {
+            newStatuses[item.id] = 'removed';
+          } else {
+            newStatuses[item.id] = 'undecided';
+          }
+        } else if (!(item.id in actionStatusById)) {
           newStatuses[item.id] = 'undecided';
         }
       });
       if (Object.keys(newStatuses).length > 0) {
         setActionStatusById(prev => ({ ...prev, ...newStatuses }));
       }
+    } else {
+      // Clear action items if none exist
+      setActionItems([]);
     }
-  }, [aiInsights]);
+  }, [dbActionItems]);
 
   // Map AI insights to insights array
   const [insights, setInsights] = useState<Insight[]>([]);
@@ -455,7 +479,7 @@ const LiveMeetingView = () => {
     // Set flags atomically to prevent race conditions
     pollingActiveRef.current = true;
     joinRequestInProgressRef.current = true;
-    
+
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const meetingId = meeting.id;
@@ -559,15 +583,15 @@ const LiveMeetingView = () => {
           const result = await meetService.joinMeeting(meetingId, meetingLink);
           // Clear join request flag after API call completes
           joinRequestInProgressRef.current = false;
-          
+
           if (!result.success) {
             // Show auth errors clearly - user needs to know if they need to log in
-            const isAuthError = result.message?.toLowerCase().includes('token') || 
-                               result.message?.toLowerCase().includes('access') || 
-                               result.message?.toLowerCase().includes('authentication') || 
-                               result.message?.toLowerCase().includes('log in') ||
-                               result.message?.toLowerCase().includes('unauthorized');
-            
+            const isAuthError = result.message?.toLowerCase().includes('token') ||
+              result.message?.toLowerCase().includes('access') ||
+              result.message?.toLowerCase().includes('authentication') ||
+              result.message?.toLowerCase().includes('log in') ||
+              result.message?.toLowerCase().includes('unauthorized');
+
             if (isAuthError) {
               toastError(
                 result.message || 'Authentication required. Please log in to join the meeting with the bot. The bot will join automatically via the scheduled job if you are logged in.',
@@ -585,13 +609,13 @@ const LiveMeetingView = () => {
         } catch (e: any) {
           // Clear join request flag on error
           joinRequestInProgressRef.current = false;
-          
+
           // Show auth errors clearly
-          const isAuthError = e?.message?.toLowerCase().includes('token') || 
-                             e?.message?.toLowerCase().includes('access') || 
-                             e?.message?.toLowerCase().includes('unauthorized') ||
-                             e?.message?.toLowerCase().includes('authentication');
-          
+          const isAuthError = e?.message?.toLowerCase().includes('token') ||
+            e?.message?.toLowerCase().includes('access') ||
+            e?.message?.toLowerCase().includes('unauthorized') ||
+            e?.message?.toLowerCase().includes('authentication');
+
           if (isAuthError) {
             toastError(
               'Authentication required. Please log in to join the meeting with the bot. The bot will join automatically via the scheduled job if you are logged in.',
@@ -713,9 +737,28 @@ const LiveMeetingView = () => {
     }
   };
 
-  // removed checkbox UI; keep for future if needed
-  const setActionStatus = (id: string, status: ActionStatus) => {
-    setActionStatusById(prev => ({ ...prev, [id]: status }));
+  // Update action item status and sync with backend
+  const setActionStatus = async (id: string, status: ActionStatus) => {
+    const actionItemId = parseInt(id, 10);
+    if (isNaN(actionItemId)) {
+      // Local-only action item (not from database)
+      setActionStatusById(prev => ({ ...prev, [id]: status }));
+      return;
+    }
+
+    try {
+      // Sync with backend
+      if (status === 'confirmed') {
+        await confirmActionItem(actionItemId);
+      } else if (status === 'removed') {
+        await rejectActionItem(actionItemId);
+      }
+      // Update local state
+      setActionStatusById(prev => ({ ...prev, [id]: status }));
+    } catch (error: any) {
+      console.error('Failed to update action item status:', error);
+      toastError(error?.message || 'Failed to update action item', 'Error');
+    }
   };
   const submitMemoryChat = () => {
     const text = memoryChatInput.trim();
