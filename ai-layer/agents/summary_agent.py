@@ -149,7 +149,7 @@ class SummaryAgent:
                 print(f"\n[ERROR] Groq API summary generation failed: {type(e).__name__}: {str(e)}")
                 print("  Falling back to extractive summary...")
         else:
-            print("\n→ No API key available, using extractive summary...")
+            print("\n-> No API key available, using extractive summary...")
 
         return self._generate_extractive(
             transcript, topic_segments, decisions,
@@ -580,7 +580,7 @@ JSON Response:"""
         topic_segments: Optional[List[Dict[str, Any]]] = None,
         decisions: Optional[List[Dict[str, Any]]] = None,
         action_items: Optional[List[Dict[str, Any]]] = None,
-        sentiment: Optional[Dict[str, Any]]] = None,
+        sentiment: Optional[Dict[str, Any]] = None,
         participants: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Fallback: Generate structured minutes from transcript."""
@@ -637,12 +637,26 @@ JSON Response:"""
         if action_list:
             overview += f"{len(action_list)} action item(s) were identified."
         
+        # Build paragraph summary
+        paragraph_summary = overview
+        
+        # Build key points
+        key_points = []
+        for topic in agenda[:3]:
+            key_points.append(f"Discussed: {topic}")
+        for d in decision_list[:3]:
+            key_points.append(f"Decision: {d[:70]}..." if len(d) > 70 else f"Decision: {d}")
+        for a in action_list[:3]:
+            key_points.append(f"Action: {a['task'][:70]}..." if len(a['task']) > 70 else f"Action: {a['task']}")
+        
         return SummaryResult(
             meeting_title="Meeting Summary",
             date=datetime.now().strftime('%Y-%m-%d'),
             attendees=attendees,
             agenda=agenda,
             overview=overview,
+            paragraph_summary=paragraph_summary,
+            key_points=key_points,
             discussion_points=discussion_points,
             decisions=decision_list,
             action_items=action_list,
@@ -658,6 +672,8 @@ JSON Response:"""
             attendees=[],
             agenda=[],
             overview="No transcript content available.",
+            paragraph_summary="No transcript content available.",
+            key_points=[],
             discussion_points=[],
             decisions=[],
             action_items=[],
