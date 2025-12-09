@@ -41,14 +41,14 @@ class SummaryAgent:
     CHUNK_OVERLAP_WORDS = 200
 
     def __init__(self):
-        self.api_key = os.getenv("GROQ_API_KEY")
+        self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
         
         # Debug: Print API key status
         if self.use_api:
             print(f" Groq API key found (length: {len(self.api_key)})")
         else:
-            print(f" Groq API key not found. Set {"GROQ_API_KEY"} environment variable.")
+            print(f" Groq API key not found. Set {self.GROQ_API_KEY_ENV} environment variable.")
             print("  Falling back to extractive summary mode.")
     
     def _preprocess_text(self, text: str) -> str:
@@ -315,16 +315,16 @@ JSON Response:"""
         # Try Groq API first if API key is available
         if self.use_api:
             try:
-                print("\n[INFO] Attempting Groq API summary generation...")
+                print("\n→ Attempting Groq API summary generation...")
                 result = self._generate_with_groq(transcript, topic_segments, decisions, action_items, sentiment, participants)
-                print("[OK] Groq API summary generated successfully")
+                print("✓ Groq API summary generated successfully")
                 return result
             except Exception as e:
-                print(f"\n[ERROR] Groq API summary generation failed: {type(e).__name__}: {str(e)}")
+                print(f"\n✗ Groq API summary generation failed: {type(e).__name__}: {str(e)}")
                 print("  Falling back to extractive summary...")
                 # Fall through to fallback method
         else:
-            print("\n[INFO] No API key available, using extractive summary...")
+            print("\n→ No API key available, using extractive summary...")
 
         # Fallback to simple extractive summary
         return self._generate_extractive(transcript, topic_segments, decisions, action_items, sentiment, participants)
