@@ -236,8 +236,17 @@ class ApiService {
     }
 
     try {
+      console.log(`🌐 [ApiService] Making ${config.method || 'GET'} request to: ${url}`);
+      if (endpoint.includes('regenerate')) {
+        console.log(`   Headers:`, Object.keys(config.headers || {}));
+        console.log(`   Has Authorization:`, !!(config.headers && typeof config.headers === 'object' && !(config.headers instanceof Headers) && (config.headers as any)['Authorization']));
+      }
       const response = await fetch(url, config);
+      console.log(`📡 [ApiService] Response status: ${response.status} for ${endpoint}`);
       const data = await response.json();
+      if (endpoint.includes('regenerate')) {
+        console.log(`📦 [ApiService] Response data:`, data);
+      }
 
       if (!response.ok) {
         // Handle 401 Unauthorized - only clear token if it's actually expired or invalid
@@ -926,10 +935,11 @@ class ApiService {
       confidence?: number;
     }>;
     actionItems: Array<{
-      item: string;
+      id?: number;
+      title: string;
+      description?: string;
       assignee?: string;
       dueDate?: string;
-      priority?: string;
       confidence?: number;
     }>;
     sentiment: {
@@ -957,13 +967,15 @@ class ApiService {
     generated: boolean;
     generating?: boolean;
     progress?: number;
+    aiInsightsError?: string | null;
   }>> {
     return this.request(`/meetings/${meetingId}/ai-insights`);
   }
 
   async regenerateAIInsights(meetingId: number): Promise<ApiResponse<{
     success: boolean;
-    message: string;
+    message?: string;
+    error?: string;
   }>> {
     return this.request(`/meetings/${meetingId}/ai-insights/regenerate`, {
       method: 'POST',

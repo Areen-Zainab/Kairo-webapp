@@ -91,9 +91,11 @@ class ActionItemAgent:
                 
                 if response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", 5))
-                    print(f"⏳ Groq 429 (round {round_num+1}/{max_rounds}), waiting {retry_after}s...", 
+                    # Cap wait time at 1 minute to avoid long blocking
+                    wait_time = min(retry_after, 30)
+                    print(f"⏳ Groq 429 (round {round_num+1}/{max_rounds}), waiting {wait_time}s (server suggested {retry_after}s, capped at 30s)...", 
                           file=sys.stderr)
-                    time.sleep(retry_after)
+                    time.sleep(wait_time)
                     continue
                     
                 response.raise_for_status()
@@ -271,7 +273,7 @@ class ActionItemAgent:
                 }
             }
 
-            result = hf_infer(self.HF_ACTION_MODEL, payload, timeout=60, retries=2, backoff_seconds=3)
+            result = hf_infer(self.HF_ACTION_MODEL, payload, timeout=30, retries=2, backoff_seconds=3)
 
             generated_text = None
             if isinstance(result, list) and result and isinstance(result[0], dict):

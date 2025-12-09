@@ -6,6 +6,10 @@ const { v4: uuidv4 } = require('uuid');
 const prisma = require('../lib/prisma');
 const { findMeetingDirectory } = require('../utils/meetingFileStorage');
 
+// In-memory storage for generation status (not persisted to DB)
+// If backend restarts, these are cleared, preventing false "generating" states
+const activeGenerations = new Map(); // meetingId -> { status, progress, startTime, error }
+
 // Paths to Python scripts
 const AGENT_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/agents/run_agents.py');
 const PARTICIPANT_AGENT_PATH = path.resolve(__dirname, '../../../ai-layer/agents/participant_analysis_agent.py');
@@ -168,6 +172,35 @@ class AIInsightsService {
       console.error(`Error checking existing insights for meeting ${meetingId}:`, error);
       return false;
     }
+  }
+
+  /**
+   * Get generation status for a meeting (checks in-memory first, then DB)
+   * Returns { status, progress, startTime, error, isActive }
+   */
+  getGenerationStatus(meetingId) {
+    const meetingIdInt = parseInt(meetingId);
+    
+    // Check in-memory first (active generations)
+    if (activeGenerations.has(meetingIdInt)) {
+      const status = activeGenerations.get(meetingIdInt);
+      return {
+        status: status.status,
+        progress: status.progress,
+        startTime: status.startTime,
+        error: status.error,
+        isActive: true // Indicates this is actively generating
+      };
+    }
+    
+    // Not in memory, return idle (will check DB for persisted insights separately)
+    return {
+      status: 'idle',
+      progress: 0,
+      startTime: null,
+      error: null,
+      isActive: false
+    };
   }
 
   /**
@@ -502,7 +535,8 @@ print(result)
   }
 
   /**
-   * Run all agents in parallel where possible
+   * Run all agents sequentially to avoid rate limit exhaustion
+   * Text-based agents run one at a time, participant agent runs in parallel
    */
   async runAllAgents(meetingId, transcriptText, transcriptJson) {
     console.log('🤖 Running all AI agents...');
@@ -519,7 +553,17 @@ print(result)
       await this.updateProgress(meetingId, progress);
     };
 
-    // Run text-based agents in parallel
+    // Helper to add timeout to agent execution
+    const withTimeout = (promise, timeoutMs, agentName) => {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`${agentName} agent timed out after ${timeoutMs}ms`)), timeoutMs)
+        )
+      ]);
+    };
+
+    // Text-based agents that use Groq API - run sequentially to avoid rate limits
     const textAgents = [
       { key: 'summary', name: 'Summary' },
       { key: 'decisions', name: 'Decisions' },
@@ -528,25 +572,45 @@ print(result)
       { key: 'action_items', name: 'Action Items' }
     ];
 
-    const textAgentPromises = textAgents.map(async ({ key, name }) => {
+    // Run text agents sequentially to prevent rate limit exhaustion
+    const textResults = [];
+    for (const { key, name } of textAgents) {
       try {
         console.log(`  Running ${name} agent...`);
-        const result = await this.runTextAgent(key, transcriptText);
+        // Increased timeout to 10 minutes to allow for rate limit retries
+        const result = await withTimeout(
+          this.runTextAgent(key, transcriptText),
+          10 * 60 * 1000, // 10 minutes (allows for rate limit retries)
+          name
+        );
         console.log(`  ✅ ${name} agent completed`);
         await incrementProgress();
-        return { key, result, success: true };
+        textResults.push({ key, result, success: true });
+        
+        // Small delay between agents to help avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
       } catch (error) {
         console.error(`  ❌ ${name} agent failed:`, error.message);
         await incrementProgress(); // Count as complete even if failed
-        return { key, result: null, success: false, error: error.message };
-      }
-    });
+        textResults.push({ key, result: null, success: false, error: error.message });
 
-    // Run participant agent separately (needs JSON)
+        // Continue to next agent even if this one failed
+        console.log(`  ⏳ Waiting 20 seconds before next agent...`);
+        await new Promise(resolve => setTimeout(resolve, 20000)); // 20 second delay
+      }
+    }
+
+    // Run participant agent separately (needs JSON, doesn't use Groq API)
+    // Can run in parallel since it doesn't share the same rate limit
     const participantPromise = (async () => {
       try {
         console.log('  Running Participant Analysis agent...');
-        const result = await this.runParticipantAgent(transcriptJson);
+        // Add 5 minute timeout for participant agent
+        const result = await withTimeout(
+          this.runParticipantAgent(transcriptJson),
+          5 * 60 * 1000, // 5 minutes
+          'Participant Analysis'
+        );
         console.log('  ✅ Participant Analysis agent completed');
         await incrementProgress();
         return { key: 'participants', result, success: true };
@@ -557,8 +621,7 @@ print(result)
       }
     })();
 
-    // Wait for all agents to complete
-    const textResults = await Promise.all(textAgentPromises);
+    // Wait for participant agent to complete (text agents already done)
     const participantResult = await participantPromise;
 
     // Aggregate results
@@ -875,7 +938,7 @@ print(result)
                   dueDate: item.due_date || item.deadline || null,
                   canonicalKey,
                   confidence: item.confidence || avgConfidence,
-                  sourceChunk: 'post_meeting_full_transcript',
+                  sourceChunk: null, // Post-meeting analysis, not from a specific chunk
                   status: 'pending',
                   rawData: item,
                   updateHistory: [],
@@ -967,30 +1030,56 @@ print(result)
 
   /**
    * Main entry point: Generate insights for a meeting
+   * @param {number|string} meetingId - The meeting ID
+   * @param {boolean} forceRegenerate - If true, skip existence check and always regenerate
    */
-  async generateInsights(meetingId) {
+  async generateInsights(meetingId, forceRegenerate = false) {
     console.log(`\n🧠 Starting AI insights generation for meeting ${meetingId}...`);
     console.log(`   Meeting ID type: ${typeof meetingId}, value: ${meetingId}`);
+    if (forceRegenerate) {
+      console.log(`   🔄 Force regeneration mode - will regenerate even if insights exist`);
+    }
 
     const updateMetadataStatus = async (status, errorMessage = null, progress = 0) => {
       try {
         const meetingIdInt = parseInt(meetingId);
-        const currentMeeting = await prisma.meeting.findUnique({
-          where: { id: meetingIdInt },
-          select: { metadata: true }
+        
+        // Always update in-memory status
+        activeGenerations.set(meetingIdInt, {
+          status,
+          progress,
+          startTime: status === 'generating' ? new Date() : activeGenerations.get(meetingIdInt)?.startTime || new Date(),
+          error: errorMessage
         });
-        if (currentMeeting) {
-          await prisma.meeting.update({
+        console.log(`   📝 In-memory status: ${status}, progress: ${progress}%`);
+
+        // Only persist to DB when completed or failed (NOT when generating)
+        // This prevents stale "generating" states after backend restarts
+        if (status === 'completed' || status === 'failed') {
+          const currentMeeting = await prisma.meeting.findUnique({
             where: { id: meetingIdInt },
-            data: {
-              metadata: {
-                ...(currentMeeting.metadata || {}),
-                aiInsightsStatus: status,
-                aiInsightsError: errorMessage,
-                aiInsightsProgress: progress
-              }
-            }
+            select: { metadata: true }
           });
+          if (currentMeeting) {
+            await prisma.meeting.update({
+              where: { id: meetingIdInt },
+              data: {
+                metadata: {
+                  ...(currentMeeting.metadata || {}),
+                  aiInsightsStatus: status,
+                  aiInsightsError: errorMessage,
+                  aiInsightsProgress: progress,
+                  aiInsightsStartTime: null // Clear start time on completion/failure
+                }
+              }
+            });
+            console.log(`   💾 Persisted status to DB: ${status}`);
+          }
+          
+          // Clear from in-memory after persisting final state
+          if (status === 'completed') {
+            activeGenerations.delete(meetingIdInt);
+          }
         }
       } catch (metaErr) {
         console.error(`Failed to update insights metadata status (${status}):`, metaErr.message);
@@ -998,27 +1087,36 @@ print(result)
     };
 
     try {
-      // Check which specific insights already exist
-      const existingTypes = await this.getExistingInsightTypes(meetingId);
-      
-      // Only skip if ALL core insights exist (not including action_items - those should be regenerated post-meeting)
-      const coreInsightsExist = existingTypes.has('summary') && 
-                                existingTypes.has('decisions') && 
-                                existingTypes.has('topics') &&
-                                existingTypes.has('sentiment');
-      
-      if (coreInsightsExist) {
-        console.log(`ℹ️  Core insights already exist for meeting ${meetingId}`);
-        console.log(`   Existing types: ${Array.from(existingTypes).join(', ')}`);
+      // Ensure status is set to generating at the start
+      await updateMetadataStatus('generating', null, 0);
+      console.log(`   Status set to 'generating'`);
+
+      // Only check for existing insights if not forcing regeneration
+      if (!forceRegenerate) {
+        const existingTypes = await this.getExistingInsightTypes(meetingId);
         
-        // Still regenerate action items if they don't exist (post-meeting with complete transcript)
-        if (!existingTypes.has('action_items')) {
-          console.log(`   📋 Action items missing, will regenerate with complete transcript...`);
-          // Continue to generate action items only
-        } else {
-          console.log(`   Skipping full regeneration (all insights including action items exist)`);
-          return { success: true, skipped: true, message: 'All insights already generated' };
+        // Only skip if ALL core insights exist (not including action_items - those should be regenerated post-meeting)
+        const coreInsightsExist = existingTypes.has('summary') && 
+                                  existingTypes.has('decisions') && 
+                                  existingTypes.has('topics') &&
+                                  existingTypes.has('sentiment');
+        
+        if (coreInsightsExist) {
+          console.log(`ℹ️  Core insights already exist for meeting ${meetingId}`);
+          console.log(`   Existing types: ${Array.from(existingTypes).join(', ')}`);
+          
+          // Still regenerate action items if they don't exist (post-meeting with complete transcript)
+          if (!existingTypes.has('action_items')) {
+            console.log(`   📋 Action items missing, will regenerate with complete transcript...`);
+            // Continue to generate action items only
+          } else {
+            console.log(`   Skipping full regeneration (all insights including action items exist)`);
+            await updateMetadataStatus('completed', null, 100);
+            return { success: true, skipped: true, message: 'All insights already generated' };
+          }
         }
+      } else {
+        console.log(`   🔄 Force regeneration - skipping existence check`);
       }
 
       // Check if transcript is available
@@ -1057,8 +1155,19 @@ print(result)
 
       // Save to database
       console.log('💾 Saving insights to database...');
-      await this.saveInsightsToDatabase(meetingId, insights);
-      console.log('✅ Insights saved to database');
+      try {
+        await this.saveInsightsToDatabase(meetingId, insights);
+        console.log('✅ Insights saved to database');
+      } catch (saveError) {
+        console.error(`❌ Failed to save insights to database: ${saveError.message}`);
+        // Update status to failed if save fails
+        await updateMetadataStatus('failed', `Failed to save insights: ${saveError.message}`, 0);
+        throw saveError; // Re-throw to be caught by outer catch
+      }
+
+      // Explicitly update status to completed after successful save
+      // This ensures status is set even if saveInsightsToDatabase didn't update it
+      await updateMetadataStatus('completed', null, 100);
 
       console.log(`✅ AI insights generation completed for meeting ${meetingId}`);
       return { success: true, insights };

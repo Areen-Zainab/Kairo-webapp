@@ -80,6 +80,7 @@ class DecisionExtractionAgent:
         """
         Call Groq API with key rotation and retry on timeout/429.
         Multiple rounds with backoff. If 429 supplies Retry-After, we honor it.
+        Improved: Try all keys first before sleeping to avoid unnecessary delays.
         """
         if not self.api_keys:
             raise ValueError("No Groq API keys configured")
@@ -88,8 +89,10 @@ class DecisionExtractionAgent:
         max_rounds = 3  # first pass + two retries
         base_wait_seconds = 5
         last_error = None
+        retry_after_hint = None  # Track retry-after from any 429 response
 
         for round_idx in range(max_rounds):
+            # Try all keys in this round
             for attempt_in_round in range(total_keys):
                 api_key = self._get_next_api_key()
                 try:
@@ -113,16 +116,16 @@ class DecisionExtractionAgent:
                 except requests.exceptions.HTTPError as e:
                     last_error = e
                     if e.response is not None and e.response.status_code == 429:
+                        # Capture retry-after but don't sleep yet - try other keys first
                         retry_after = e.response.headers.get("Retry-After")
-                        wait_hint = None
-                        try:
-                            wait_hint = int(retry_after)
-                        except Exception:
-                            wait_hint = None
+                        if retry_after:
+                            try:
+                                retry_after_hint = int(retry_after)
+                            except Exception:
+                                retry_after_hint = None
                         print(f"Rate limit (429) with key {attempt_in_round + 1}/{total_keys} (round {round_idx + 1}); trying next key...", file=sys.stderr)
-                        if wait_hint:
-                            print(f"Server suggests waiting {wait_hint}s.", file=sys.stderr)
-                            time.sleep(wait_hint)
+                        if retry_after_hint:
+                            print(f"Server suggests waiting {retry_after_hint}s.", file=sys.stderr)
                         continue
                     raise
 
@@ -130,10 +133,20 @@ class DecisionExtractionAgent:
                     last_error = e
                     raise
 
+            # After trying all keys, if we got 429s, wait before next round
             if round_idx < max_rounds - 1:
-                wait_seconds = base_wait_seconds * (round_idx + 1)
-                print(f"All keys failed in round {round_idx + 1}. Waiting {wait_seconds}s before retry...", file=sys.stderr)
-                time.sleep(wait_seconds)
+                if retry_after_hint:
+                    # Cap wait time at 1 minute to avoid long blocking
+                    # Server may suggest longer, but we'll try again after 1 min
+                    wait_seconds = min(retry_after_hint, 60)  # Cap at 1 minute
+                    print(f"All keys rate-limited in round {round_idx + 1}. Waiting {wait_seconds}s before retry (server suggested {retry_after_hint}s, capped at 60s)...", file=sys.stderr)
+                    time.sleep(wait_seconds)
+                    retry_after_hint = None  # Reset after using it
+                else:
+                    # Use exponential backoff if no retry-after hint
+                    wait_seconds = base_wait_seconds * (round_idx + 1)
+                    print(f"All keys failed in round {round_idx + 1}. Waiting {wait_seconds}s before retry...", file=sys.stderr)
+                    time.sleep(wait_seconds)
 
         if last_error:
             raise last_error

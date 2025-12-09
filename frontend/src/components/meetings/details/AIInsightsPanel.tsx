@@ -12,7 +12,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
   const [format, setFormat] = useState<'paragraph' | 'bullets'>('paragraph');
   const [isExporting, setIsExporting] = useState(false);
 
-  const { insights, loading, error, isRegenerating, generationProgress, refetch, regenerate } = useAIInsights(meeting.id);
+  const { insights, loading, error, isRegenerating, generationProgress, regenerate } = useAIInsights(meeting.id);
 
   // Default empty insights structure
   const aiInsights = insights || {
@@ -77,10 +77,12 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
       content += `## Action Items\n\n`;
       if (aiInsights.actionItems.length > 0) {
         aiInsights.actionItems.forEach((item: typeof aiInsights.actionItems[0], index: number) => {
-          content += `### ${index + 1}. ${item.item}\n`;
+          content += `### ${index + 1}. ${item.title}\n`;
+          if (item.description) {
+            content += `${item.description}\n\n`;
+          }
           content += `**Assignee:** ${item.assignee || 'Unassigned'}\n`;
           content += `**Due Date:** ${item.dueDate || 'Not set'}\n`;
-          content += `**Priority:** ${item.priority || 'Not set'}\n`;
           if (item.confidence !== undefined) {
             content += `**Confidence:** ${Math.round(item.confidence * 100)}%\n`;
           }
@@ -126,7 +128,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
       // Participant Analysis Section
       content += `## Participant Analysis\n\n`;
       if (aiInsights.participants.length > 0) {
-        aiInsights.participants.forEach((participant: typeof aiInsights.participants[0], index: number) => {
+        aiInsights.participants.forEach((participant: typeof aiInsights.participants[0]) => {
           content += `### ${participant.name}\n`;
           content += `**Speaking Time:** ${formatSpeakingTime(participant.speakingTime)}\n`;
           content += `**Engagement Level:** ${participant.engagement}\n`;
@@ -185,10 +187,12 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
       content += `ACTION ITEMS:\n`;
       if (aiInsights.actionItems.length > 0) {
         aiInsights.actionItems.forEach((item: typeof aiInsights.actionItems[0], index: number) => {
-          content += `${index + 1}. ${item.item}\n`;
+          content += `${index + 1}. ${item.title}\n`;
+          if (item.description) {
+            content += `   ${item.description}\n`;
+          }
           content += `   Assignee: ${item.assignee || 'Unassigned'}\n`;
           content += `   Due Date: ${item.dueDate || 'Not set'}\n`;
-          content += `   Priority: ${item.priority || 'Not set'}\n`;
           if (item.confidence !== undefined) {
             content += `   Confidence: ${Math.round(item.confidence * 100)}%\n`;
           }
@@ -303,10 +307,15 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
           {error}
         </p>
         <button
-          onClick={() => refetch()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          onClick={() => {
+            console.log('🔵 [AIInsightsPanel] Retry button clicked in error state!');
+            console.log('   Calling regenerate() to trigger generation');
+            regenerate();
+          }}
+          disabled={isRegenerating}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg transition-colors"
         >
-          Retry
+          {isRegenerating ? 'Generating...' : 'Retry'}
         </button>
       </div>
     );
@@ -358,7 +367,13 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
           {error ? error : 'Click generate to create insights for this meeting.'}
         </p>
         <button
-          onClick={() => regenerate()}
+          onClick={() => {
+            console.log('🔵 [AIInsightsPanel] Generate Insights button clicked!');
+            console.log('   regenerate function:', regenerate);
+            console.log('   meeting.id:', meeting.id);
+            console.log('   isRegenerating:', isRegenerating);
+            regenerate();
+          }}
           disabled={isRegenerating}
           className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg transition-colors"
         >
@@ -418,7 +433,13 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
           {/* Regenerate Button */}
           <button
-            onClick={() => regenerate()}
+            onClick={() => {
+              console.log('🔵 [AIInsightsPanel] Regenerate button clicked (header)!');
+              console.log('   regenerate function:', regenerate);
+              console.log('   meeting.id:', meeting.id);
+              console.log('   isRegenerating:', isRegenerating);
+              regenerate();
+            }}
             disabled={isRegenerating}
             className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
             title="Regenerate insights"
@@ -529,21 +550,30 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
           </h4>
           <div className="space-y-3">
             {aiInsights.actionItems.map((item: typeof aiInsights.actionItems[0], index: number) => (
-              <div key={index} className="flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+              <div key={index} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                 <div className="flex-1">
-                  <p className="font-medium text-slate-900 dark:text-white">{item.item}</p>
-                  <div className="flex items-center space-x-4 mt-1 text-sm text-slate-600 dark:text-slate-400">
-                    {item.assignee && <span>Assignee: {item.assignee}</span>}
-                    {item.dueDate && <span>Due: {item.dueDate}</span>}
-                    {item.priority && (
-                      <span className={`px-2 py-1 rounded-full text-xs ${item.priority === 'High'
-                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                        : item.priority === 'Medium'
-                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                          : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                        }`}>
-                        {item.priority}
-                      </span>
+                  <p className="font-medium text-slate-900 dark:text-white mb-2">{item.title}</p>
+                  {item.description && (
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{item.description}</p>
+                  )}
+                  <div className="flex items-center flex-wrap gap-3 text-sm text-slate-600 dark:text-slate-400">
+                    {item.assignee && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500 dark:text-slate-500">Assignee:</span>
+                        <span className="font-medium">{item.assignee}</span>
+                      </div>
+                    )}
+                    {item.dueDate && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500 dark:text-slate-500">Due:</span>
+                        <span className="font-medium">{item.dueDate}</span>
+                      </div>
+                    )}
+                    {item.confidence !== undefined && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500 dark:text-slate-500">Confidence:</span>
+                        <span className="font-medium">{Math.round(item.confidence * 100)}%</span>
+                      </div>
                     )}
                   </div>
                 </div>

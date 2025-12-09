@@ -106,9 +106,11 @@ class TopicSegmentationAgent:
                 
                 if response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", 5))
-                    print(f"⏳ Groq 429 (round {round_num+1}/{max_rounds}), waiting {retry_after}s...", 
+                    # Cap wait time at 1 minute to avoid long blocking
+                    wait_time = min(retry_after, 60)
+                    print(f"⏳ Groq 429 (round {round_num+1}/{max_rounds}), waiting {wait_time}s (server suggested {retry_after}s, capped at 60s)...", 
                           file=sys.stderr)
-                    time.sleep(retry_after)
+                    time.sleep(wait_time)
                     continue
                     
                 response.raise_for_status()

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { apiService } from '../services/api';
 
 export interface AIInsightsData {
@@ -16,10 +16,11 @@ export interface AIInsightsData {
     confidence?: number;
   }>;
   actionItems: Array<{
-    item: string;
+    id?: number;
+    title: string;
+    description?: string;
     assignee?: string;
     dueDate?: string;
-    priority?: string;
     confidence?: number;
   }>;
   sentiment: {
@@ -47,6 +48,7 @@ export interface AIInsightsData {
   generated: boolean;
   generating?: boolean;
   progress?: number;
+  aiInsightsError?: string | null;
 }
 
 export const useAIInsights = (meetingId: number | string | null) => {
@@ -56,43 +58,58 @@ export const useAIInsights = (meetingId: number | string | null) => {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
 
+  // Track when generation started to detect stale states
+  const [generationStartTime, setGenerationStartTime] = useState<number | null>(null);
+  
+  // Use ref to store latest fetchInsights to avoid circular dependency
+  const fetchInsightsRef = useRef<((silent?: boolean) => Promise<void>) | null>(null);
+
   // Poll for updates if actively regenerating
   useEffect(() => {
     let pollInterval: ReturnType<typeof setInterval>;
+    let staleCheckInterval: ReturnType<typeof setInterval>;
 
     if (isRegenerating || (generationProgress > 0 && generationProgress < 100)) {
+      // Set start time if not set
+      if (!generationStartTime) {
+        setGenerationStartTime(Date.now());
+      }
+
       pollInterval = setInterval(() => {
-        fetchInsights(true); // silent fetch
+        if (fetchInsightsRef.current) {
+          fetchInsightsRef.current(true); // silent fetch
+        }
       }, 3000);
+
+      // Check for stale state (generating for more than 15 minutes without completion)
+      staleCheckInterval = setInterval(() => {
+        if (generationStartTime) {
+          const ageMs = Date.now() - generationStartTime;
+          const STALE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+          
+          if (ageMs > STALE_TIMEOUT_MS) {
+            console.warn('⚠️ Generation state appears stale (15+ minutes), resetting...');
+            setIsRegenerating(false);
+            setGenerationProgress(0);
+            setGenerationStartTime(null);
+            if (fetchInsightsRef.current) {
+              fetchInsightsRef.current(false); // Force refresh to get latest state
+            }
+          }
+        }
+      }, 30000); // Check every 30 seconds
+    } else {
+      // Reset start time when not generating
+      if (generationStartTime) {
+        setGenerationStartTime(null);
+      }
     }
 
     return () => {
       if (pollInterval) clearInterval(pollInterval);
+      if (staleCheckInterval) clearInterval(staleCheckInterval);
     };
-  }, [isRegenerating, generationProgress]);
-
-  // Optimistic progress simulator
-  useEffect(() => {
-    let progressInterval: ReturnType<typeof setInterval>;
-
-    if (isRegenerating) {
-      if (generationProgress === 0) setGenerationProgress(10); // Start at 10% if fresh
-
-      progressInterval = setInterval(() => {
-        setGenerationProgress(prev => {
-          // Cap at 90% until actually finished
-          if (prev >= 90) return 90;
-          // Slow down as we get closer to 90
-          const increment = prev < 50 ? 10 : 5;
-          return prev + increment;
-        });
-      }, 2000);
-    }
-
-    return () => {
-      if (progressInterval) clearInterval(progressInterval);
-    };
-  }, [isRegenerating]);
+  }, [isRegenerating, generationProgress, generationStartTime]);
 
   const fetchInsights = useCallback(async (silent = false) => {
     if (!meetingId) {
@@ -115,18 +132,21 @@ export const useAIInsights = (meetingId: number | string | null) => {
       const response = await apiService.getAIInsights(numericId);
 
       if (response.data) {
-        setInsights(response.data);
-
-        // Surface backend error/status to UI
-        if (response.data.aiInsightsError) {
-          setError(response.data.aiInsightsError);
+        // Surface backend error/status to UI (access before type narrowing)
+        const errorMessage = response.data.aiInsightsError;
+        if (errorMessage) {
+          setError(errorMessage);
         } else {
           setError(null);
         }
 
+        setInsights(response.data);
+
         // Handle server-side generation status
         if (response.data.generating) {
           setIsRegenerating(true);
+          // Reset start time if we're starting fresh
+          setGenerationStartTime(prev => prev || Date.now());
           // Use server progress if available
           if (response.data.progress && response.data.progress > 0) {
             setGenerationProgress(response.data.progress);
@@ -138,15 +158,12 @@ export const useAIInsights = (meetingId: number | string | null) => {
           // If we found insights and they are fully generated
           setGenerationProgress(100);
           setIsRegenerating(false);
+          setGenerationStartTime(null); // Clear start time
         } else {
           // Neither generating nor generated (e.g. initial state or failed)
-          // Don't force setIsRegenerating(false) here if we want to preserve local state, 
-          // but usually if server says not generating, we should stop.
-          // However, avoid interfering with optimistic start if distinct.
-          // But here response.data.generating comes from DB, so it is the source of truth.
-          if (!response.data.generating) {
-            setIsRegenerating(false);
-          }
+          // Server says not generating, so stop local state
+          setIsRegenerating(false);
+          setGenerationStartTime(null); // Clear start time
         }
       } else if (response.error) {
         if (!silent) setError(response.error);
@@ -158,28 +175,54 @@ export const useAIInsights = (meetingId: number | string | null) => {
     }
   }, [meetingId]);
 
-  const regenerateInsights = useCallback(async () => {
-    if (!meetingId) return;
+  // Update ref whenever fetchInsights changes
+  useEffect(() => {
+    fetchInsightsRef.current = fetchInsights;
+  }, [fetchInsights]);
 
+  const regenerateInsights = useCallback(async () => {
+    console.log(`🎯 [useAIInsights] regenerateInsights() called`);
+    console.log(`   meetingId:`, meetingId);
+    console.log(`   meetingId type:`, typeof meetingId);
+    console.log(`   meetingId is null/undefined:`, meetingId === null || meetingId === undefined);
+    
+    if (!meetingId) {
+      console.warn(`⚠️ [useAIInsights] Exiting early: meetingId is null/undefined`);
+      return;
+    }
+
+    console.log(`✅ [useAIInsights] meetingId exists, proceeding...`);
     setIsRegenerating(true);
     setGenerationProgress(0);
     setError(null);
 
     try {
       const numericId = typeof meetingId === 'string' ? parseInt(meetingId, 10) : meetingId;
+      console.log(`   Converted to numericId:`, numericId);
 
       if (isNaN(numericId)) {
+        console.error(`❌ [useAIInsights] Invalid meeting ID (NaN):`, numericId);
         setError('Invalid meeting ID');
         setIsRegenerating(false);
         return;
       }
 
+      console.log(`🔄 [useAIInsights] Calling regenerateAIInsights for meeting ${numericId}`);
       const response = await apiService.regenerateAIInsights(numericId);
+      console.log(`📥 [useAIInsights] Response received:`, response);
 
       if (response.data) {
-        // Allow the polling effect to take over fetching
-        setGenerationProgress(5);
+        // Check if generation was successful
+        if (response.data.success === false) {
+          // Backend returned error in response.data.error
+          setError(response.data.error || 'Failed to regenerate AI insights');
+          setIsRegenerating(false);
+        } else {
+          // Success - backend will report progress via polling
+          console.log(`   ✅ Generation started, polling will track progress`);
+        }
       } else if (response.error) {
+        // API request itself failed
         setError(response.error);
         setIsRegenerating(false);
       }

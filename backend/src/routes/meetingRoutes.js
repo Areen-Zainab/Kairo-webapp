@@ -11,6 +11,7 @@ const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeS
 const multer = require('multer');
 const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile, getLiveTranscriptEntries, getDiarizedTranscript, findMeetingDirectory } = require("../utils/meetingFileStorage");
 const { getMeetingStats } = require("../utils/meetingStats");
+const AIInsightsService = require("../services/AIInsightsService");
 
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -1771,15 +1772,22 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
         topics: [],
         participants: [],
         generated: false,
-        generating: meeting.metadata?.aiInsightsStatus === 'generating',
-        progress: meeting.metadata?.aiInsightsProgress || 0
+        generating: isGenerating,
+        progress: progress
       });
     }
 
-    // Check if generation is in progress based on metadata
-    const isGenerating = meeting.metadata?.aiInsightsStatus === 'generating';
-    const progress = meeting.metadata?.aiInsightsProgress || 0;
-    const aiInsightsError = meeting.metadata?.aiInsightsError || null;
+    // Check generation status from in-memory store (not DB)
+    // This ensures if backend restarts, status returns to 'idle' automatically
+    const generationStatus = AIInsightsService.getGenerationStatus(meetingId);
+    const isGenerating = generationStatus.isActive && generationStatus.status === 'generating';
+    const progress = generationStatus.progress;
+    
+    // For completed/failed states, check DB metadata
+    let aiInsightsError = generationStatus.error;
+    if (!isGenerating && meeting.metadata?.aiInsightsError) {
+      aiInsightsError = meeting.metadata.aiInsightsError;
+    }
 
     // If no insights found, return empty structure
     if (!insightsRows || insightsRows.length === 0) {
@@ -1793,7 +1801,7 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
         generated: false,
         generating: isGenerating,
         progress: progress,
-        aiInsightsStatus: meeting.metadata?.aiInsightsStatus || 'idle',
+        aiInsightsStatus: isGenerating ? 'generating' : (meeting.metadata?.aiInsightsStatus || 'idle'),
         aiInsightsError
       });
     }
@@ -1809,7 +1817,7 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
       generated: true,
       generating: isGenerating,
       progress: progress,
-      aiInsightsStatus: meeting.metadata?.aiInsightsStatus || 'completed',
+      aiInsightsStatus: isGenerating ? 'generating' : (meeting.metadata?.aiInsightsStatus || 'completed'),
       aiInsightsError
     };
 
@@ -1888,8 +1896,14 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
 
 // Regenerate AI insights for a meeting
 router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) => {
+  console.log(`📥 [POST /meetings/:id/ai-insights/regenerate] Request received`);
+  console.log(`   Meeting ID param: ${req.params.id}`);
+  console.log(`   User ID: ${req.user?.id}`);
+  console.log(`   Request body:`, req.body);
+  
   try {
     const meetingId = parseInt(req.params.id);
+    console.log(`   Parsed meeting ID: ${meetingId}`);
 
     if (isNaN(meetingId)) {
       return res.status(400).json({ error: "Invalid meeting ID" });
@@ -1918,8 +1932,6 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
     // For now, any workspace member can regenerate
 
     // Trigger insights regeneration
-    const AIInsightsService = require('../services/AIInsightsService');
-
     // Delete existing insights and reset flag in a transaction
     // Delete existing insights and reset flag + set generating status in a transaction
     const meetingIdStr = String(meetingId);
@@ -1969,32 +1981,101 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
       }
     });
 
-    // Generate new insights (now awaiting to surface errors)
+    // Ensure transaction is committed before starting generation
+    // Add a small delay to ensure database state is consistent
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Generate new insights (fire-and-forget to prevent request timeouts)
     try {
-      const result = await AIInsightsService.generateInsights(meetingId);
-      if (result.success) {
-        console.log(`✅ AI insights regeneration completed for meeting ${meetingId}`);
-        return res.json({
-          success: true,
-          message: "AI insights generated successfully."
+      console.log(`🚀 Starting AI insights generation for meeting ${meetingId} (force regenerate)`);
+      
+      // Start generation asynchronously with forceRegenerate=true to always regenerate
+      // Don't await to prevent request timeout, but catch any immediate errors
+      const generationPromise = AIInsightsService.generateInsights(meetingId, true); // forceRegenerate = true
+      
+      generationPromise
+        .then((result) => {
+          if (result && result.success) {
+            if (result.skipped) {
+              console.log(`ℹ️ AI insights regeneration skipped for meeting ${meetingId}: ${result.message}`);
+            } else {
+              console.log(`✅ AI insights regeneration completed for meeting ${meetingId}`);
+            }
+          } else {
+            const errorMsg = result?.error || 'Unknown error';
+            console.error(`⚠️ AI insights regeneration failed for meeting ${meetingId}: ${errorMsg}`);
+            // Update status to failed
+            prisma.meeting.update({
+              where: { id: meetingId },
+              data: {
+                metadata: {
+                  aiInsightsStatus: 'failed',
+                  aiInsightsError: errorMsg,
+                  aiInsightsProgress: 0
+                }
+              }
+            }).catch(e => console.error(`Failed to update error status: ${e.message}`));
+          }
+        })
+        .catch((err) => {
+          console.error(`❌ AI insights regeneration error for meeting ${meetingId}:`, err.message);
+          console.error(`   Stack:`, err.stack);
+          // Update status to failed
+          prisma.meeting.update({
+            where: { id: meetingId },
+            data: {
+              metadata: {
+                aiInsightsStatus: 'failed',
+                aiInsightsError: err.message || 'Generation failed',
+                aiInsightsProgress: 0
+              }
+            }
+          }).catch(e => console.error(`Failed to update error status: ${e.message}`));
         });
-      } else {
-        console.error(`⚠️ AI insights regeneration failed for meeting ${meetingId}: ${result.error}`);
-        return res.status(500).json({
-          success: false,
-          error: result.error || 'AI insights generation failed'
-        });
-      }
+
+      // Return immediately - frontend will poll for status updates
+      console.log(`✅ Regeneration request accepted for meeting ${meetingId}, generation started in background`);
+      return res.json({
+        success: true,
+        message: "AI insights generation started. Status will be updated as generation progresses."
+      });
     } catch (err) {
-      console.error(`⚠️ AI insights regeneration error for meeting ${meetingId}:`, err.message);
+      // Only catch synchronous errors (e.g., validation)
+      console.error(`⚠️ Failed to start AI insights regeneration for meeting ${meetingId}:`, err.message);
+      // Reset status on synchronous error - fetch current metadata first
+      try {
+        const currentMeeting = await prisma.meeting.findUnique({
+          where: { id: meetingId },
+          select: { metadata: true }
+        });
+        await prisma.meeting.update({
+          where: { id: meetingId },
+          data: {
+            metadata: {
+              ...(currentMeeting?.metadata || {}),
+              aiInsightsStatus: 'idle',
+              aiInsightsError: err.message || 'Failed to start generation',
+              aiInsightsProgress: 0,
+              aiInsightsStartTime: null
+            }
+          }
+        });
+      } catch (metaErr) {
+        console.error(`Failed to reset status on error: ${metaErr.message}`);
+      }
       return res.status(500).json({
         success: false,
-        error: err.message || 'AI insights generation error'
+        error: err.message || 'Failed to start AI insights generation'
       });
     }
   } catch (error) {
-    console.error("Regenerate AI insights error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error(`❌ [POST /meetings/:id/ai-insights/regenerate] Outer catch block - Error:`, error);
+    console.error(`   Error message:`, error.message);
+    console.error(`   Error stack:`, error.stack);
+    res.status(500).json({ 
+      success: false,
+      error: error.message || "Internal server error" 
+    });
   }
 });
 
