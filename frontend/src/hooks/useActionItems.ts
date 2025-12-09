@@ -32,7 +32,18 @@ export const useActionItems = (meetingId: number | string | null, pollInterval =
   const maxReconnectAttempts = 5;
 
   const fetchActionItems = useCallback(async () => {
-    if (meetingId === null || meetingId === undefined) return;
+    console.log('🔍 [useActionItems] fetchActionItems called:', {
+      meetingId,
+      type: typeof meetingId,
+      willExit: meetingId === null || meetingId === undefined
+    });
+    
+    if (meetingId === null || meetingId === undefined) {
+      console.log('🚫 [useActionItems] Exiting early - meetingId is null/undefined');
+      return;
+    }
+    
+    console.log('📡 [useActionItems] Making API call to getLiveActionItems...');
     setLoading(true);
     setError(null);
 
@@ -41,6 +52,7 @@ export const useActionItems = (meetingId: number | string | null, pollInterval =
         meetingId as any,
         lastUpdateRef.current || undefined
       );
+      console.log('✅ [useActionItems] API response received:', response);
 
       if (response.data?.actionItems) {
         const data = response.data;

@@ -171,6 +171,30 @@ class AIInsightsService {
   }
 
   /**
+   * Get the set of insight types that already exist for a meeting
+   * Returns Set of insight type strings (e.g., 'summary', 'action_items', etc.)
+   */
+  async getExistingInsightTypes(meetingId) {
+    const meetingIdStr = String(meetingId);
+    const existingTypes = new Set();
+
+    try {
+      const insights = await prisma.aiInsight.findMany({
+        where: { meetingId: meetingIdStr },
+        select: { insightType: true }
+      });
+
+      insights.forEach(insight => {
+        existingTypes.add(insight.insightType);
+      });
+    } catch (error) {
+      console.warn(`Warning: Could not fetch existing insight types: ${error.message}`);
+    }
+
+    return existingTypes;
+  }
+
+  /**
    * Load and convert diarized transcript to text format
    * Handles both JSON and TXT formats
    */
@@ -605,16 +629,30 @@ print(result)
       return { success: false, error: err.message || 'Action items agent failed' };
     }
 
+    // Check if placeholder
+    const isPlaceholderActionItems = (list) => {
+      return (
+        Array.isArray(list) &&
+        list.length === 1 &&
+        typeof list[0] === 'object' &&
+        (list[0].title === 'No action items detected' || 
+         list[0].action === 'No action items detected.' ||
+         list[0].title === 'No action items detected.')
+      );
+    };
+
     if (!Array.isArray(actionItems) || actionItems.length === 0) {
       return { success: false, error: 'No action items identified' };
     }
 
-    // Save action items only
+    const isPlaceholder = isPlaceholderActionItems(actionItems);
+
+    // Save action items to ai_insights table (always save, even placeholder)
     const avgConfidence =
       actionItems.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / actionItems.length;
 
     await prisma.$transaction(async (tx) => {
-      // Remove previous action_items insights only
+      // Remove previous action_items insights
       await tx.aiInsight.deleteMany({
         where: { meetingId: meetingIdStr, insightType: 'action_items' }
       });
@@ -629,6 +667,11 @@ print(result)
         }
       });
     });
+
+    if (isPlaceholder) {
+      console.log(`ℹ️ No action items detected for meeting ${meetingId} - saved placeholder`);
+      return { success: true, count: 0, placeholder: true };
+    }
 
     console.log(`✅ Regenerated ${actionItems.length} action item(s) for meeting ${meetingId}`);
     return { success: true, count: actionItems.length };
@@ -768,11 +811,25 @@ print(result)
         console.log(`   ✅ Saved ${insights.topics.length} topic(s)`);
       }
 
-      // Save action items
+      // Helper to check if action items are placeholder
+      const isPlaceholderActionItems = (list) => {
+        return (
+          Array.isArray(list) &&
+          list.length === 1 &&
+          typeof list[0] === 'object' &&
+          (list[0].title === 'No action items detected' || 
+           list[0].action === 'No action items detected.' ||
+           list[0].title === 'No action items detected.')
+        );
+      };
+
+      // Save action items (ALWAYS save, even if placeholder)
       if (insights.actionItems && Array.isArray(insights.actionItems) && insights.actionItems.length > 0) {
         const content = JSON.stringify(insights.actionItems);
         const avgConfidence = insights.actionItems.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / insights.actionItems.length;
+        const isPlaceholder = isPlaceholderActionItems(insights.actionItems);
 
+        // Save to ai_insights table (for AI insights panel)
         await tx.aiInsight.create({
           data: {
             id: uuidv4(),
@@ -782,7 +839,59 @@ print(result)
             confidenceScore: Number(avgConfidence)
           }
         });
-        console.log(`   ✅ Saved ${insights.actionItems.length} action item(s)`);
+        
+        if (isPlaceholder) {
+          console.log(`   ℹ️ No action items detected - saved placeholder message`);
+        } else {
+          console.log(`   ✅ Saved ${insights.actionItems.length} action item(s) to ai_insights table`);
+        }
+
+        // Only sync to action_items table if NOT placeholder
+        if (!isPlaceholder) {
+          try {
+            const meetingIdInt = parseInt(meetingIdStr);
+            
+            // Delete existing live action items (they were from partial transcript)
+            const deletedCount = await tx.actionItem.deleteMany({
+              where: { meetingId: meetingIdInt }
+            });
+            console.log(`   🔄 Deleted ${deletedCount.count} live action items (replacing with post-meeting regenerated items)`);
+
+            // Insert post-meeting action items
+            const ActionItemService = require('./ActionItemService');
+            for (const item of insights.actionItems) {
+              const canonicalKey = ActionItemService._generateCanonicalKey({
+                title: item.action || item.task || item.title || '',
+                description: item.description || item.details || '',
+                assignee: item.assignee || item.owner || null
+              });
+
+              await tx.actionItem.create({
+                data: {
+                  meetingId: meetingIdInt,
+                  title: item.action || item.task || item.title || 'Action item',
+                  description: item.description || item.details || '',
+                  assignee: item.assignee || item.owner || null,
+                  dueDate: item.due_date || item.deadline || null,
+                  canonicalKey,
+                  confidence: item.confidence || avgConfidence,
+                  sourceChunk: 'post_meeting_full_transcript',
+                  status: 'pending',
+                  rawData: item,
+                  updateHistory: [],
+                  firstSeenAt: new Date(),
+                  lastSeenAt: new Date()
+                }
+              });
+            }
+            console.log(`   ✅ Synced ${insights.actionItems.length} action items to action_items table (post-meeting regeneration)`);
+          } catch (syncError) {
+            console.error(`   ⚠️ Warning: Failed to sync action items to action_items table: ${syncError.message}`);
+            // Don't fail the entire transaction, just log the warning
+          }
+        } else {
+          console.log(`   ⏭️ Skipping action_items table sync (no actionable items found)`);
+        }
       }
 
       // Save participants (use 'other' type since 'participants' is not in enum)
@@ -889,11 +998,27 @@ print(result)
     };
 
     try {
-      // Check if insights already exist
-      const insightsExist = await this.checkInsightsExist(meetingId);
-      if (insightsExist) {
-        console.log(`ℹ️  Insights already exist for meeting ${meetingId}, skipping generation`);
-        return { success: true, skipped: true, message: 'Insights already generated' };
+      // Check which specific insights already exist
+      const existingTypes = await this.getExistingInsightTypes(meetingId);
+      
+      // Only skip if ALL core insights exist (not including action_items - those should be regenerated post-meeting)
+      const coreInsightsExist = existingTypes.has('summary') && 
+                                existingTypes.has('decisions') && 
+                                existingTypes.has('topics') &&
+                                existingTypes.has('sentiment');
+      
+      if (coreInsightsExist) {
+        console.log(`ℹ️  Core insights already exist for meeting ${meetingId}`);
+        console.log(`   Existing types: ${Array.from(existingTypes).join(', ')}`);
+        
+        // Still regenerate action items if they don't exist (post-meeting with complete transcript)
+        if (!existingTypes.has('action_items')) {
+          console.log(`   📋 Action items missing, will regenerate with complete transcript...`);
+          // Continue to generate action items only
+        } else {
+          console.log(`   Skipping full regeneration (all insights including action items exist)`);
+          return { success: true, skipped: true, message: 'All insights already generated' };
+        }
       }
 
       // Check if transcript is available

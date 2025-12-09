@@ -6,6 +6,7 @@ import TranscriptPanel from './TranscriptPanel';
 import FilesPanel from './FilesPanel';
 import AIInsightsPanel from './AIInsightsPanel';
 import ActionItemsPanel from './ActionItemsPanel';
+import { useAIInsights } from '../../../hooks/useAIInsights';
 import type { MeetingDetailsData, MeetingMinute, MeetingNote } from './types';
 
 interface MeetingTabsProps {
@@ -47,6 +48,9 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
   onFileDelete,
   currentTime
 }) => {
+  // Get AI insights for generating minutes on-demand (hook must be at top level)
+  const { insights } = useAIInsights(meeting.id);
+
   const tabs = [
     {
       id: 'overview',
@@ -121,6 +125,8 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
         return (
           <MeetingMinutes
             minutes={meeting.minutes}
+            meeting={meeting}
+            insights={insights}
             onMinuteHover={onMinuteHover}
             onMinuteClick={onMinuteClick}
             onExport={onExportMinutes}
@@ -173,7 +179,10 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
         return (
           <AIInsightsPanel
             meeting={meeting}
-            onExportInsights={(format: 'pdf' | 'markdown' | 'text') => console.log('Export insights:', format)}
+            onExportInsights={(format: 'pdf' | 'markdown' | 'text') => {
+              // Export is handled internally by AIInsightsPanel
+              console.log('AI insights exported as:', format);
+            }}
           />
         );
       default:

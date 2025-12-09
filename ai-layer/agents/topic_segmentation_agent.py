@@ -9,6 +9,7 @@ Falls back to simple paragraph splitting if API is unavailable.
 from __future__ import annotations
 
 import os
+import sys
 import json
 import requests
 from dataclasses import dataclass, asdict
@@ -46,8 +47,14 @@ class TopicSegmentationAgent:
     def __init__(self):
         self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
+        self.current_key_index = 0  # For key rotation
         if not self.api_key:
             print("Error: GROQ_API_KEY not set; topic agent will use fallback mode.", file=sys.stderr)
+        else:
+            # Check for second API key
+            api_key_2 = os.getenv("GROQ_API_KEY_2")
+            if api_key_2:
+                print("Info: 2 Groq API keys configured for rotation.", file=sys.stderr)
 
     def run(self, transcript: str) -> List[Dict[str, Any]]:
         """Identify topics using GROQ API or fallback method."""
@@ -65,14 +72,67 @@ class TopicSegmentationAgent:
         # Fallback to simple paragraph splitting
         return self._identify_with_paragraphs(transcript)
 
+    def _get_next_api_key(self):
+        """Rotate between available Groq API keys."""
+        import time
+        keys = [k for k in [self.api_key, os.getenv("GROQ_API_KEY_2")] if k]
+        if not keys:
+            raise ValueError("No Groq API keys available")
+        self.current_key_index = (self.current_key_index + 1) % len(keys)
+        return keys[self.current_key_index]
+
+    def _call_groq_api(self, payload, max_rounds=3):
+        """
+        Call Groq API with retry logic, key rotation, and exponential backoff.
+        Similar to action_item_agent.py and summary_agent.py.
+        """
+        import time
+        last_error = None
+        
+        for round_num in range(max_rounds):
+            api_key = self._get_next_api_key()
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            try:
+                response = requests.post(
+                    self.GROQ_API_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=60
+                )
+                
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", 5))
+                    print(f"⏳ Groq 429 (round {round_num+1}/{max_rounds}), waiting {retry_after}s...", 
+                          file=sys.stderr)
+                    time.sleep(retry_after)
+                    continue
+                    
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.Timeout as e:
+                last_error = e
+                wait_time = 2 ** round_num  # exponential backoff
+                print(f"⏳ Timeout (round {round_num+1}/{max_rounds}), retry in {wait_time}s...", 
+                      file=sys.stderr)
+                time.sleep(wait_time)
+                
+            except requests.exceptions.RequestException as e:
+                last_error = e
+                print(f"❌ Groq request error (round {round_num+1}/{max_rounds}): {e}", 
+                      file=sys.stderr)
+                if round_num < max_rounds - 1:
+                    time.sleep(2 ** round_num)
+        
+        raise RuntimeError(f"Groq API failed after {max_rounds} rounds: {last_error}")
+
     def _identify_with_GROQ(self, transcript: str) -> List[Dict[str, Any]]:
         """Identify topics using GROQ Cloud API."""
         prompt = self._build_identification_prompt(transcript)
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
 
         payload = {
             "model": self.GROQ_MODEL,
@@ -90,15 +150,8 @@ class TopicSegmentationAgent:
             "max_tokens": 2000
         }
 
-        response = requests.post(
-            self.GROQ_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
-
-        response.raise_for_status()
-        result = response.json()
+        # Use retry logic with key rotation
+        result = self._call_groq_api(payload)
 
         # Extract the content from the response
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")

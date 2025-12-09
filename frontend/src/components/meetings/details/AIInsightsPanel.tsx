@@ -42,59 +42,226 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
     if (exportFormat === 'markdown') {
       content = `# AI Insights - ${meeting.title}\n\n`;
       content += `**Date:** ${meeting.date}\n`;
-      content += `**Duration:** ${meeting.duration} minutes\n\n`;
+      content += `**Duration:** ${meeting.duration} minutes\n`;
+      content += `**Participants:** ${meeting.participants.map(p => p.name).join(', ')}\n\n`;
+      content += `---\n\n`;
 
+      // Summary Section
       content += `## Summary\n\n`;
       if (format === 'paragraph' && aiInsights.summary) {
         content += `${aiInsights.summary.paragraph}\n\n`;
       } else if (aiInsights.summary) {
         content += aiInsights.summary.bullets.map((bullet: string) => `- ${bullet}`).join('\n') + '\n\n';
+      } else {
+        content += `*No summary available.*\n\n`;
       }
 
+      // Key Decisions Section
       content += `## Key Decisions\n\n`;
-      aiInsights.keyDecisions.forEach((decision: typeof aiInsights.keyDecisions[0], index: number) => {
-        content += `### ${index + 1}. ${decision.decision}\n`;
-        content += `**Context:** ${decision.context}\n`;
-        content += `**Impact:** ${decision.impact}\n`;
-        content += `**Participants:** ${decision.participants.join(', ')}\n\n`;
-      });
+      if (aiInsights.keyDecisions.length > 0) {
+        aiInsights.keyDecisions.forEach((decision: typeof aiInsights.keyDecisions[0], index: number) => {
+          content += `### ${index + 1}. ${decision.decision}\n`;
+          content += `**Context:** ${decision.context}\n`;
+          content += `**Impact:** ${decision.impact}\n`;
+          content += `**Participants:** ${decision.participants.join(', ')}\n`;
+          if (decision.confidence !== undefined) {
+            content += `**Confidence:** ${Math.round(decision.confidence * 100)}%\n`;
+          }
+          content += `\n`;
+        });
+      } else {
+        content += `*No decisions identified.*\n\n`;
+      }
 
+      // Action Items Section
       content += `## Action Items\n\n`;
-      aiInsights.actionItems.forEach((item: typeof aiInsights.actionItems[0], index: number) => {
-        content += `### ${index + 1}. ${item.item}\n`;
-        content += `**Assignee:** ${item.assignee || 'Unassigned'}\n`;
-        content += `**Due Date:** ${item.dueDate || 'Not set'}\n`;
-        content += `**Priority:** ${item.priority || 'Not set'}\n\n`;
-      });
+      if (aiInsights.actionItems.length > 0) {
+        aiInsights.actionItems.forEach((item: typeof aiInsights.actionItems[0], index: number) => {
+          content += `### ${index + 1}. ${item.item}\n`;
+          content += `**Assignee:** ${item.assignee || 'Unassigned'}\n`;
+          content += `**Due Date:** ${item.dueDate || 'Not set'}\n`;
+          content += `**Priority:** ${item.priority || 'Not set'}\n`;
+          if (item.confidence !== undefined) {
+            content += `**Confidence:** ${Math.round(item.confidence * 100)}%\n`;
+          }
+          content += `\n`;
+        });
+      } else {
+        content += `*No action items detected.*\n\n`;
+      }
+
+      // Topics Section
+      content += `## Topics Discussed\n\n`;
+      if (aiInsights.topics.length > 0) {
+        aiInsights.topics.forEach((topic: typeof aiInsights.topics[0], index: number) => {
+          content += `${index + 1}. **${topic.name}**`;
+          if (topic.mentions !== undefined) {
+            content += ` (mentioned ${topic.mentions} time${topic.mentions !== 1 ? 's' : ''})`;
+          }
+          if (topic.sentiment) {
+            content += ` - ${topic.sentiment} sentiment`;
+          }
+          content += `\n`;
+        });
+        content += `\n`;
+      } else {
+        content += `*No topics identified.*\n\n`;
+      }
+
+      // Sentiment Analysis Section
+      content += `## Sentiment Analysis\n\n`;
+      if (aiInsights.sentiment) {
+        content += `**Overall Sentiment:** ${aiInsights.sentiment.overall}\n`;
+        content += `**Confidence:** ${Math.round(aiInsights.sentiment.confidence * 100)}%\n\n`;
+        if (aiInsights.sentiment.breakdown) {
+          content += `**Breakdown:**\n`;
+          content += `- Positive: ${Math.round(aiInsights.sentiment.breakdown.positive * 100)}%\n`;
+          content += `- Neutral: ${Math.round(aiInsights.sentiment.breakdown.neutral * 100)}%\n`;
+          content += `- Negative: ${Math.round(aiInsights.sentiment.breakdown.negative * 100)}%\n\n`;
+        }
+      } else {
+        content += `*No sentiment analysis available.*\n\n`;
+      }
+
+      // Participant Analysis Section
+      content += `## Participant Analysis\n\n`;
+      if (aiInsights.participants.length > 0) {
+        aiInsights.participants.forEach((participant: typeof aiInsights.participants[0], index: number) => {
+          content += `### ${participant.name}\n`;
+          content += `**Speaking Time:** ${formatSpeakingTime(participant.speakingTime)}\n`;
+          content += `**Engagement Level:** ${participant.engagement}\n`;
+          if (participant.sentiment) {
+            content += `**Sentiment:** ${participant.sentiment}\n`;
+          }
+          if (participant.keyContributions && participant.keyContributions.length > 0) {
+            content += `**Key Contributions:**\n`;
+            participant.keyContributions.forEach((contribution: string) => {
+              content += `- ${contribution}\n`;
+            });
+          }
+          content += `\n`;
+        });
+      } else {
+        content += `*No participant analysis available.*\n\n`;
+      }
+
     } else {
       // Text format
       content = `AI INSIGHTS - ${meeting.title}\n`;
+      content += `${'='.repeat(50)}\n\n`;
       content += `Date: ${meeting.date}\n`;
-      content += `Duration: ${meeting.duration} minutes\n\n`;
+      content += `Duration: ${meeting.duration} minutes\n`;
+      content += `Participants: ${meeting.participants.map(p => p.name).join(', ')}\n\n`;
+      content += `${'-'.repeat(50)}\n\n`;
 
+      // Summary Section
       content += `SUMMARY:\n`;
       if (format === 'paragraph' && aiInsights.summary) {
         content += `${aiInsights.summary.paragraph}\n\n`;
       } else if (aiInsights.summary) {
         content += aiInsights.summary.bullets.map((bullet: string) => `• ${bullet}`).join('\n') + '\n\n';
+      } else {
+        content += `No summary available.\n\n`;
       }
 
+      // Key Decisions Section
       content += `KEY DECISIONS:\n`;
-      aiInsights.keyDecisions.forEach((decision: typeof aiInsights.keyDecisions[0], index: number) => {
-        content += `${index + 1}. ${decision.decision}\n`;
-        content += `   Context: ${decision.context}\n`;
-        content += `   Impact: ${decision.impact}\n`;
-        content += `   Participants: ${decision.participants.join(', ')}\n\n`;
-      });
+      if (aiInsights.keyDecisions.length > 0) {
+        aiInsights.keyDecisions.forEach((decision: typeof aiInsights.keyDecisions[0], index: number) => {
+          content += `${index + 1}. ${decision.decision}\n`;
+          content += `   Context: ${decision.context}\n`;
+          content += `   Impact: ${decision.impact}\n`;
+          content += `   Participants: ${decision.participants.join(', ')}\n`;
+          if (decision.confidence !== undefined) {
+            content += `   Confidence: ${Math.round(decision.confidence * 100)}%\n`;
+          }
+          content += `\n`;
+        });
+      } else {
+        content += `No decisions identified.\n\n`;
+      }
+
+      // Action Items Section
+      content += `ACTION ITEMS:\n`;
+      if (aiInsights.actionItems.length > 0) {
+        aiInsights.actionItems.forEach((item: typeof aiInsights.actionItems[0], index: number) => {
+          content += `${index + 1}. ${item.item}\n`;
+          content += `   Assignee: ${item.assignee || 'Unassigned'}\n`;
+          content += `   Due Date: ${item.dueDate || 'Not set'}\n`;
+          content += `   Priority: ${item.priority || 'Not set'}\n`;
+          if (item.confidence !== undefined) {
+            content += `   Confidence: ${Math.round(item.confidence * 100)}%\n`;
+          }
+          content += `\n`;
+        });
+      } else {
+        content += `No action items detected.\n\n`;
+      }
+
+      // Topics Section
+      content += `TOPICS DISCUSSED:\n`;
+      if (aiInsights.topics.length > 0) {
+        aiInsights.topics.forEach((topic: typeof aiInsights.topics[0], index: number) => {
+          content += `${index + 1}. ${topic.name}`;
+          if (topic.mentions !== undefined) {
+            content += ` (mentioned ${topic.mentions} time${topic.mentions !== 1 ? 's' : ''})`;
+          }
+          if (topic.sentiment) {
+            content += ` - ${topic.sentiment} sentiment`;
+          }
+          content += `\n`;
+        });
+        content += `\n`;
+      } else {
+        content += `No topics identified.\n\n`;
+      }
+
+      // Sentiment Analysis Section
+      content += `SENTIMENT ANALYSIS:\n`;
+      if (aiInsights.sentiment) {
+        content += `Overall Sentiment: ${aiInsights.sentiment.overall}\n`;
+        content += `Confidence: ${Math.round(aiInsights.sentiment.confidence * 100)}%\n\n`;
+        if (aiInsights.sentiment.breakdown) {
+          content += `Breakdown:\n`;
+          content += `  Positive: ${Math.round(aiInsights.sentiment.breakdown.positive * 100)}%\n`;
+          content += `  Neutral: ${Math.round(aiInsights.sentiment.breakdown.neutral * 100)}%\n`;
+          content += `  Negative: ${Math.round(aiInsights.sentiment.breakdown.negative * 100)}%\n\n`;
+        }
+      } else {
+        content += `No sentiment analysis available.\n\n`;
+      }
+
+      // Participant Analysis Section
+      content += `PARTICIPANT ANALYSIS:\n`;
+      if (aiInsights.participants.length > 0) {
+        aiInsights.participants.forEach((participant: typeof aiInsights.participants[0], index: number) => {
+          content += `${index + 1}. ${participant.name}\n`;
+          content += `   Speaking Time: ${formatSpeakingTime(participant.speakingTime)}\n`;
+          content += `   Engagement Level: ${participant.engagement}\n`;
+          if (participant.sentiment) {
+            content += `   Sentiment: ${participant.sentiment}\n`;
+          }
+          if (participant.keyContributions && participant.keyContributions.length > 0) {
+            content += `   Key Contributions:\n`;
+            participant.keyContributions.forEach((contribution: string) => {
+              content += `     - ${contribution}\n`;
+            });
+          }
+          content += `\n`;
+        });
+      } else {
+        content += `No participant analysis available.\n\n`;
+      }
     }
 
-    const blob = new Blob([content], {
-      type: exportFormat === 'markdown' ? 'text/markdown' : 'text/plain'
-    });
+    const fileExtension = exportFormat === 'markdown' ? 'md' : exportFormat === 'pdf' ? 'txt' : 'txt';
+    const mimeType = exportFormat === 'markdown' ? 'text/markdown' : 'text/plain';
+    
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ai_insights_${meeting.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${exportFormat === 'markdown' ? 'md' : 'txt'}`;
+    link.download = `ai_insights_${meeting.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${fileExtension}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

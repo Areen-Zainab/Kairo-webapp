@@ -26,13 +26,23 @@ if _agents_dir not in sys.path:
     sys.path.insert(0, _agents_dir)
 
 # Local imports (this file lives alongside the agent modules)
-# Use absolute imports since we've added the directory to sys.path
-from topic_segmentation_agent import TopicSegmentationAgent
-from decision_extraction_agent import DecisionExtractionAgent
-from action_item_agent import ActionItemAgent
-from sentiment_analysis_agent import SentimentAnalysisAgent
-from summary_agent import SummaryAgent
-from participant_analysis_agent import ParticipantAnalysisAgent
+# Try relative imports first (for module execution), fallback to absolute (for direct execution)
+try:
+    # Relative imports (when run as: python -m agents.run_agents)
+    from .topic_segmentation_agent import TopicSegmentationAgent
+    from .decision_extraction_agent import DecisionExtractionAgent
+    from .action_item_agent import ActionItemAgent
+    from .sentiment_analysis_agent import SentimentAnalysisAgent
+    from .summary_agent import SummaryAgent
+    from .participant_analysis_agent import ParticipantAnalysisAgent
+except ImportError:
+    # Absolute imports (when run directly: python run_agents.py)
+    from topic_segmentation_agent import TopicSegmentationAgent
+    from decision_extraction_agent import DecisionExtractionAgent
+    from action_item_agent import ActionItemAgent
+    from sentiment_analysis_agent import SentimentAnalysisAgent
+    from summary_agent import SummaryAgent
+    from participant_analysis_agent import ParticipantAnalysisAgent
 
 
 def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> Dict[str, Any]:

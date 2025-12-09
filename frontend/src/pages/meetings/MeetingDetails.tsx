@@ -273,6 +273,50 @@ const MeetingDetails: React.FC = () => {
     });
   };
 
+  const handleUpdateNote = (id: string, note: Partial<MeetingNote>) => {
+    if (!meeting) return;
+    const meetingNumericId = parseInt(meeting.id, 10);
+    const noteNumericId = parseInt(id, 10);
+
+    // Store original note for potential revert
+    const originalNote = meeting.notes.find(n => n.id === id);
+    if (!originalNote) return;
+
+    // Optimistic update
+    setMeeting(prev =>
+      prev
+        ? {
+            ...prev,
+            notes: prev.notes.map(n =>
+              n.id === id ? { ...n, ...note } : n
+            ),
+          }
+        : prev
+    );
+
+    const payload: any = {};
+    if (note.content !== undefined) payload.content = note.content;
+    if (note.color !== undefined) payload.color = note.color;
+    if (note.timestamp !== undefined) payload.timestamp = note.timestamp;
+    if (note.type !== undefined) payload.type = note.type;
+
+    apiService.updateMeetingNote(meetingNumericId, noteNumericId, payload).catch((e) => {
+      console.error('Failed to update note', e);
+      toastError('Failed to update note', 'Error');
+      // Revert optimistic update on failure
+      setMeeting(prev =>
+        prev
+          ? {
+              ...prev,
+              notes: prev.notes.map(n =>
+                n.id === id ? originalNote : n
+              ),
+            }
+          : prev
+      );
+    });
+  };
+
   const handleDeleteNote = (id: string) => {
     if (!meeting) return;
     const meetingNumericId = parseInt(meeting.id, 10);
@@ -311,8 +355,165 @@ const MeetingDetails: React.FC = () => {
   };
 
   const handleExportMinutes = (format: 'pdf' | 'markdown') => {
-    console.log(`Exporting minutes as ${format}`);
-    // Implement export functionality
+    if (!meeting) return;
+
+    const formatTime = (seconds: number) => {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    let content = '';
+    const fileName = `meeting_minutes_${meeting.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}`;
+
+    if (format === 'markdown') {
+      content = `# Meeting Minutes - ${meeting.title}\n\n`;
+      content += `**Date:** ${meeting.date} at ${meeting.time}\n`;
+      content += `**Duration:** ${meeting.duration} minutes\n`;
+      content += `**Participants:** ${meeting.participants.map(p => p.name).join(', ')}\n\n`;
+      content += `---\n\n`;
+
+      if (meeting.minutes.length === 0) {
+        content += `*No meeting minutes available.*\n`;
+      } else {
+        meeting.minutes.forEach((minute, index) => {
+          content += `## ${index + 1}. ${minute.title}\n\n`;
+          content += `**Time:** ${formatTime(minute.timestamp)}\n`;
+          content += `**Category:** ${minute.category}\n`;
+          content += `**Priority:** ${minute.priority}\n`;
+          if (minute.participants && minute.participants.length > 0) {
+            content += `**Participants:** ${minute.participants.join(', ')}\n`;
+          }
+          content += `\n${minute.content}\n\n`;
+          content += `---\n\n`;
+        });
+      }
+    } else {
+      // PDF format (actually text format that can be printed to PDF)
+      content = `MEETING MINUTES\n`;
+      content += `${'='.repeat(50)}\n\n`;
+      content += `Title: ${meeting.title}\n`;
+      content += `Date: ${meeting.date} at ${meeting.time}\n`;
+      content += `Duration: ${meeting.duration} minutes\n`;
+      content += `Participants: ${meeting.participants.map(p => p.name).join(', ')}\n\n`;
+      content += `${'-'.repeat(50)}\n\n`;
+
+      if (meeting.minutes.length === 0) {
+        content += `No meeting minutes available.\n`;
+      } else {
+        meeting.minutes.forEach((minute, index) => {
+          content += `${index + 1}. ${minute.title}\n`;
+          content += `   Time: ${formatTime(minute.timestamp)}\n`;
+          content += `   Category: ${minute.category}\n`;
+          content += `   Priority: ${minute.priority}\n`;
+          if (minute.participants && minute.participants.length > 0) {
+            content += `   Participants: ${minute.participants.join(', ')}\n`;
+          }
+          content += `\n   ${minute.content.replace(/\n/g, '\n   ')}\n\n`;
+          content += `${'-'.repeat(50)}\n\n`;
+        });
+      }
+    }
+
+    const blob = new Blob([content], {
+      type: format === 'markdown' ? 'text/markdown' : 'text/plain'
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${fileName}.${format === 'markdown' ? 'md' : 'txt'}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toastSuccess(`Meeting minutes exported as ${format === 'markdown' ? 'Markdown' : 'Text'}`, 'Export Successful');
+  };
+
+  const handleExportTranscript = () => {
+    if (!meeting || !meeting.transcript || meeting.transcript.length === 0) {
+      toastError('No transcript available to export', 'Export Failed');
+      return;
+    }
+
+    const formatTime = (seconds: number) => {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    let content = '';
+    const fileName = `transcript_${meeting.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}`;
+
+    // Export as formatted text
+    content = `TRANSCRIPT\n`;
+    content += `${'='.repeat(50)}\n\n`;
+    content += `Meeting: ${meeting.title}\n`;
+    content += `Date: ${meeting.date} at ${meeting.time}\n`;
+    content += `Duration: ${meeting.duration} minutes\n`;
+    content += `Participants: ${meeting.participants.map(p => p.name).join(', ')}\n\n`;
+    content += `${'-'.repeat(50)}\n\n`;
+
+    meeting.transcript.forEach((entry) => {
+      const timestamp = formatTime(entry.timestamp || entry.startTime || 0);
+      content += `[${timestamp}] ${entry.speaker}: ${entry.text}\n\n`;
+    });
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${fileName}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toastSuccess('Transcript exported successfully', 'Export Successful');
+  };
+
+  const handleDownloadRecording = () => {
+    if (!meeting) return;
+
+    if (!meeting.audioUrl && !meeting.recordingUrl) {
+      toastError('No recording available to download', 'Download Failed');
+      return;
+    }
+
+    const url = meeting.audioUrl || meeting.recordingUrl;
+    if (!url) return;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `recording_${meeting.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp3`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toastSuccess('Recording download started', 'Download Started');
+  };
+
+  const handleShareMeeting = () => {
+    if (!meeting) return;
+
+    const meetingUrl = window.location.href;
+    
+    if (navigator.share) {
+      navigator.share({
+        title: meeting.title,
+        text: `Check out this meeting: ${meeting.title}`,
+        url: meetingUrl,
+      }).catch((error) => {
+        console.error('Error sharing:', error);
+        // Fallback to clipboard
+        navigator.clipboard.writeText(meetingUrl);
+        toastSuccess('Meeting link copied to clipboard', 'Link Copied');
+      });
+    } else {
+      // Fallback to clipboard
+      navigator.clipboard.writeText(meetingUrl);
+      toastSuccess('Meeting link copied to clipboard', 'Link Copied');
+    }
   };
 
   const handleGeneratePersonalSummary = () => {
@@ -500,10 +701,10 @@ const MeetingDetails: React.FC = () => {
         {/* Meeting Header */}
         <MeetingHeader
           meeting={meeting}
-          onDownloadRecording={() => console.log('Download recording')}
-          onShareMeeting={() => console.log('Share meeting')}
-          onExportTranscript={() => console.log('Export transcript')}
-          onAddNotes={() => console.log('Add notes')}
+          onDownloadRecording={handleDownloadRecording}
+          onShareMeeting={handleShareMeeting}
+          onExportTranscript={handleExportTranscript}
+          onAddNotes={() => setActiveTab('notes')}
         />
 
           {/* Main Content */}
@@ -515,6 +716,7 @@ const MeetingDetails: React.FC = () => {
             onMinuteClick={handleMinuteClick}
             onExportMinutes={handleExportMinutes}
             onAddNote={handleAddNote}
+            onUpdateNote={handleUpdateNote}
             onDeleteNote={handleDeleteNote}
             onAddActionItem={handleAddActionItem}
             onUpdateActionItem={handleUpdateActionItem}

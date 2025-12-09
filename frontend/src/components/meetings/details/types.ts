@@ -148,6 +148,8 @@ export interface MultiModalPanelProps {
 
 export interface MeetingMinutesProps {
   minutes: MeetingMinute[];
+  meeting?: MeetingDetailsData; // Optional: for generating minutes from insights
+  insights?: any; // Optional: AI insights data for generation
   onMinuteHover: (minute: MeetingMinute) => void;
   onMinuteClick: (minute: MeetingMinute) => void;
   onExport: (format: 'pdf' | 'markdown') => void;

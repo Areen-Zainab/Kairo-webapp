@@ -15,7 +15,12 @@ import json
 import requests
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from hf_client import hf_infer
+
+# Try relative import first (for module execution), fallback to absolute (for direct execution)
+try:
+    from .hf_client import hf_infer
+except ImportError:
+    from hf_client import hf_infer
 
 
 class ActionItemAgent:
@@ -45,10 +50,70 @@ class ActionItemAgent:
     def __init__(self):
         self.provider = os.getenv(self.ACTION_ITEMS_PROVIDER_ENV, "groq").lower()
         self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
+        self.api_url = self.GROQ_API_URL  # For retry logic
         self.use_api = bool(self.api_key)
         self.use_hf = self.provider == "hf"
+        self.current_key_index = 0  # For key rotation
         if not self.api_key and self.provider == "groq":
             print("Error: GROQ_API_KEY not set; action item agent will skip Groq extraction.", file=sys.stderr)
+
+    def _get_next_api_key(self):
+        """Rotate between available Groq API keys."""
+        import time
+        keys = [k for k in [self.api_key, os.getenv("GROQ_API_KEY_2")] if k]
+        if not keys:
+            raise ValueError("No Groq API keys available")
+        self.current_key_index = (self.current_key_index + 1) % len(keys)
+        return keys[self.current_key_index]
+
+    def _call_groq_api(self, payload, max_rounds=3):
+        """
+        Call Groq API with retry logic, key rotation, and exponential backoff.
+        Similar to decision_extraction_agent.py and summary_agent.py.
+        """
+        import time
+        last_error = None
+        
+        for round_num in range(max_rounds):
+            api_key = self._get_next_api_key()
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            try:
+                response = requests.post(
+                    self.api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
+                
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", 5))
+                    print(f"⏳ Groq 429 (round {round_num+1}/{max_rounds}), waiting {retry_after}s...", 
+                          file=sys.stderr)
+                    time.sleep(retry_after)
+                    continue
+                    
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.Timeout as e:
+                last_error = e
+                wait_time = 2 ** round_num  # exponential backoff
+                print(f"⏳ Timeout (round {round_num+1}/{max_rounds}), retry in {wait_time}s...", 
+                      file=sys.stderr)
+                time.sleep(wait_time)
+                
+            except requests.exceptions.RequestException as e:
+                last_error = e
+                print(f"❌ Groq request error (round {round_num+1}/{max_rounds}): {e}", 
+                      file=sys.stderr)
+                if round_num < max_rounds - 1:
+                    time.sleep(2 ** round_num)
+        
+        raise RuntimeError(f"Groq API failed after {max_rounds} rounds: {last_error}")
 
     def _clean_text(self, text: str) -> str:
         """
@@ -143,7 +208,7 @@ class ActionItemAgent:
     def run(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract action items from transcript using Groq API or fallback method."""
         if not transcript or len(transcript.strip()) < 50:
-            return []
+            return [self._no_action_items_placeholder()]
 
         # Clean transcript
         clean_transcript = self._clean_text(transcript)
@@ -159,12 +224,19 @@ class ActionItemAgent:
         if self.use_api:
             try:
                 result = self._extract_with_groq(clean_transcript)
-                return result if isinstance(result, list) else []
+                if result and isinstance(result, list) and len(result) > 0:
+                    return result
+                # If Groq returned empty, try pattern matching before giving up
             except Exception as e:
                 print(f"Warning: Groq API extraction failed: {e}. Falling back to pattern matching.", file=sys.stderr)
 
         # Fallback to simple pattern matching
-        return self._extract_with_patterns(clean_transcript)
+        pattern_results = self._extract_with_patterns(clean_transcript)
+        if pattern_results:
+            return pattern_results
+        
+        # No action items found by any method
+        return [self._no_action_items_placeholder()]
 
     def _extract_with_hf(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract action items using Hugging Face hosted model."""
@@ -243,7 +315,7 @@ class ActionItemAgent:
         return dedup
 
     def _extract_with_groq(self, transcript: str) -> List[Dict[str, Any]]:
-        """Extract action items using Groq Cloud API (Llama 3.2 3B)."""
+        """Extract action items using Groq Cloud API (Llama 3.2 3B) with retry logic."""
         prompt = self._build_extraction_prompt(transcript)
 
         payload = {
@@ -262,18 +334,8 @@ class ActionItemAgent:
             "max_tokens": 1500  # Reduced from 2000 for faster response
         }
 
-        response = requests.post(
-            self.GROQ_API_URL,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=30
-        )
-
-        response.raise_for_status()
-        result = response.json()
+        # Use retry-enabled API call instead of direct requests.post
+        result = self._call_groq_api(payload, max_rounds=3)
 
         # Extract and clean content
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
@@ -457,3 +519,14 @@ JSON Response:"""
         """Split text into sentences."""
         raw = [s.strip() for s in text.replace("?", ".").replace("!", ".").split(".")]
         return [s for s in raw if s]
+
+    def _no_action_items_placeholder(self) -> Dict[str, Any]:
+        """Return a clear placeholder when no action items are identified."""
+        return {
+            "action": "No action items detected.",
+            "title": "No action items detected",
+            "description": "No actionable items were identified in this meeting.",
+            "assignee": None,
+            "due_date": None,
+            "confidence": 0.5
+        }

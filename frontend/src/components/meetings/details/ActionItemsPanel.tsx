@@ -1,7 +1,7 @@
 import React from 'react';
 import { CheckCircle, Clock, User, Calendar, AlertCircle, XCircle } from 'lucide-react';
 import type { MeetingDetailsData } from './types';
-import { useActionItems } from '../../../hooks/useActionItems';
+import { useActionItems, type ActionItem } from '../../../hooks/useActionItems';
 import { useUser } from '../../../context/UserContext';
 
 interface ActionItemsPanelProps {
@@ -38,15 +38,42 @@ const ActionItemsPanel: React.FC<ActionItemsPanelProps> = ({ meeting }) => {
   const { user } = useUser();
   const isOrchestrator = user && meeting.organizer?.id && user.id.toString() === meeting.organizer.id.toString();
 
+  // Debug logging for meetingId
+  React.useEffect(() => {
+    console.log('🔍 [ActionItemsPanel] DEBUG:', {
+      meetingId: meeting.id,
+      type: typeof meeting.id,
+      isNull: meeting.id === null,
+      isUndefined: meeting.id === undefined,
+      meetingIdValue,
+      meeting: meeting
+    });
+  }, [meeting.id, meetingIdValue, meeting]);
+
   const { actionItems, loading, error, confirmActionItem, rejectActionItem, refresh } = useActionItems(
     meetingIdValue,
     12000,
     false // Disable WebSocket for details view
   );
 
-  const pending = actionItems.filter((i) => i.status === 'pending');
-  const confirmed = actionItems.filter((i) => i.status === 'confirmed');
-  const rejected = actionItems.filter((i) => i.status === 'rejected');
+  // Helper to check if action items are placeholder
+  const isPlaceholderActionItem = (item: ActionItem): boolean => {
+    return (
+      item.title === 'No action items detected' ||
+      item.title === 'No action items detected.' ||
+      item.description === 'No actionable items were identified in this meeting.'
+    );
+  };
+
+  // Filter out placeholder items and group by status
+  const validActionItems = actionItems.filter((item) => !isPlaceholderActionItem(item));
+  const pending = validActionItems.filter((i) => i.status === 'pending');
+  const confirmed = validActionItems.filter((i) => i.status === 'confirmed');
+  const rejected = validActionItems.filter((i) => i.status === 'rejected');
+  
+  // Check if we should show "No Action Items Detected" message
+  const hasNoActionItems = validActionItems.length === 0 && !loading && !error;
+  const hasPlaceholderOnly = actionItems.length > 0 && validActionItems.length === 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -70,7 +97,23 @@ const ActionItemsPanel: React.FC<ActionItemsPanelProps> = ({ meeting }) => {
       )}
       {error && <div className="text-sm text-red-500">Error: {error}</div>}
 
-      {[{ title: 'Pending', items: pending }, { title: 'Confirmed', items: confirmed }, { title: 'Rejected', items: rejected }]
+      {/* Show "No Action Items Detected" message when there are no valid action items */}
+      {(hasNoActionItems || hasPlaceholderOnly) && !loading && (
+        <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+          <div className="w-16 h-16 mx-auto mb-4 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+          </div>
+          <p className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            No Action Items Detected
+          </p>
+          <p className="text-sm mt-1 text-slate-500 dark:text-slate-400">
+            No actionable items were identified in this meeting.
+          </p>
+        </div>
+      )}
+
+      {/* Only render action item groups if there are valid items */}
+      {validActionItems.length > 0 && [{ title: 'Pending', items: pending }, { title: 'Confirmed', items: confirmed }, { title: 'Rejected', items: rejected }]
         .filter((group) => group.items.length > 0)
         .map((group) => (
           <div key={group.title} className="space-y-3">
@@ -145,16 +188,6 @@ const ActionItemsPanel: React.FC<ActionItemsPanelProps> = ({ meeting }) => {
             })}
           </div>
         ))}
-
-      {actionItems.length === 0 && !loading && (
-        <div className="text-center py-10 text-slate-500 dark:text-slate-400">
-          <div className="w-14 h-14 mx-auto mb-3 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center">
-            <AlertCircle className="w-7 h-7" />
-          </div>
-          <p className="font-medium">No action items yet</p>
-          <p className="text-xs mt-1">Items will appear here as they are extracted</p>
-        </div>
-      )}
     </div>
   );
 };
