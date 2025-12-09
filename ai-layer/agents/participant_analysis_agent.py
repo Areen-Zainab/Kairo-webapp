@@ -2,7 +2,7 @@
 Participant Analysis Agent
 ---------------------------
 
-Uses Grok Cloud API (xAI) to analyze participant contributions in meeting transcripts.
+Uses GROQ Cloud API (xAI) to analyze participant contributions in meeting transcripts.
 Analyzes speaking time, engagement, key contributions, and sentiment per participant.
 Falls back to simple statistical analysis if API is unavailable.
 """
@@ -31,15 +31,15 @@ class ParticipantAnalysis:
 
 
 class ParticipantAnalysisAgent:
-    """Analyzes participant contributions using Grok Cloud API."""
+    """Analyzes participant contributions using GROQ Cloud API."""
 
-    # Grok API configuration
-    GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-    GROK_MODEL = "grok-4.1-fast"  # Most cost-effective model
-    GROK_API_KEY_ENV = "GROK_API_KEY"
+    # GROQ API configuration
+    GROQ_API_URL = "https://api.x.ai/v1/chat/completions"
+    GROQ_MODEL = "llama-3.3-70b-versatile"  # Most cost-effective model
+    GROQ_API_KEY_ENV = "GROQ_API_KEY"
 
     def __init__(self):
-        self.api_key = os.getenv(self.GROK_API_KEY_ENV)
+        self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
 
     def run(self, transcript_json: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -63,20 +63,20 @@ class ParticipantAnalysisAgent:
         if not utterances:
             return []
 
-        # Try Grok API first if API key is available
+        # Try GROQ API first if API key is available
         if self.use_api:
             try:
-                return self._analyze_with_grok(transcript_json)
+                return self._analyze_with_GROQ(transcript_json)
             except Exception as e:
-                print(f"Warning: Grok API participant analysis failed: {e}. Falling back to statistical analysis.")
+                print(f"Warning: GROQ API participant analysis failed: {e}. Falling back to statistical analysis.")
                 # Fall through to fallback method
 
         # Fallback to statistical analysis
         return self._analyze_with_statistics(utterances)
 
-    def _analyze_with_grok(self, transcript_json: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Analyze participants using Grok Cloud API."""
-        # Convert transcript JSON to text format for Grok
+    def _analyze_with_GROQ(self, transcript_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Analyze participants using GROQ Cloud API."""
+        # Convert transcript JSON to text format for GROQ
         transcript_text = self._json_to_text(transcript_json)
         
         prompt = self._build_analysis_prompt(transcript_text, transcript_json)
@@ -87,7 +87,7 @@ class ParticipantAnalysisAgent:
         }
 
         payload = {
-            "model": self.GROK_MODEL,
+            "model": self.GROQ_MODEL,
             "messages": [
                 {
                     "role": "system",
@@ -103,7 +103,7 @@ class ParticipantAnalysisAgent:
         }
 
         response = requests.post(
-            self.GROK_API_URL,
+            self.GROQ_API_URL,
             headers=headers,
             json=payload,
             timeout=90  # Longer timeout for participant analysis
@@ -182,7 +182,7 @@ class ParticipantAnalysisAgent:
             
             return normalized
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse Grok API JSON response: {e}")
+            raise ValueError(f"Failed to parse GROQ API JSON response: {e}")
 
     def _json_to_text(self, transcript_json: Dict[str, Any]) -> str:
         """Convert diarized JSON to readable text format."""

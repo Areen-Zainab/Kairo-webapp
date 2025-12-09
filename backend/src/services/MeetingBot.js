@@ -632,7 +632,7 @@ class MeetingBot {
 
     const ActionItemService = require('./ActionItemService');
     const transcriptPath = path.join(this.meetingDataDir, 'transcript_complete.txt');
-    const EXTRACTION_INTERVAL = parseInt(process.env.ACTION_ITEMS_INTERVAL || '90000', 10);
+    const EXTRACTION_INTERVAL = parseInt(process.env.ACTION_ITEMS_INTERVAL || '60000', 10); // Reduced from 90s to 60s for faster updates
 
     console.log('📋 Starting periodic action item extraction...');
 

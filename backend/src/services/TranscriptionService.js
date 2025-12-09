@@ -1225,15 +1225,13 @@ class TranscriptionService {
       const validatedCandidates = [];
 
       // First, validate which Python executables have whisperx
-      console.log('🔍 Validating Python environments for whisperx...');
       for (const cmd of candidates) {
         const hasWhisperx = await this.validatePythonEnvironment(cmd);
         if (hasWhisperx) {
           validatedCandidates.push(cmd);
-          console.log(`✅ Python environment validated: ${cmd}`);
-        } else {
-          console.warn(`⚠️  Python environment missing whisperx: ${cmd}`);
+          console.log(`[OK] Python environment validated: ${cmd}`);
         }
+        // Silently skip environments without whisperx - no need to warn
       }
 
       // If no validated candidates, reject immediately with helpful error

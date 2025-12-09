@@ -2,7 +2,7 @@
 Topic Segmentation Agent
 -------------------------
 
-Uses Grok Cloud API (xAI) to identify key topics in meeting transcripts.
+Uses GROQ Cloud API (xAI) to identify key topics in meeting transcripts.
 Falls back to simple paragraph splitting if API is unavailable.
 """
 
@@ -26,12 +26,12 @@ class Topic:
 
 
 class TopicSegmentationAgent:
-    """Identifies key topics in a transcript using Grok Cloud API."""
+    """Identifies key topics in a transcript using GROQ Cloud API."""
 
-    # Grok API configuration
-    GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-    GROK_MODEL = "grok-4.1-fast"  # Most cost-effective model
-    GROK_API_KEY_ENV = "GROK_API_KEY"
+    # GROQ API configuration
+    GROQ_API_URL = "https://api.x.ai/v1/chat/completions"
+    GROQ_MODEL = "llama-3.3-70b-versatile"  # Most cost-effective model
+    GROQ_API_KEY_ENV = "GROQ_API_KEY"
 
     # Fallback cue phrases
     CUE_PHRASES = (
@@ -44,27 +44,27 @@ class TopicSegmentationAgent:
     )
 
     def __init__(self):
-        self.api_key = os.getenv(self.GROK_API_KEY_ENV)
+        self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
 
     def run(self, transcript: str) -> List[Dict[str, Any]]:
-        """Identify topics using Grok API or fallback method."""
+        """Identify topics using GROQ API or fallback method."""
         if not transcript:
             return []
 
-        # Try Grok API first if API key is available
+        # Try GROQ API first if API key is available
         if self.use_api:
             try:
-                return self._identify_with_grok(transcript)
+                return self._identify_with_GROQ(transcript)
             except Exception as e:
-                print(f"Warning: Grok API topic identification failed: {e}. Falling back to paragraph splitting.")
+                print(f"Warning: GROQ API topic identification failed: {e}. Falling back to paragraph splitting.")
                 # Fall through to fallback method
 
         # Fallback to simple paragraph splitting
         return self._identify_with_paragraphs(transcript)
 
-    def _identify_with_grok(self, transcript: str) -> List[Dict[str, Any]]:
-        """Identify topics using Grok Cloud API."""
+    def _identify_with_GROQ(self, transcript: str) -> List[Dict[str, Any]]:
+        """Identify topics using GROQ Cloud API."""
         prompt = self._build_identification_prompt(transcript)
 
         headers = {
@@ -73,7 +73,7 @@ class TopicSegmentationAgent:
         }
 
         payload = {
-            "model": self.GROK_MODEL,
+            "model": self.GROQ_MODEL,
             "messages": [
                 {
                     "role": "system",
@@ -89,7 +89,7 @@ class TopicSegmentationAgent:
         }
 
         response = requests.post(
-            self.GROK_API_URL,
+            self.GROQ_API_URL,
             headers=headers,
             json=payload,
             timeout=60
@@ -145,7 +145,7 @@ class TopicSegmentationAgent:
             
             return normalized
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse Grok API JSON response: {e}")
+            raise ValueError(f"Failed to parse GROQ API JSON response: {e}")
 
     def _build_identification_prompt(self, transcript: str) -> str:
         """Build the prompt for topic identification."""

@@ -135,7 +135,7 @@ def load_whisperx_model():
             # For now, set it to None to disable VAD
             model.vad_model = None
         
-        print("[Kairo] ✓ Model loaded successfully", file=sys.stderr)
+        print("[Kairo] MODEL_LOADED_SUCCESS", file=sys.stderr)
         return model
 
     except Exception as e:
@@ -174,7 +174,7 @@ def transcribe_audio(audio_path):
             if hasattr(model, 'model'):
                 underlying_model = model.model
                 # Use faster-whisper's transcribe method directly
-                segments, info = underlying_model.transcribe(audio, beam_size=5, language=None)
+                segments, info = underlying_model.transcribe(audio, beam_size=5, language="en")
                 # Convert segments to WhisperX format
                 result = {
                     "segments": [{"text": segment.text.strip()} for segment in segments],
@@ -185,13 +185,13 @@ def transcribe_audio(audio_path):
                 original_vad = model.vad_model
                 try:
                     model.vad_model = None
-                    result = model.transcribe(audio, batch_size=batch_size)
+                    result = model.transcribe(audio, batch_size=batch_size, language="en")
                 except:
                     # If that fails, restore and try one more time
                     model.vad_model = original_vad
-                    result = model.transcribe(audio, batch_size=batch_size)
+                    result = model.transcribe(audio, batch_size=batch_size, language="en")
         else:
-            result = model.transcribe(audio, batch_size=batch_size)
+            result = model.transcribe(audio, batch_size=batch_size, language="en")
 
         # Extract text from segments if available
         if isinstance(result, dict) and "segments" in result:
@@ -207,7 +207,7 @@ def transcribe_audio(audio_path):
                 text = result
             text = text.strip()
 
-        print(f"[Kairo] ✓ Transcription complete. Language: {result.get('language', 'unknown') if isinstance(result, dict) else 'unknown'}", file=sys.stderr)
+        print(f"[Kairo] TRANSCRIPTION_COMPLETE. Language: {result.get('language', 'unknown') if isinstance(result, dict) else 'unknown'}", file=sys.stderr)
         # Return empty string for silent audio (no speech), not None
         # This distinguishes between "no speech found" (success with empty result) 
         # and "transcription error" (None, which triggers [TRANSCRIPTION_FAILED])
@@ -242,7 +242,7 @@ def transcribe_audio_with_diarization(audio_path):
         
         # Transcribe
         batch_size = 4 if device == "cpu" else 16
-        result = model.transcribe(audio, batch_size=batch_size)
+        result = model.transcribe(audio, batch_size=batch_size, language="en")
         
         # Perform diarization
         print("[Kairo] Performing speaker diarization...", file=sys.stderr)

@@ -99,6 +99,16 @@ class ActionItemService {
         return { added: 0, updated: 0, items: [] };
       }
 
+      // Filter by confidence threshold to reduce noise
+      const CONFIDENCE_THRESHOLD = 0.5; // Lowered from 0.7 for more action items
+      const highConfidenceItems = extractedItems.filter(item =>
+        (item.confidence || 0) >= CONFIDENCE_THRESHOLD
+      );
+
+      if (highConfidenceItems.length === 0) {
+        return { added: 0, updated: 0, items: [] };
+      }
+
       const existingItems = await prisma.actionItem.findMany({
         where: {
           meetingId,
@@ -115,7 +125,7 @@ class ActionItemService {
       let updated = 0;
       const processedItems = [];
 
-      for (const item of extractedItems) {
+      for (const item of highConfidenceItems) {
         const normalizedItem = {
           title: item.title || item.description?.substring(0, 100) || 'Untitled Action Item',
           description: item.description || item.title || '',
@@ -317,17 +327,17 @@ class ActionItemService {
       rejectedAt: item.rejectedAt,
       confirmedBy: item.confirmedByUser
         ? {
-            id: item.confirmedByUser.id,
-            name: item.confirmedByUser.name,
-            email: item.confirmedByUser.email
-          }
+          id: item.confirmedByUser.id,
+          name: item.confirmedByUser.name,
+          email: item.confirmedByUser.email
+        }
         : null,
       rejectedBy: item.rejectedByUser
         ? {
-            id: item.rejectedByUser.id,
-            name: item.rejectedByUser.name,
-            email: item.rejectedByUser.email
-          }
+          id: item.rejectedByUser.id,
+          name: item.rejectedByUser.name,
+          email: item.rejectedByUser.email
+        }
         : null
     };
   }
