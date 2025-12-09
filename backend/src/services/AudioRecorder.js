@@ -21,6 +21,7 @@ class AudioRecorder {
 
   /**
    * Inject two-recorder audio capture system into the browser
+   * CRITICAL: This must be called BEFORE navigating to the meeting
    */
   async injectAudioCapture() {
     await this.page.evaluateOnNewDocument(() => {
@@ -33,16 +34,100 @@ class AudioRecorder {
         streamChunks: [],
         lastProcessedIndex: 0,
         isRecording: false,
-        trackToRecord: null
+        trackToRecord: null,
+        trackSource: null // 'local' | 'remote'
       };
 
-      // getAndClearChunks returns CUMULATIVE audio (all chunks from start)
-      // This ensures each file is valid and playable for transcription
+      // Stop existing recorders (used when swapping from local -> remote track)
+      window.stopRecorders = function () {
+        try {
+          if (window.audioCapture.completeRecorder && window.audioCapture.completeRecorder.state !== 'inactive') {
+            window.audioCapture.completeRecorder.stop();
+          }
+        } catch (_) { }
+        try {
+          if (window.audioCapture.streamRecorder && window.audioCapture.streamRecorder.state !== 'inactive') {
+            window.audioCapture.streamRecorder.stop();
+          }
+        } catch (_) { }
+        window.audioCapture.isRecording = false;
+      };
+
+      // Switch the active track, preferring remote audio over local mic
+      window.switchTrackForRecording = function (track, source) {
+        if (!track || track.kind !== 'audio' || track.readyState !== 'live') return;
+
+        const currentSource = window.audioCapture.trackSource;
+        const currentTrack = window.audioCapture.trackToRecord;
+
+        // If we already have a remote track, don't downgrade to local
+        if (currentSource === 'remote' && source === 'local') return;
+
+        // If the incoming track is the same as current, nothing to do
+        if (currentTrack && currentTrack.id === track.id && currentSource === source) return;
+
+        // Swap to the new track
+        window.stopRecorders();
+        window.audioCapture.trackToRecord = track;
+        window.audioCapture.trackSource = source;
+
+        // Restart recording on the new track
+        try {
+          if (window.startAudioRecording) {
+            window.startAudioRecording();
+          }
+        } catch (_) { }
+      };
+
+      // EARLY INTERCEPTION: Override getUserMedia to capture audio streams
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = function (constraints) {
+        console.log('[KAIRO] getUserMedia called with constraints:', constraints);
+
+        return originalGetUserMedia(constraints).then(stream => {
+          // Check if this stream has audio
+          const audioTracks = stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            // Mark as local microphone; will be replaced by remote when available
+            console.log('[KAIRO] 🎤 Captured local mic track from getUserMedia');
+            window.switchTrackForRecording(audioTracks[0], 'local');
+          }
+
+          return stream;
+        });
+      };
+
+      // BACKUP METHOD: Monitor for video elements with audio tracks
+      const videoMonitor = setInterval(() => {
+        if (window.audioCapture.isRecording) {
+          clearInterval(videoMonitor);
+          return;
+        }
+
+        const videos = document.querySelectorAll('video');
+        for (const video of videos) {
+          if (video.srcObject && video.srcObject.getAudioTracks) {
+            const audioTracks = video.srcObject.getAudioTracks();
+            if (audioTracks.length > 0 && audioTracks[0].readyState === 'live') {
+              console.log('[KAIRO] 🎤 Found audio track in video element');
+              window.switchTrackForRecording(audioTracks[0], 'remote');
+              clearInterval(videoMonitor);
+              break;
+            }
+          }
+        }
+      }, 500); // Check every 500ms
+
+      // Stop monitoring after 30 seconds
+      setTimeout(() => clearInterval(videoMonitor), 30000);
+
+      // getAndClearChunks returns CUMULATIVE audio (all chunks from start) using the
+      // completeRecorder chunks, which are more reliably muxed (Zoom-safe).
       window.getAndClearChunks = function () {
         return new Promise((resolve) => {
           try {
             const last = window.audioCapture.lastProcessedIndex || 0;
-            const all = window.audioCapture.streamChunks || [];
+            const all = window.audioCapture.completeChunks || [];
 
             if (last >= all.length) return resolve(null);
 
@@ -109,18 +194,8 @@ class AudioRecorder {
             if (!event.track) return;
             if (event.track.kind !== 'audio') return;
 
-            // If we've already hooked a track, ignore additional local tracks but allow new remote
-            if (window.audioCapture.trackToRecord && window.audioCapture.trackToRecord.id === event.track.id) {
-              return;
-            }
-
-            // Assign track and attempt to start recording
-            window.audioCapture.trackToRecord = event.track;
-
-            // If recorder not active, start it
-            if (!window.audioCapture.isRecording) {
-              try { window.startAudioRecording(); } catch (_) { }
-            }
+            // Prefer remote tracks over any existing local mic track
+            window.switchTrackForRecording(event.track, 'remote');
           } catch (_) { }
         });
 
@@ -134,6 +209,11 @@ class AudioRecorder {
             return;
           }
           if (window.audioCapture.isRecording) return;
+
+          // Reset buffers when (re)starting on a new track
+          window.audioCapture.completeChunks = [];
+          window.audioCapture.streamChunks = [];
+          window.audioCapture.lastProcessedIndex = 0;
 
           window.audioCapture.audioContext = new (window.AudioContext || window.webkitAudioContext)();
           resumeAudioContextIfNeeded(window.audioCapture.audioContext).catch(() => { });
@@ -571,6 +651,15 @@ class AudioRecorder {
     this.transcriptionService = new TranscriptionService(this.meetingDataDir, this.transcriptFilepath, this.meetingId);
     this.isRecording = true; // Mark recording as active
 
+    // Ensure chunk directory exists so each chunk can be written
+    try {
+      if (!fs.existsSync(this.chunksDir)) {
+        fs.mkdirSync(this.chunksDir, { recursive: true });
+      }
+    } catch (e) {
+      console.error('❌ Unable to create chunks directory:', e.message || e);
+    }
+
     if (this.chunkFlushInterval) clearInterval(this.chunkFlushInterval);
 
     // Interval runs every 3000ms (3 seconds) to match the 3-second timeslice
@@ -578,47 +667,23 @@ class AudioRecorder {
       try {
         if (!this.page || this.page.isClosed()) return;
 
-        // Event-driven: Wait for streamRecorder dataavailable event
-        const chunkReady = await this.page.evaluate(() => {
-          return new Promise((resolve) => {
-            if (!window.audioCapture?.streamRecorder ||
-              window.audioCapture.streamRecorder.state !== 'recording') {
-              return resolve(false);
-            }
-
-            let resolved = false;
-            const timeout = setTimeout(() => {
-              if (!resolved) {
-                resolved = true;
-                window.audioCapture.streamRecorder.removeEventListener('dataavailable', handler);
-                resolve(false);
-              }
-            }, 3000);
-
-            const handler = (event) => {
-              if (resolved) return;
-              resolved = true;
-              clearTimeout(timeout);
-              window.audioCapture.streamRecorder.removeEventListener('dataavailable', handler);
-              setTimeout(() => resolve(true), 50);
-            };
-
-            window.audioCapture.streamRecorder.addEventListener('dataavailable', handler);
-
-            try {
+        // Proactively flush current data so every timeslice is captured
+        await this.page.evaluate(() => {
+          try {
+            if (window.audioCapture?.streamRecorder &&
+              window.audioCapture.streamRecorder.state === 'recording') {
               window.audioCapture.streamRecorder.requestData();
-            } catch (e) {
-              if (!resolved) {
-                resolved = true;
-                clearTimeout(timeout);
-                window.audioCapture.streamRecorder.removeEventListener('dataavailable', handler);
-                resolve(false);
-              }
             }
-          });
-        }).catch(() => false);
+            // Also flush completeRecorder to keep cumulative data fresh/stable
+            if (window.audioCapture?.completeRecorder &&
+              window.audioCapture.completeRecorder.state === 'recording') {
+              window.audioCapture.completeRecorder.requestData();
+            }
+          } catch (_) { }
+        }).catch(() => { });
 
-        if (!chunkReady) return;
+        // Give the recorder a brief moment to deliver the dataavailable event
+        await new Promise(resolve => setTimeout(resolve, 250));
 
         // Get new audio segment (not cumulative)
         const chunkData = await this.page.evaluate(() => {
@@ -634,22 +699,22 @@ class AudioRecorder {
 
         // Special case: First chunk (startIndex = 0) - this IS the new audio, no extraction needed
         if (chunkData.startIndex === 0) {
-          // Write raw blob first
-          const tempRawPath = path.join(this.chunksDir, `temp_raw_${ts}.webm`);
-          fs.writeFileSync(tempRawPath, Buffer.from(chunkData.audio, 'base64'));
+          // Always write the raw blob first so we never lose the first chunk
+          try {
+            fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
+          } catch (e) {
+            console.error(`💾 Failed to write raw chunk ${chunkData.startIndex}:`, e.message || e);
+            return;
+          }
 
-          // Remux to ensure valid WebM structure (raw blobs from MediaRecorder may be incomplete)
+          // Best-effort remux: if it succeeds, replace the raw with remuxed output
+          const tempRemuxedPath = path.join(this.chunksDir, `temp_remux_first_${ts}.webm`);
           const remuxSuccess = await new Promise((resolve) => {
             const ffmpegPath = ffmpeg.path;
-            const remuxCommand = `"${ffmpegPath}" -i "${tempRawPath}" -c copy "${chunkPath}" -y 2>&1`;
+            const remuxCommand = `"${ffmpegPath}" -i "${chunkPath}" -c copy "${tempRemuxedPath}" -y 2>&1`;
 
-            exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
-              // Clean up temp file
-              try {
-                if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath);
-              } catch (e) { }
-
-              if (remuxError || !fs.existsSync(chunkPath) || fs.statSync(chunkPath).size < 1000) {
+            exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError) => {
+              if (remuxError || !fs.existsSync(tempRemuxedPath) || fs.statSync(tempRemuxedPath).size < 1000) {
                 resolve(false);
               } else {
                 resolve(true);
@@ -657,10 +722,10 @@ class AudioRecorder {
             });
           });
 
-          if (!remuxSuccess) {
-            console.error(`💾 Failed to remux chunk ${chunkData.startIndex}, skipping transcription`);
-            return;
+          if (remuxSuccess) {
+            try { fs.copyFileSync(tempRemuxedPath, chunkPath); } catch (_) { /* keep raw */ }
           }
+          try { if (fs.existsSync(tempRemuxedPath)) fs.unlinkSync(tempRemuxedPath); } catch (_) { }
 
           // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
           console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) - Saved: ${path.basename(chunkPath)}`);
@@ -717,18 +782,24 @@ class AudioRecorder {
           }
         } else {
           // Subsequent chunks: Extract only the new portion from the end
-          // First, remux the cumulative blob to ensure it's a valid WebM file
-          const tempCumulativePath = path.join(this.chunksDir, `temp_cumulative_${ts}.webm`);
+          // Always write the raw cumulative blob first so we keep the chunk no matter what
+          const rawCumulativePath = path.join(this.chunksDir, `raw_cumulative_${ts}_${idx}.webm`);
+          try {
+            fs.writeFileSync(rawCumulativePath, Buffer.from(chunkData.audio, 'base64'));
+            // Also write the raw cumulative directly to chunkPath as a guaranteed fallback
+            fs.writeFileSync(chunkPath, Buffer.from(chunkData.audio, 'base64'));
+          } catch (e) {
+            console.error(`💾 Failed to write raw cumulative for chunk ${chunkData.startIndex} → ${chunkData.endIndex}:`, e.message || e);
+            return;
+          }
+
+          // Attempt to remux the cumulative blob for better structure
           const tempRemuxedPath = path.join(this.chunksDir, `temp_remuxed_${ts}.webm`);
-
-          fs.writeFileSync(tempCumulativePath, Buffer.from(chunkData.audio, 'base64'));
-
-          // Remux the file first to ensure it's valid WebM structure
           const remuxSuccess = await new Promise((resolve) => {
             const ffmpegPath = ffmpeg.path;
-            const remuxCommand = `"${ffmpegPath}" -i "${tempCumulativePath}" -c copy "${tempRemuxedPath}" -y 2>&1`;
+            const remuxCommand = `"${ffmpegPath}" -i "${rawCumulativePath}" -c copy "${tempRemuxedPath}" -y 2>&1`;
 
-            exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError, remuxStdout, remuxStderr) => {
+            exec(remuxCommand, { maxBuffer: 1024 * 1024 }, (remuxError) => {
               if (remuxError || !fs.existsSync(tempRemuxedPath) || fs.statSync(tempRemuxedPath).size < 1000) {
                 resolve(false);
               } else {
@@ -737,78 +808,90 @@ class AudioRecorder {
             });
           });
 
-          const fileToExtract = remuxSuccess ? tempRemuxedPath : tempCumulativePath;
+          const fileToExtract = remuxSuccess ? tempRemuxedPath : rawCumulativePath;
 
-          const extractSuccess = await this.extractLastNSeconds(
-            fileToExtract,
-            chunkPath,
-            3.5 // Extract last 3.5 seconds to ensure we capture all new audio
-          );
-
-          // Always delete the temporary files
+          // Try to extract the last ~3.5s into the final chunk file
+          let extractSuccess = false;
           try {
-            fs.unlinkSync(tempCumulativePath);
-            if (fs.existsSync(tempRemuxedPath)) fs.unlinkSync(tempRemuxedPath);
-          } catch (e) {
-            // Silent cleanup
+            extractSuccess = await this.extractLastNSeconds(
+              fileToExtract,
+              chunkPath,
+              3.5 // Extract last 3.5 seconds to ensure we capture all new audio
+            );
+          } catch (_) {
+            extractSuccess = false;
           }
 
-          if (extractSuccess) {
-            // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
-            console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)}`);
+          if (!extractSuccess) {
+            // If extraction fails, fall back to copying the best available source into chunkPath
+            try {
+              fs.copyFileSync(fileToExtract, chunkPath);
+            } catch (e) {
+              try {
+                fs.copyFileSync(rawCumulativePath, chunkPath);
+              } catch (_) {
+                console.error(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} - ❌ Failed to extract or save fallback, skipping`);
+                return;
+              }
+            }
+            console.error(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} - extraction failed, saved fallback blob instead`);
+          }
 
-            if (this.transcriptionService && this.isRecording) {
-              // Check if request is already pending before creating new one
-              const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
-              if (pendingPromise) {
-                // Request already pending, wait for it instead of creating duplicate
+          // Clean temp files (keep raw cumulative for debugging)
+          try { if (fs.existsSync(tempRemuxedPath)) fs.unlinkSync(tempRemuxedPath); } catch (_) { }
+
+          // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
+          console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} - Saved: ${path.basename(chunkPath)}`);
+
+          if (this.transcriptionService && this.isRecording) {
+            // Check if request is already pending before creating new one
+            const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
+            if (pendingPromise) {
+              // Request already pending, wait for it instead of creating duplicate
+              try {
+                const result = await pendingPromise;
+                if (result && result.success) {
+                  // Success from pending request
+                } else {
+                  console.warn(`   ⚠️  Pending transcription request failed: ${result?.error || 'Unknown error'}`);
+                }
+              } catch (error) {
+                console.error(`   ❌ Pending transcription request error:`, error.message);
+              }
+            } else {
+              // No pending request, proceed with transcription (with retry logic)
+              let retries = 2;
+              let result = null;
+              while (retries >= 0 && this.isRecording) {
                 try {
-                  const result = await pendingPromise;
+                  result = await this.transcriptionService.transcribe(chunkPath, idx);
                   if (result && result.success) {
-                    // Success from pending request
-                  } else {
-                    console.warn(`   ⚠️  Pending transcription request failed: ${result?.error || 'Unknown error'}`);
+                    break; // Success, exit retry loop
                   }
-                } catch (error) {
-                  console.error(`   ❌ Pending transcription request error:`, error.message);
-                }
-              } else {
-                // No pending request, proceed with transcription (with retry logic)
-                let retries = 2;
-                let result = null;
-                while (retries >= 0 && this.isRecording) {
-                  try {
-                    result = await this.transcriptionService.transcribe(chunkPath, idx);
-                    if (result && result.success) {
-                      break; // Success, exit retry loop
-                    }
-                  } catch (transcribeError) {
-                    // Check if recording stopped (graceful cancellation)
-                    if (!this.isRecording) {
-                      console.log(`   ⏹️  Recording stopped, cancelling transcription retry for chunk ${idx}`);
-                      break;
-                    }
-                    console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
+                } catch (transcribeError) {
+                  // Check if recording stopped (graceful cancellation)
+                  if (!this.isRecording) {
+                    console.log(`   ⏹️  Recording stopped, cancelling transcription retry for chunk ${idx}`);
+                    break;
                   }
-
-                  if (retries > 0 && (!result || !result.success) && this.isRecording) {
-                    console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-                  }
-                  retries--;
+                  console.error(`   ❌ Transcription error (${retries} retries left):`, transcribeError.message);
                 }
 
-                if (!result || !result.success) {
-                  if (this.isRecording) {
-                    console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
-                  } else {
-                    console.log(`   ⏹️  Transcription cancelled (recording stopped)`);
-                  }
+                if (retries > 0 && (!result || !result.success) && this.isRecording) {
+                  console.log(`   🔄 Retrying transcription for chunk ${idx}...`);
+                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+                }
+                retries--;
+              }
+
+              if (!result || !result.success) {
+                if (this.isRecording) {
+                  console.warn(`   ⚠️  Transcription failed after retries: ${result?.error || 'Unknown error'}`);
+                } else {
+                  console.log(`   ⏹️  Transcription cancelled (recording stopped)`);
                 }
               }
             }
-          } else {
-            console.error(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} - ❌ Failed to extract segment, skipping`);
           }
         }
       } catch (err) {
@@ -830,12 +913,16 @@ class AudioRecorder {
         return;
       }
 
-      // Request final data from streamRecorder
+      // Request final data from streamRecorder and completeRecorder to maximize usable cumulative data
       await this.page.evaluate(() => {
         try {
           if (window.audioCapture?.streamRecorder?.state === 'recording') {
             window.audioCapture.streamRecorder.requestData();
             console.log('[KAIRO] Requested final data from streamRecorder');
+          }
+          if (window.audioCapture?.completeRecorder?.state === 'recording') {
+            window.audioCapture.completeRecorder.requestData();
+            console.log('[KAIRO] Requested final data from completeRecorder');
           }
         } catch (e) {
           console.error('[KAIRO] Error requesting final data:', e);
