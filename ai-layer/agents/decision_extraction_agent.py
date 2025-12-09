@@ -9,6 +9,7 @@ Falls back to simple pattern matching if API is unavailable.
 from __future__ import annotations
 
 import os
+import sys
 import json
 import requests
 from dataclasses import dataclass, asdict
@@ -32,8 +33,8 @@ class DecisionExtractionAgent:
     """Finds and documents key decisions from a transcript using GROQ Cloud API."""
 
     # GROQ API configuration
-    GROQ_API_URL = "https://api.x.ai/v1/chat/completions"
-    GROQ_MODEL = "llama-3.3-70b-versatile"  # Most cost-effective model
+    GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+    GROQ_MODEL = "openai/gpt-oss-120b"  # Updated per Groq API
     GROQ_API_KEY_ENV = "GROQ_API_KEY"
 
     # Fallback pattern matching cues
@@ -53,6 +54,8 @@ class DecisionExtractionAgent:
     def __init__(self):
         self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
+        if not self.api_key:
+            print("Error: GROQ_API_KEY not set; decision agent will use fallback mode.", file=sys.stderr)
 
     def run(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract decisions from transcript using GROQ API or fallback method."""
@@ -64,7 +67,7 @@ class DecisionExtractionAgent:
             try:
                 return self._extract_with_GROQ(transcript)
             except Exception as e:
-                print(f"Warning: GROQ API decision extraction failed: {e}. Falling back to pattern matching.")
+                print(f"Warning: GROQ API decision extraction failed: {e}. Falling back to pattern matching.", file=sys.stderr)
                 # Fall through to pattern matching
 
         # Fallback to simple pattern matching
@@ -117,6 +120,10 @@ class DecisionExtractionAgent:
         if content.endswith("```"):
             content = content[:-3]  # Remove closing ```
         content = content.strip()
+        
+        # Basic sanity check before parsing
+        if not content.lstrip().startswith(("{", "[")):
+            raise ValueError(f"Groq response was not JSON: {content[:100]}")
         
         # Parse JSON response
         try:

@@ -10,6 +10,7 @@ Falls back to simple statistical analysis if API is unavailable.
 from __future__ import annotations
 
 import os
+import sys
 import json
 import requests
 from dataclasses import dataclass, asdict
@@ -34,13 +35,15 @@ class ParticipantAnalysisAgent:
     """Analyzes participant contributions using GROQ Cloud API."""
 
     # GROQ API configuration
-    GROQ_API_URL = "https://api.x.ai/v1/chat/completions"
-    GROQ_MODEL = "llama-3.3-70b-versatile"  # Most cost-effective model
+    GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+    GROQ_MODEL = "openai/gpt-oss-120b"  # Updated per Groq API
     GROQ_API_KEY_ENV = "GROQ_API_KEY"
 
     def __init__(self):
         self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
+        if not self.api_key:
+            print("Error: GROQ_API_KEY not set; participant agent will use fallback mode.", file=sys.stderr)
 
     def run(self, transcript_json: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -68,7 +71,7 @@ class ParticipantAnalysisAgent:
             try:
                 return self._analyze_with_GROQ(transcript_json)
             except Exception as e:
-                print(f"Warning: GROQ API participant analysis failed: {e}. Falling back to statistical analysis.")
+                print(f"Warning: GROQ API participant analysis failed: {e}. Falling back to statistical analysis.", file=sys.stderr)
                 # Fall through to fallback method
 
         # Fallback to statistical analysis
@@ -124,6 +127,10 @@ class ParticipantAnalysisAgent:
         if content.endswith("```"):
             content = content[:-3]  # Remove closing ```
         content = content.strip()
+        
+        # Basic sanity check before parsing
+        if not content.lstrip().startswith(("{", "[")):
+            raise ValueError(f"Groq response was not JSON: {content[:100]}")
         
         # Parse JSON response
         try:

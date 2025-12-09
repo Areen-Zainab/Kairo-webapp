@@ -1779,6 +1779,7 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
     // Check if generation is in progress based on metadata
     const isGenerating = meeting.metadata?.aiInsightsStatus === 'generating';
     const progress = meeting.metadata?.aiInsightsProgress || 0;
+    const aiInsightsError = meeting.metadata?.aiInsightsError || null;
 
     // If no insights found, return empty structure
     if (!insightsRows || insightsRows.length === 0) {
@@ -1791,7 +1792,9 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
         participants: [],
         generated: false,
         generating: isGenerating,
-        progress: progress
+        progress: progress,
+        aiInsightsStatus: meeting.metadata?.aiInsightsStatus || 'idle',
+        aiInsightsError
       });
     }
 
@@ -1805,7 +1808,9 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
       participants: [],
       generated: true,
       generating: isGenerating,
-      progress: progress
+      progress: progress,
+      aiInsightsStatus: meeting.metadata?.aiInsightsStatus || 'completed',
+      aiInsightsError
     };
 
     for (const row of insightsRows) {
@@ -1817,7 +1822,12 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
         // Use insightType (camelCase from Prisma) instead of insight_type
         switch (row.insightType) {
           case 'summary':
-            insights.summary = content;
+            // Transform agent format to frontend format
+            insights.summary = {
+              paragraph: content.paragraph_summary || content.overview || '',
+              bullets: content.key_points || [],
+              confidence: content.confidence
+            };
             break;
           case 'decisions':
             // Handle both array and single decision
@@ -1940,7 +1950,9 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
           metadata: {
             ...currentMetadata,
             aiInsightsStatus: 'generating',
-            aiInsightsStartTime: new Date().toISOString()
+            aiInsightsStartTime: new Date().toISOString(),
+            aiInsightsError: null,
+            aiInsightsProgress: 0
           }
         }
       });
@@ -1957,24 +1969,29 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
       }
     });
 
-    // Generate new insights (async, don't wait for completion)
-    AIInsightsService.generateInsights(meetingId)
-      .then((result) => {
-        if (result.success) {
-          console.log(`✅ AI insights regeneration completed for meeting ${meetingId}`);
-        } else {
-          console.error(`⚠️ AI insights regeneration failed for meeting ${meetingId}: ${result.error}`);
-        }
-      })
-      .catch((err) => {
-        console.error(`⚠️ AI insights regeneration error for meeting ${meetingId}:`, err.message);
+    // Generate new insights (now awaiting to surface errors)
+    try {
+      const result = await AIInsightsService.generateInsights(meetingId);
+      if (result.success) {
+        console.log(`✅ AI insights regeneration completed for meeting ${meetingId}`);
+        return res.json({
+          success: true,
+          message: "AI insights generated successfully."
+        });
+      } else {
+        console.error(`⚠️ AI insights regeneration failed for meeting ${meetingId}: ${result.error}`);
+        return res.status(500).json({
+          success: false,
+          error: result.error || 'AI insights generation failed'
+        });
+      }
+    } catch (err) {
+      console.error(`⚠️ AI insights regeneration error for meeting ${meetingId}:`, err.message);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'AI insights generation error'
       });
-
-    // Return immediately (regeneration happens in background)
-    res.json({
-      success: true,
-      message: "AI insights regeneration started. Please refresh the page in a few moments to see updated insights."
-    });
+    }
   } catch (error) {
     console.error("Regenerate AI insights error:", error);
     res.status(500).json({ error: "Internal server error" });

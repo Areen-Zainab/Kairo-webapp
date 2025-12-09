@@ -280,7 +280,11 @@ print(result)
       const proc = spawn(pythonExe, ['-c', pythonScript], {
         shell: false, // Don't use shell to avoid path splitting
         cwd: absoluteScriptDir,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        env: { 
+          ...process.env, 
+          PYTHONUNBUFFERED: '1',
+          PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+        }
       });
 
       let stdout = '';
@@ -318,7 +322,11 @@ print(result)
 
       const proc = spawn(pythonExe, [scriptPath, agentKey], {
         shell: process.platform === 'win32',
-        cwd: path.dirname(scriptPath)
+        cwd: path.dirname(scriptPath),
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+        }
       });
 
       let stdout = '';
@@ -387,7 +395,11 @@ print(result)
       const proc = spawn(pythonExe, ['-c', pythonScript], {
         shell: false, // Don't use shell to avoid path splitting
         cwd: absoluteScriptDir,
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        env: { 
+          ...process.env, 
+          PYTHONUNBUFFERED: '1',
+          PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+        }
       });
 
       let stdout = '';
@@ -755,6 +767,31 @@ print(result)
     console.log(`\n🧠 Starting AI insights generation for meeting ${meetingId}...`);
     console.log(`   Meeting ID type: ${typeof meetingId}, value: ${meetingId}`);
 
+    const updateMetadataStatus = async (status, errorMessage = null, progress = 0) => {
+      try {
+        const meetingIdInt = parseInt(meetingId);
+        const currentMeeting = await prisma.meeting.findUnique({
+          where: { id: meetingIdInt },
+          select: { metadata: true }
+        });
+        if (currentMeeting) {
+          await prisma.meeting.update({
+            where: { id: meetingIdInt },
+            data: {
+              metadata: {
+                ...(currentMeeting.metadata || {}),
+                aiInsightsStatus: status,
+                aiInsightsError: errorMessage,
+                aiInsightsProgress: progress
+              }
+            }
+          });
+        }
+      } catch (metaErr) {
+        console.error(`Failed to update insights metadata status (${status}):`, metaErr.message);
+      }
+    };
+
     try {
       // Check if insights already exist
       const insightsExist = await this.checkInsightsExist(meetingId);
@@ -770,6 +807,7 @@ print(result)
         console.error(`❌ Transcript not available: ${transcriptCheck.error}`);
         console.error(`   This means AI insights cannot be generated.`);
         console.error(`   Please ensure the meeting has been transcribed and the transcript file exists.`);
+        await updateMetadataStatus('failed', transcriptCheck.error, 0);
         return { success: false, error: transcriptCheck.error };
       }
 
@@ -778,6 +816,14 @@ print(result)
       console.log(`   Transcript path: ${transcriptCheck.transcriptPath}`);
       const { transcriptText, transcriptJson } = await this.loadDiarizedTranscript(meetingId);
       console.log(`✅ Transcript loaded (${transcriptText.length} characters)`);
+
+      // If transcript is effectively empty, bail out with clear status
+      if (!transcriptText || transcriptText.trim().length < 20) {
+        const msg = `Transcript is empty or too short (${transcriptText.length} chars), cannot generate insights`;
+        console.error(`⚠️  ${msg}`);
+        await updateMetadataStatus('failed', msg, 0);
+        return { success: false, error: msg };
+      }
 
       if (transcriptText.length < 50) {
         console.warn(`⚠️  Transcript is very short (${transcriptText.length} chars), insights may be limited`);
@@ -800,28 +846,7 @@ print(result)
       console.error(`   Error stack:`, error.stack);
 
       // Update metadata to indicate failure
-      try {
-        const meetingIdInt = parseInt(meetingId);
-        const currentMeeting = await prisma.meeting.findUnique({
-          where: { id: meetingIdInt },
-          select: { metadata: true }
-        });
-
-        if (currentMeeting) {
-          await prisma.meeting.update({
-            where: { id: meetingIdInt },
-            data: {
-              metadata: {
-                ...(currentMeeting.metadata || {}),
-                aiInsightsStatus: 'failed',
-                aiInsightsError: error.message
-              }
-            }
-          });
-        }
-      } catch (updateError) {
-        console.error(`Failed to update failure status: ${updateError.message}`);
-      }
+      await updateMetadataStatus('failed', error.message, 0);
 
       return { success: false, error: error.message };
     }

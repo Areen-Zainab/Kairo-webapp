@@ -209,7 +209,10 @@ class ModelPreloader {
           const spawnOptions = {
             cwd: path.dirname(PY_SCRIPT_PATH),
             stdio: ['pipe', 'pipe', 'pipe'],
-            env: { ...process.env }
+            env: { 
+              ...process.env,
+              PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+            }
           };
 
           // Use shell: false for full paths, shell: true for commands (especially on Windows for commands with spaces)
@@ -664,7 +667,10 @@ class ModelPreloader {
           proc = spawn(cmd, [PY_SCRIPT_PATH], {
             cwd: path.dirname(PY_SCRIPT_PATH),
             stdio: ['pipe', 'pipe', 'pipe'],
-            env: { ...process.env },
+            env: { 
+              ...process.env,
+              PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+            },
             shell: useShell
           });
 

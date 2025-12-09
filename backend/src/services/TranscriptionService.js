@@ -285,14 +285,9 @@ class TranscriptionService {
       return false;
     }
 
-    // Must be at least 5 characters (very short lines are likely not transcription)
-    if (line.length < 5) {
-      return false;
-    }
-
-    // Must contain at least one letter (transcription should have words)
-    if (!line.match(/[a-zA-Z]/)) {
-      return false;
+    // Allow empty/short lines (handled upstream) as valid results
+    if (line.length === 0) {
+      return true;
     }
 
     // Should not be all uppercase (likely a status message or command)
@@ -310,21 +305,7 @@ class TranscriptionService {
       return false;
     }
 
-    // Should contain some lowercase letters (transcription is usually mixed case)
-    // Exception: Very short lines might be all caps (like "OK" or "YES")
-    if (line.length > 15 && !line.match(/[a-z]/)) {
-      return false;
-    }
-
-    // Should not be mostly numbers or symbols
-    const letterCount = (line.match(/[a-zA-Z]/g) || []).length;
-    const totalChars = line.replace(/\s/g, '').length;
-    if (totalChars > 0 && letterCount / totalChars < 0.3) {
-      // Less than 30% letters - likely not transcription
-      return false;
-    }
-
-    // If we get here, it might be transcription
+    // If we get here, it might be transcription (keep only basic guards)
     return true;
   }
 
@@ -576,9 +557,20 @@ class TranscriptionService {
         const line = this.pythonStdoutBuffer.slice(0, idx).trim();
         this.pythonStdoutBuffer = this.pythonStdoutBuffer.slice(idx + 1);
 
-        // Skip empty lines
+        // Treat empty line as a valid "no speech" result and resolve oldest pending request
         if (line === '') {
-          console.log(`⚠️  Received empty line from Python stdout, skipping`);
+          const oldestRequestId = Array.from(this.pendingRequests.keys())[0];
+          if (oldestRequestId) {
+            const pending = this.pendingRequests.get(oldestRequestId);
+            this.pendingRequests.delete(oldestRequestId);
+            const resolverIdx = this.pythonResolvers.findIndex(r => r.requestId === oldestRequestId);
+            if (resolverIdx !== -1) {
+              this.pythonResolvers.splice(resolverIdx, 1);
+            }
+            pending.resolver.resolve('');
+          } else {
+            console.log(`⚠️  Received empty line with no pending request, ignoring`);
+          }
           continue;
         }
 

@@ -145,10 +145,11 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
     );
   }
 
-  // Empty state (insights not generated yet)
+  // Empty or missing insights
+  const isGeneratingServer = insights?.generating;
   if (!insights?.generated || (!aiInsights.summary && aiInsights.keyDecisions.length === 0)) {
-    // Show progress state if actively regenerating
-    if (isRegenerating || (insights && !insights.generated && !error)) {
+    // Show progress state only when generating
+    if (isRegenerating || isGeneratingServer) {
       const currentProgress = generationProgress;
 
       return (
@@ -179,6 +180,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
       );
     }
 
+    // Idle/failed state with action
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <FileText className="w-12 h-12 text-slate-400" />
@@ -186,7 +188,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
           AI Insights Not Available
         </p>
         <p className="text-slate-600 dark:text-slate-400 text-sm text-center max-w-md">
-          AI insights are being generated for this meeting. This may take a few minutes after the meeting ends.
+          {error ? error : 'Click generate to create insights for this meeting.'}
         </p>
         <button
           onClick={() => regenerate()}

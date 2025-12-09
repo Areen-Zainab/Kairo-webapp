@@ -29,8 +29,8 @@ class TopicSegmentationAgent:
     """Identifies key topics in a transcript using GROQ Cloud API."""
 
     # GROQ API configuration
-    GROQ_API_URL = "https://api.x.ai/v1/chat/completions"
-    GROQ_MODEL = "llama-3.3-70b-versatile"  # Most cost-effective model
+    GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+    GROQ_MODEL = "openai/gpt-oss-120b"  # Updated per Groq API
     GROQ_API_KEY_ENV = "GROQ_API_KEY"
 
     # Fallback cue phrases
@@ -46,6 +46,8 @@ class TopicSegmentationAgent:
     def __init__(self):
         self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
+        if not self.api_key:
+            print("Error: GROQ_API_KEY not set; topic agent will use fallback mode.", file=sys.stderr)
 
     def run(self, transcript: str) -> List[Dict[str, Any]]:
         """Identify topics using GROQ API or fallback method."""
@@ -57,7 +59,7 @@ class TopicSegmentationAgent:
             try:
                 return self._identify_with_GROQ(transcript)
             except Exception as e:
-                print(f"Warning: GROQ API topic identification failed: {e}. Falling back to paragraph splitting.")
+                print(f"Warning: GROQ API topic identification failed: {e}. Falling back to paragraph splitting.", file=sys.stderr)
                 # Fall through to fallback method
 
         # Fallback to simple paragraph splitting
@@ -110,6 +112,10 @@ class TopicSegmentationAgent:
         if content.endswith("```"):
             content = content[:-3]  # Remove closing ```
         content = content.strip()
+        
+        # Basic sanity check before parsing
+        if not content.lstrip().startswith(("{", "[")):
+            raise ValueError(f"Groq response was not JSON: {content[:100]}")
         
         # Parse JSON response
         try:

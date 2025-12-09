@@ -117,6 +117,13 @@ export const useAIInsights = (meetingId: number | string | null) => {
       if (response.data) {
         setInsights(response.data);
 
+        // Surface backend error/status to UI
+        if (response.data.aiInsightsError) {
+          setError(response.data.aiInsightsError);
+        } else {
+          setError(null);
+        }
+
         // Handle server-side generation status
         if (response.data.generating) {
           setIsRegenerating(true);

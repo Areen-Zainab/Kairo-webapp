@@ -9,11 +9,13 @@ Falls back to simple pattern matching if API is unavailable.
 from __future__ import annotations
 
 import os
+import sys
 import re
 import json
 import requests
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from hf_client import hf_infer
 
 
 class ActionItemAgent:
@@ -21,9 +23,11 @@ class ActionItemAgent:
 
     # Groq API configuration (FREE)
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-    GROQ_MODEL = "llama-3.2-3b-preview"  # Free, fast, good for structured extraction
+    GROQ_MODEL = "openai/gpt-oss-120b"  # Updated per Groq curl example
     # Alternative: "llama-3.1-8b-instant" for slightly better accuracy
     GROQ_API_KEY_ENV = "GROQ_API_KEY"
+    ACTION_ITEMS_PROVIDER_ENV = "ACTION_ITEMS_PROVIDER"  # groq | hf
+    HF_ACTION_MODEL = "google/flan-t5-large"
 
     # Fallback pattern matching cues
     OWNER_CUES = ("i will", "i'll", "i can", "i'll take", "let me")
@@ -39,8 +43,12 @@ class ActionItemAgent:
     ]
 
     def __init__(self):
+        self.provider = os.getenv(self.ACTION_ITEMS_PROVIDER_ENV, "groq").lower()
         self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
         self.use_api = bool(self.api_key)
+        self.use_hf = self.provider == "hf"
+        if not self.api_key and self.provider == "groq":
+            print("Error: GROQ_API_KEY not set; action item agent will skip Groq extraction.", file=sys.stderr)
 
     def _clean_text(self, text: str) -> str:
         """
@@ -140,16 +148,101 @@ class ActionItemAgent:
         # Clean transcript
         clean_transcript = self._clean_text(transcript)
 
-        # Try Groq API first if API key is available
-        if self.use_api:
+        # Try HF first if selected
+        if self.use_hf:
+            try:
+                result = self._extract_with_hf(clean_transcript)
+                if result:
+                    return result
+            except Exception as e:
+                print(f"Warning: HF action item extraction failed: {e}. Trying Groq...", file=sys.stderr)
+
+        # Try Groq API if available/selected
+        if self.use_api and self.provider != "hf":
             try:
                 result = self._extract_with_groq(clean_transcript)
                 return result if isinstance(result, list) else []
             except Exception as e:
-                print(f"Warning: Groq API extraction failed: {e}. Falling back to pattern matching.")
+                print(f"Warning: Groq API extraction failed: {e}. Falling back to pattern matching.", file=sys.stderr)
 
         # Fallback to simple pattern matching
         return self._extract_with_patterns(clean_transcript)
+
+    def _extract_with_hf(self, transcript: str) -> List[Dict[str, Any]]:
+        """Extract action items using Hugging Face hosted model."""
+        # Chunk transcript to avoid length limits
+        words = transcript.split()
+        max_words = 800
+        overlap = 80
+        chunks = []
+        start = 0
+        while start < len(words):
+            end = min(len(words), start + max_words)
+            chunk = " ".join(words[start:end])
+            chunks.append(chunk)
+            start = end - overlap if end < len(words) else len(words)
+
+        action_items: List[Dict[str, Any]] = []
+
+        for chunk in chunks:
+            prompt = (
+                "Extract action items from the meeting dialogue below.\n"
+                "Return JSON ONLY in this exact format:\n"
+                '{"action_items":[{"title":"","description":"","assignee":null,"dueDate":null,"confidence":0.7}]}\n\n'
+                f"Dialogue:\n{chunk}\n\nJSON:"
+            )
+
+            payload = {
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": 256,
+                    "temperature": 0.3,
+                    "return_full_text": False,
+                }
+            }
+
+            result = hf_infer(self.HF_ACTION_MODEL, payload, timeout=60, retries=2, backoff_seconds=3)
+
+            generated_text = None
+            if isinstance(result, list) and result and isinstance(result[0], dict):
+                generated_text = result[0].get("generated_text")
+            elif isinstance(result, dict):
+                generated_text = result.get("generated_text")
+
+            if not generated_text:
+                continue
+
+            parsed_items = []
+            try:
+                parsed = json.loads(generated_text)
+                parsed_items = parsed.get("action_items", [])
+            except Exception:
+                # Try to recover by stripping code fences or lines
+                cleaned = generated_text.strip("` \n")
+                try:
+                    parsed = json.loads(cleaned)
+                    parsed_items = parsed.get("action_items", [])
+                except Exception:
+                    continue
+
+            if not isinstance(parsed_items, list):
+                continue
+
+            for idx, item in enumerate(parsed_items):
+                normalized = self._normalize_action_item(item, idx)
+                if normalized:
+                    action_items.append(normalized)
+
+        # Deduplicate by title/description
+        dedup = []
+        seen = set()
+        for item in action_items:
+            key = (item["title"], item.get("description", ""))
+            if key not in seen:
+                seen.add(key)
+                dedup.append(item)
+
+        return dedup
 
     def _extract_with_groq(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract action items using Groq Cloud API (Llama 3.2 3B)."""
@@ -187,6 +280,11 @@ class ActionItemAgent:
         # Extract and clean content
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
         content = self._strip_markdown(content)
+
+        # Basic sanity check before parsing
+        cleaned = content.lstrip()
+        if not cleaned.startswith(("{", "[")):
+            raise ValueError(f"Groq response was not JSON: {content[:100]}")
         
         # Parse and normalize
         try:
