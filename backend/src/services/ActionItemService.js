@@ -126,25 +126,33 @@ class ActionItemService {
       }
 
       if (!transcriptText || transcriptText.trim().length < 50) {
+        console.log(`⚠️ [ActionItemService] Transcript too short: ${transcriptText?.trim().length || 0} chars`);
         return { added: 0, updated: 0, items: [] };
       }
 
+      console.log(`🔍 [ActionItemService] Extracting action items from ${transcriptText.length} chars (${isIncremental ? 'incremental' : 'full'})...`);
       const extractedItems = await AgentProcessingService.extractActionItems(transcriptText);
+      console.log(`🔍 [ActionItemService] AI returned ${extractedItems?.length || 0} action items`);
 
       if (!Array.isArray(extractedItems) || extractedItems.length === 0) {
+        console.log(`⚠️ [ActionItemService] No action items extracted from AI`);
         return { added: 0, updated: 0, items: [] };
       }
 
       // Filter by confidence threshold to reduce noise
       // Lower threshold for incremental processing to catch items early
       const CONFIDENCE_THRESHOLD = isIncremental ? 0.4 : 0.5;
+      console.log(`🔍 [ActionItemService] Filtering with confidence threshold: ${CONFIDENCE_THRESHOLD}`);
       const highConfidenceItems = extractedItems.filter(item =>
         (item.confidence || 0) >= CONFIDENCE_THRESHOLD
       );
 
       if (highConfidenceItems.length === 0) {
+        console.log(`⚠️ [ActionItemService] No high-confidence items (${extractedItems.length} items below threshold)`);
         return { added: 0, updated: 0, items: [] };
       }
+      
+      console.log(`✅ [ActionItemService] ${highConfidenceItems.length} high-confidence items to process`);
 
       const existingItems = await prisma.actionItem.findMany({
         where: {

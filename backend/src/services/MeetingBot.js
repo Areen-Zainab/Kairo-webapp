@@ -662,12 +662,17 @@ class MeetingBot {
       this.actionItemsRunning = true;
 
       try {
+        // Check if transcript file exists
         if (!fs.existsSync(transcriptPath)) {
+          console.log(`⚠️ [Action Items] Transcript file not found: ${transcriptPath}`);
           return;
         }
 
         const fullTranscriptText = fs.readFileSync(transcriptPath, 'utf8');
+        console.log(`📋 [Action Items] Transcript length: ${fullTranscriptText.length} chars`);
+        
         if (!fullTranscriptText || fullTranscriptText.trim().length < 50) {
+          console.log(`⚠️ [Action Items] Transcript too short (${fullTranscriptText.trim().length} chars), skipping extraction`);
           return;
         }
 
@@ -699,6 +704,7 @@ class MeetingBot {
         // Update last processed length
         lastProcessedLength = fullTranscriptText.length;
 
+        console.log(`📋 [Action Items] Calling extractAndUpdateActionItems...`);
         const result = await ActionItemService.extractAndUpdateActionItems(
           this.meetingId,
           transcriptToProcess,
@@ -707,7 +713,13 @@ class MeetingBot {
         );
 
         if (result.added > 0 || result.updated > 0) {
-          console.log(`📋 Action items: ${result.added} added, ${result.updated} updated (${isIncremental ? 'incremental' : 'full'} extraction)`);
+          console.log(`✅ [Action Items] ${result.added} added, ${result.updated} updated (${isIncremental ? 'incremental' : 'full'} extraction)`);
+        } else {
+          console.log(`📋 [Action Items] No new action items detected (${isIncremental ? 'incremental' : 'full'} extraction)`);
+        }
+        
+        if (result.error) {
+          console.error(`❌ [Action Items] Extraction error: ${result.error}`);
         }
       } catch (error) {
         console.error('❌ Error in action item extraction:', error.message);
