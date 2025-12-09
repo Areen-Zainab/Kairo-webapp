@@ -148,17 +148,15 @@ class ActionItemAgent:
         # Clean transcript
         clean_transcript = self._clean_text(transcript)
 
-        # Try HF first if selected
-        if self.use_hf:
-            try:
-                result = self._extract_with_hf(clean_transcript)
-                if result:
-                    return result
-            except Exception as e:
-                print(f"Warning: HF action item extraction failed: {e}. Trying Groq...", file=sys.stderr)
+        # Priority: HF -> Groq -> extractive
+        try:
+            result = self._extract_with_hf(clean_transcript)
+            if result:
+                return result
+        except Exception as e:
+            print(f"Warning: HF action item extraction failed: {e}. Trying Groq...", file=sys.stderr)
 
-        # Try Groq API if available/selected
-        if self.use_api and self.provider != "hf":
+        if self.use_api:
             try:
                 result = self._extract_with_groq(clean_transcript)
                 return result if isinstance(result, list) else []
