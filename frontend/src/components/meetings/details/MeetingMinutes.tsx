@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FileText, Clock, Users, AlertCircle, CheckCircle, MessageCircle, Calendar } from 'lucide-react';
 import type { MeetingMinutesProps } from './types';
+import { generateMeetingMinutesFromInsights } from '../../../utils/generateMeetingMinutes';
 
 const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
   minutes,
+  meeting,
+  insights,
   onMinuteHover,
   onMinuteClick,
   onExport
@@ -13,7 +16,27 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
   const [hoveredMinute, setHoveredMinute] = useState<any>(null);
   const [selectedMinute, setSelectedMinute] = useState<any>(null);
 
-  const filteredMinutes = minutes
+  // Generate minutes on-demand if empty and insights are available
+  const displayMinutes = useMemo(() => {
+    // If minutes array has data, use it (preserves manual edits or backend data)
+    if (minutes && minutes.length > 0) {
+      return minutes;
+    }
+
+    // Otherwise, generate from insights if available
+    if (insights && meeting) {
+      return generateMeetingMinutesFromInsights(
+        insights,
+        meeting.transcript || [],
+        meeting.notes || []
+      );
+    }
+
+    // Fallback to empty array
+    return [];
+  }, [minutes, insights, meeting]);
+
+  const filteredMinutes = displayMinutes
     .filter(minute => filter === 'all' || minute.category === filter)
     .sort((a, b) => {
       switch (sortBy) {
@@ -80,22 +103,219 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
   };
 
   const handleExport = (format: 'pdf' | 'markdown') => {
+    // Use displayMinutes (generated or provided)
+    const minutesToExport = displayMinutes;
+    
     if (format === 'pdf') {
-      const minutesText = minutes
-        .map(minute => `# ${minute.title}\n\n${minute.content}\n\n**Category:** ${minute.category}\n**Priority:** ${minute.priority}\n**Participants:** ${minute.participants.join(', ')}\n\n---\n`)
-        .join('\n');
-      
-      const blob = new Blob([minutesText], { type: 'text/plain' });
+      // Create a styled HTML document for PDF export
+      const formatTime = (seconds: number): string => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+      };
+
+      const getCategoryLabel = (category: string): string => {
+        switch (category) {
+          case 'action-item': return 'Action Item';
+          case 'decision': return 'Decision';
+          case 'discussion': return 'Discussion';
+          case 'follow-up': return 'Follow-up';
+          default: return category;
+        }
+      };
+
+      const getPriorityColor = (priority: string): string => {
+        switch (priority) {
+          case 'high': return '#dc2626';
+          case 'medium': return '#f59e0b';
+          case 'low': return '#10b981';
+          default: return '#6b7280';
+        }
+      };
+
+      const meetingTitle = meeting?.title || 'Meeting Minutes';
+      const meetingDate = meeting?.date || new Date().toLocaleDateString();
+      const meetingTime = meeting?.time || '';
+
+      const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Meeting Minutes - ${meetingTitle}</title>
+  <style>
+    @media print {
+      @page {
+        margin: 1in;
+        size: letter;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+      }
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .header {
+      border-bottom: 3px solid #3b82f6;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    h1 {
+      color: #1e40af;
+      margin: 0 0 10px 0;
+      font-size: 28px;
+    }
+    .meta {
+      color: #6b7280;
+      font-size: 14px;
+      margin: 5px 0;
+    }
+    .minute {
+      margin-bottom: 30px;
+      padding: 15px;
+      border-left: 4px solid #3b82f6;
+      background-color: #f9fafb;
+      page-break-inside: avoid;
+    }
+    .minute-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+      margin: 0 0 10px 0;
+    }
+    .minute-content {
+      color: #374151;
+      margin: 10px 0;
+      white-space: pre-wrap;
+    }
+    .minute-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .minute-meta span {
+      display: inline-flex;
+      align-items: center;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      margin-left: 5px;
+    }
+    .category-badge {
+      background-color: #dbeafe;
+      color: #1e40af;
+    }
+    .priority-badge {
+      color: white;
+    }
+    .timestamp {
+      color: #6b7280;
+    }
+    .participants {
+      color: #059669;
+    }
+    .footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #e5e7eb;
+      text-align: center;
+      color: #6b7280;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${meetingTitle}</h1>
+    <div class="meta">
+      <strong>Date:</strong> ${meetingDate}${meetingTime ? ` at ${meetingTime}` : ''}
+    </div>
+    ${meeting?.participants && meeting.participants.length > 0 ? `
+    <div class="meta">
+      <strong>Participants:</strong> ${meeting.participants.map((p: any) => p.name || p).join(', ')}
+    </div>
+    ` : ''}
+  </div>
+
+  ${minutesToExport.length === 0 ? `
+    <p>No meeting minutes available.</p>
+  ` : minutesToExport.map((minute, index) => `
+    <div class="minute">
+      <div class="minute-title">${index + 1}. ${minute.title}</div>
+      <div class="minute-content">${minute.content.replace(/\n/g, '<br>')}</div>
+      <div class="minute-meta">
+        <span class="timestamp">⏱️ ${formatTime(minute.timestamp)}</span>
+        <span>
+          <span class="badge category-badge">${getCategoryLabel(minute.category)}</span>
+        </span>
+        <span>
+          <span class="badge priority-badge" style="background-color: ${getPriorityColor(minute.priority)};">
+            ${minute.priority.toUpperCase()} Priority
+          </span>
+        </span>
+        ${minute.participants && minute.participants.length > 0 ? `
+        <span class="participants">👥 ${minute.participants.join(', ')}</span>
+        ` : ''}
+      </div>
+    </div>
+  `).join('')}
+
+  <div class="footer">
+    <p>Generated on ${new Date().toLocaleString()}</p>
+  </div>
+
+  <script>
+    // Auto-trigger print dialog when page loads
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 250);
+    };
+  </script>
+</body>
+</html>`;
+
+      // Create a blob and open in new window for printing
+      const blob = new Blob([htmlContent], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'meeting_minutes.txt';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const printWindow = window.open(url, '_blank');
+      
+      if (printWindow) {
+        // The print dialog will open automatically via the script in the HTML
+        // User can then save as PDF from the print dialog
+        printWindow.onload = () => {
+          setTimeout(() => {
+            printWindow.print();
+          }, 250);
+        };
+      } else {
+        // Fallback: download as HTML if popup is blocked
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'meeting_minutes.html';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+      
+      // Clean up URL after a delay
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } else {
-      const markdownText = `# Meeting Minutes\n\n${minutes
+      const markdownText = `# Meeting Minutes\n\n${minutesToExport
         .map(minute => `## ${minute.title}\n\n${minute.content}\n\n**Category:** ${minute.category}\n**Priority:** ${minute.priority}\n**Participants:** ${minute.participants.join(', ')}\n\n---\n`)
         .join('\n')}`;
       
@@ -368,30 +588,36 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
       )}
 
       {/* Summary Stats */}
-      {minutes.length > 0 && (
+      {displayMinutes.length > 0 && (
         <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
             <div>
               <div className="text-lg font-semibold text-slate-900 dark:text-white">
-                {minutes.length}
+                {displayMinutes.length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Total</div>
             </div>
             <div>
               <div className="text-lg font-semibold text-red-600 dark:text-red-400">
-                {minutes.filter(m => m.category === 'action-item').length}
+                {displayMinutes.filter(m => m.category === 'action-item').length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Action Items</div>
             </div>
             <div>
               <div className="text-lg font-semibold text-green-600 dark:text-green-400">
-                {minutes.filter(m => m.category === 'decision').length}
+                {displayMinutes.filter(m => m.category === 'decision').length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Decisions</div>
             </div>
             <div>
+              <div className="text-lg font-semibold text-purple-600 dark:text-purple-400">
+                {displayMinutes.filter(m => m.category === 'discussion').length}
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">Discussions</div>
+            </div>
+            <div>
               <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
-                {minutes.filter(m => m.aiGenerated).length}
+                {displayMinutes.filter(m => m.aiGenerated).length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">AI Generated</div>
             </div>

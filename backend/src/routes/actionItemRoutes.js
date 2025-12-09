@@ -204,15 +204,24 @@ router.get('/meetings/:meetingId/pending', authenticateToken, async (req, res) =
 // Live polling endpoint for action items
 router.get('/meetings/:meetingId/live', authenticateToken, async (req, res) => {
   try {
+    console.log(`📡 [GET /action-items/meetings/:meetingId/live] Request received:`, {
+      meetingId: req.params.meetingId,
+      since: req.query.since,
+      userId: req.user?.id
+    });
+    
     const meetingId = parseInt(req.params.meetingId, 10);
     const { since } = req.query;
 
     if (Number.isNaN(meetingId)) {
+      console.error(`❌ [GET /action-items/meetings/:meetingId/live] Invalid meeting ID: ${req.params.meetingId}`);
       return res.status(400).json({ error: 'Invalid meeting ID' });
     }
 
+    console.log(`🔍 [GET /action-items/meetings/${meetingId}/live] Fetching meeting...`);
     const meeting = await Meeting.findById(meetingId);
     if (!meeting) {
+      console.error(`❌ [GET /action-items/meetings/${meetingId}/live] Meeting not found`);
       return res.status(404).json({ error: 'Meeting not found' });
     }
 
@@ -229,7 +238,9 @@ router.get('/meetings/:meetingId/live', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    console.log(`📋 [GET /action-items/meetings/${meetingId}/live] Fetching action items...`);
     const items = await ActionItemService.getByMeetingId(meetingId, null);
+    console.log(`📋 [GET /action-items/meetings/${meetingId}/live] Found ${items.length} action items`);
 
     let filteredItems = items;
     if (since) {
@@ -240,12 +251,14 @@ router.get('/meetings/:meetingId/live', authenticateToken, async (req, res) => {
           new Date(item.confirmedAt || 0) > sinceDate ||
           new Date(item.rejectedAt || 0) > sinceDate
       );
+      console.log(`🔍 [GET /action-items/meetings/${meetingId}/live] Filtered to ${filteredItems.length} items since ${since}`);
     }
 
     const formattedItems = filteredItems.map((item) => ActionItemService._toDTO(item));
     const latestUpdate =
       items.length > 0 ? Math.max(...items.map((i) => new Date(i.lastSeenAt).getTime())) : null;
 
+    console.log(`✅ [GET /action-items/meetings/${meetingId}/live] Returning ${formattedItems.length} action items`);
     return res.json({
       actionItems: formattedItems,
       count: formattedItems.length,
