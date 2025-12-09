@@ -15,7 +15,7 @@ import json
 import requests
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from hf_client import hf_infer
+from .hf_client import hf_infer
 
 
 class ActionItemAgent:

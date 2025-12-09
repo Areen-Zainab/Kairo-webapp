@@ -17,7 +17,7 @@ import requests
 from dataclasses import dataclass, asdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from hf_client import hf_infer
+from .hf_client import hf_infer
 
 
 @dataclass
