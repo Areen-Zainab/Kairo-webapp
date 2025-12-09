@@ -579,6 +579,62 @@ print(result)
   }
 
   /**
+   * Regenerate ONLY action items and save them (non-destructive to other insights)
+   */
+  async regenerateActionItemsOnly(meetingId) {
+    console.log(`\n🔄 Regenerating action items only for meeting ${meetingId}...`);
+    const meetingIdStr = String(meetingId);
+
+    // Check transcript availability
+    const transcriptCheck = await this.checkTranscriptAvailable(meetingId);
+    if (!transcriptCheck.available) {
+      return { success: false, error: transcriptCheck.error || 'Transcript not available' };
+    }
+
+    // Load transcript text
+    const { transcriptText } = await this.loadDiarizedTranscript(meetingId);
+    if (!transcriptText || transcriptText.trim().length < 20) {
+      return { success: false, error: 'Transcript too short for action item extraction' };
+    }
+
+    // Run action items agent
+    let actionItems = [];
+    try {
+      actionItems = await this.runTextAgent('action_items', transcriptText);
+    } catch (err) {
+      return { success: false, error: err.message || 'Action items agent failed' };
+    }
+
+    if (!Array.isArray(actionItems) || actionItems.length === 0) {
+      return { success: false, error: 'No action items identified' };
+    }
+
+    // Save action items only
+    const avgConfidence =
+      actionItems.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / actionItems.length;
+
+    await prisma.$transaction(async (tx) => {
+      // Remove previous action_items insights only
+      await tx.aiInsight.deleteMany({
+        where: { meetingId: meetingIdStr, insightType: 'action_items' }
+      });
+
+      await tx.aiInsight.create({
+        data: {
+          id: uuidv4(),
+          meetingId: meetingIdStr,
+          insightType: 'action_items',
+          content: JSON.stringify(actionItems),
+          confidenceScore: Number(avgConfidence)
+        }
+      });
+    });
+
+    console.log(`✅ Regenerated ${actionItems.length} action item(s) for meeting ${meetingId}`);
+    return { success: true, count: actionItems.length };
+  }
+
+  /**
    * Save insights to database with transaction safety
    */
   async saveInsightsToDatabase(meetingId, insights) {

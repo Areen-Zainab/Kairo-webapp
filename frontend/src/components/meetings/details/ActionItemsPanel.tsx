@@ -34,12 +34,12 @@ const statusIcon = (status: string) => {
 };
 
 const ActionItemsPanel: React.FC<ActionItemsPanelProps> = ({ meeting }) => {
-  const meetingIdNum = Number(meeting.id);
+  const meetingIdValue = meeting.id; // accept string or number as-is
   const { user } = useUser();
   const isOrchestrator = user && meeting.organizer?.id && user.id.toString() === meeting.organizer.id.toString();
 
   const { actionItems, loading, error, confirmActionItem, rejectActionItem, refresh } = useActionItems(
-    Number.isNaN(meetingIdNum) ? null : meetingIdNum,
+    meetingIdValue,
     12000,
     false // Disable WebSocket for details view
   );

@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticateToken } = require('../middleware/auth');
 const ActionItemService = require('../services/ActionItemService');
+const AIInsightsService = require('../services/AIInsightsService');
 const Meeting = require('../models/Meeting');
 const prisma = require('../lib/prisma');
 
@@ -38,8 +39,25 @@ router.get('/meetings/:meetingId', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid status filter' });
     }
 
-    const items = await ActionItemService.getByMeetingId(meetingId, status || null);
-    const formattedItems = items.map((item) => ActionItemService._toDTO(item));
+    let items = await ActionItemService.getByMeetingId(meetingId, status || null);
+    let formattedItems = items.map((item) => ActionItemService._toDTO(item));
+
+    // If no action items exist, trigger action-item-only regeneration once (best-effort)
+    if (formattedItems.length === 0) {
+      try {
+        console.log(`No action items found for meeting ${meetingId}; triggering action-item-only regeneration...`);
+        const regenResult = await AIInsightsService.regenerateActionItemsOnly(meetingId);
+        if (regenResult.success) {
+          // Re-fetch after successful regen
+          items = await ActionItemService.getByMeetingId(meetingId, status || null);
+          formattedItems = items.map((item) => ActionItemService._toDTO(item));
+        } else {
+          console.warn(`Action item regeneration returned no items: ${regenResult.error || 'unknown error'}`);
+        }
+      } catch (regenErr) {
+        console.error(`Action item regeneration threw for meeting ${meetingId}:`, regenErr.message);
+      }
+    }
 
     return res.json({
       actionItems: formattedItems,

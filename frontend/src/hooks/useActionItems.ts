@@ -20,7 +20,7 @@ export interface ActionItem {
   rejectedBy?: { id: number; name: string; email: string } | null;
 }
 
-export const useActionItems = (meetingId: number | null, pollInterval = 12000, enableWebSocket = true) => {
+export const useActionItems = (meetingId: number | string | null, pollInterval = 12000, enableWebSocket = true) => {
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,13 +32,13 @@ export const useActionItems = (meetingId: number | null, pollInterval = 12000, e
   const maxReconnectAttempts = 5;
 
   const fetchActionItems = useCallback(async () => {
-    if (!meetingId) return;
+    if (meetingId === null || meetingId === undefined) return;
     setLoading(true);
     setError(null);
 
     try {
       const response = await apiService.getLiveActionItems(
-        meetingId,
+        meetingId as any,
         lastUpdateRef.current || undefined
       );
 

@@ -875,12 +875,12 @@ class ApiService {
   }
 
   // Action Items
-  async getActionItems(meetingId: number, status?: 'pending' | 'confirmed' | 'rejected'): Promise<ApiResponse<{ actionItems: any[] }>> {
+  async getActionItems(meetingId: number | string, status?: 'pending' | 'confirmed' | 'rejected'): Promise<ApiResponse<{ actionItems: any[] }>> {
     const query = status ? `?status=${status}` : '';
     return this.request<{ actionItems: any[] }>(`/action-items/meetings/${meetingId}${query}`);
   }
 
-  async getLiveActionItems(meetingId: number, since?: string): Promise<ApiResponse<{ actionItems: any[]; latestUpdate: string | null }>> {
+  async getLiveActionItems(meetingId: number | string, since?: string): Promise<ApiResponse<{ actionItems: any[]; latestUpdate: string | null }>> {
     const query = since ? `?since=${encodeURIComponent(since)}` : '';
     return this.request<{ actionItems: any[]; latestUpdate: string | null }>(`/action-items/meetings/${meetingId}/live${query}`);
   }
