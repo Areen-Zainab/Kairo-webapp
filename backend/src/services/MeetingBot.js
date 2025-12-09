@@ -292,11 +292,17 @@ class MeetingBot {
           this.page,
           this.meetingDataDir,
           this.chunksDir,
-          this.meetingId
+          this.meetingId,
+          this.platform
         );
 
         // Inject audio capture BEFORE navigating to meeting
-        await this.audioRecorder.injectAudioCapture();
+        // Use platform-specific audio capture method
+        if (this.platform === 'meet') {
+          await this.audioRecorder.injectAudioCaptureForGoogleMeet();
+        } else {
+          await this.audioRecorder.injectAudioCapture();
+        }
 
         // Join the meeting (waits 2 seconds after clicking join)
         await this.joinMeeting();
