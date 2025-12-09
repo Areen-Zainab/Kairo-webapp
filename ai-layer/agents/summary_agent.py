@@ -53,9 +53,9 @@ class SummaryAgent:
         self.use_api = bool(self.api_key)
         
         if self.use_api:
-            print(f"✓ Groq API key found (length: {len(self.api_key)})")
+            print(f" Groq API key found (length: {len(self.api_key)})")
         else:
-            print("⚠ Groq API key not found. Set GROQ_API_KEY environment variable.")
+            print(" Groq API key not found. Set GROQ_API_KEY environment variable.")
             print("  Falling back to extractive summary mode.")
     
     def _preprocess_text(self, text: str) -> str:
@@ -735,6 +735,6 @@ JSON Response:"""
                 
                 f.write("=" * 70 + "\n")
             
-            print(f"✓ Meeting minutes written to {output_path}")
+            print(f" Meeting minutes written to {output_path}")
         except Exception as e:
-            print(f"✗ Failed to write minutes: {e}")
+            print(f" Failed to write minutes: {e}")
