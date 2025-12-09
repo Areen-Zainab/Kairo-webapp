@@ -7,16 +7,396 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 const TranscriptionService = require('./TranscriptionService');
 
 class AudioRecorder {
-  constructor(page, meetingDataDir, chunksDir, meetingId) {
+  constructor(page, meetingDataDir, chunksDir, meetingId, platform = 'zoom') {
     this.page = page;
     this.meetingDataDir = meetingDataDir;
     this.chunksDir = chunksDir;
     this.meetingId = meetingId;
+    this.platform = platform; // 'zoom' or 'meet'
     this.chunkSequence = 0;
     this.chunkFlushInterval = null;
     this.transcriptFilepath = null;
     this.transcriptionService = null; // Will be initialized when transcript file is created
     this.isRecording = false; // Track recording state for graceful cancellation
+  }
+
+  /**
+   * Inject Google Meet specific audio capture system
+   * Uses the proven approach that works for Google Meet
+   */
+  async injectAudioCaptureForGoogleMeet() {
+    await this.page.evaluateOnNewDocument(() => {
+      // Core state for two-recorder system
+      window.audioCapture = {
+        audioContext: null,
+        completeRecorder: null,
+        completeChunks: [],
+        streamRecorder: null,
+        streamChunks: [],
+        lastProcessedIndex: 0,
+        isRecording: false,
+        trackToRecord: null
+      };
+
+      // getAndClearChunks returns CUMULATIVE audio (all chunks from start)
+      // This ensures each file is valid and playable for transcription
+      window.getAndClearChunks = function () {
+        return new Promise((resolve) => {
+          try {
+            const last = window.audioCapture.lastProcessedIndex || 0;
+            const all = window.audioCapture.streamChunks || [];
+
+            if (last >= all.length) return resolve(null);
+
+            // Get only NEW chunks to check size
+            const newChunks = all.slice(last);
+            const totalSize = newChunks.reduce((sum, chunk) => sum + (chunk.size || 0), 0);
+            if (totalSize < 1000) return resolve(null); // Minimum 1KB of new data
+
+            window.audioCapture.lastProcessedIndex = all.length;
+
+            // CRITICAL: Create blob from ALL chunks (cumulative)
+            // This ensures valid WebM with header and all audio data
+            const allChunksBlob = new Blob(all, {
+              type: 'audio/webm;codecs=opus'
+            });
+
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              try {
+                const base64Data = reader.result.split(',')[1];
+                if (!base64Data || base64Data.length < 100) return resolve(null);
+
+                resolve({
+                  audio: base64Data,
+                  size: allChunksBlob.size,
+                  chunks: newChunks.length,  // Number of NEW chunks added
+                  totalChunks: all.length,
+                  startIndex: last,          // Track what's new
+                  endIndex: all.length,      // Track what's new
+                  ts: Date.now(),
+                  isCumulative: true         // Flag for transcription service
+                });
+              } catch (e) {
+                resolve(null);
+              }
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(allChunksBlob);
+          } catch (e) {
+            resolve(null);
+          }
+        });
+      };
+
+      // Utility to safely resume audio context
+      async function resumeAudioContextIfNeeded(ctx) {
+        try {
+          if (!ctx) return;
+          if (typeof ctx.state !== 'undefined' && ctx.state === 'suspended') {
+            await ctx.resume().catch(() => { });
+          }
+        } catch (e) { }
+      }
+
+      // Intercept RTCPeerConnection to capture audio tracks
+      const OriginalRTCPeerConnection = window.RTCPeerConnection;
+
+      window.RTCPeerConnection = function (config) {
+        const pc = new OriginalRTCPeerConnection(config);
+
+        pc.addEventListener('track', async (event) => {
+          try {
+            // Accept any incoming remote audio track
+            if (!event.track) return;
+            if (event.track.kind !== 'audio') return;
+
+            // If we've already hooked a track, ignore additional local tracks but allow new remote
+            if (window.audioCapture.trackToRecord && window.audioCapture.trackToRecord.id === event.track.id) {
+              return;
+            }
+
+            // Assign track and attempt to start recording
+            window.audioCapture.trackToRecord = event.track;
+
+            // If recorder not active, start it
+            if (!window.audioCapture.isRecording) {
+              try { window.startAudioRecording(); } catch (_) { }
+            }
+          } catch (_) { }
+        });
+
+        return pc;
+      };
+
+      window.startAudioRecording = function () {
+        try {
+          if (!window.audioCapture.trackToRecord) {
+            console.log('[KAIRO] ⚠️ No track to record');
+            return;
+          }
+          if (window.audioCapture.isRecording) return;
+
+          window.audioCapture.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          resumeAudioContextIfNeeded(window.audioCapture.audioContext).catch(() => { });
+
+          const dest = window.audioCapture.audioContext.createMediaStreamDestination();
+
+          try {
+            // Create stream from the remote track
+            const stream = new MediaStream([window.audioCapture.trackToRecord]);
+            const audioSource = window.audioCapture.audioContext.createMediaStreamSource(stream);
+            audioSource.connect(dest);
+            window.audioCapture._destStream = dest.stream;
+            console.log('[KAIRO] 🔗 Connected track to destination');
+          } catch (err) {
+            console.log('[KAIRO] ⚠️ Error connecting track:', err && err.message ? err.message : err);
+            return;
+          }
+
+          const mimeType = (MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))
+            ? 'audio/webm;codecs=opus'
+            : 'audio/webm';
+
+          try {
+            // RECORDER 1: Complete Recording Stream (never interrupted)
+            window.audioCapture.completeRecorder = new MediaRecorder(window.audioCapture._destStream, {
+              mimeType: mimeType,
+              audioBitsPerSecond: 128000
+            });
+
+            // RECORDER 2: Transcription Stream (can be interrupted)
+            window.audioCapture.streamRecorder = new MediaRecorder(window.audioCapture._destStream, {
+              mimeType: mimeType,
+              audioBitsPerSecond: 128000
+            });
+          } catch (err) {
+            console.error('[KAIRO] ❌ MediaRecorder creation failed:', err);
+            return;
+          }
+
+          // Complete recorder handlers (for final recording)
+          window.audioCapture.completeRecorder.ondataavailable = (event) => {
+            try {
+              if (event.data && event.data.size > 0) {
+                window.audioCapture.completeChunks.push(event.data);
+              }
+            } catch (e) { }
+          };
+
+          // Stream recorder handlers (for transcription chunks)
+          window.audioCapture.streamRecorder.ondataavailable = (event) => {
+            try {
+              if (event.data && event.data.size > 0) {
+                window.audioCapture.streamChunks.push(event.data);
+              }
+            } catch (e) { }
+          };
+
+          window.audioCapture.completeRecorder.onstart = () => {
+            console.log('[KAIRO] 🔴 COMPLETE RECORDER ACTIVE');
+          };
+
+          window.audioCapture.streamRecorder.onstart = () => {
+            console.log('[KAIRO] 🔴 STREAM RECORDER ACTIVE');
+          };
+
+          window.audioCapture.completeRecorder.onstop = () => {
+            console.log('[KAIRO] ⏹️ Complete recorder stopped');
+            console.log('[KAIRO] 📦 Total complete chunks:', window.audioCapture.completeChunks.length);
+          };
+
+          window.audioCapture.streamRecorder.onstop = () => {
+            console.log('[KAIRO] ⏹️ Stream recorder stopped');
+            console.log('[KAIRO] 📦 Total stream chunks:', window.audioCapture.streamChunks.length);
+          };
+
+          window.audioCapture.completeRecorder.onerror = (error) => {
+            console.error('[KAIRO] ❌ Complete recorder error:', error);
+          };
+
+          window.audioCapture.streamRecorder.onerror = (error) => {
+            console.error('[KAIRO] ❌ Stream recorder error:', error);
+          };
+
+          // Start both recorders with different timeslices
+          try {
+            // Complete recorder: 10s timeslice, never interrupted
+            window.audioCapture.completeRecorder.start(10000);
+            // Stream recorder: 3s timeslice, for transcription (user requested 3 seconds)
+            window.audioCapture.streamRecorder.start(3000);
+            window.audioCapture.isRecording = true;
+            console.log('[KAIRO] 🔴 RECORDING ACTIVE (both recorders)');
+          } catch (err) {
+            console.error('[KAIRO] ❌ mediaRecorder.start failed:', err);
+          }
+        } catch (error) {
+          console.error('[KAIRO] ❌ Failed to start recording:', error);
+        }
+      };
+
+      window.stopAndGetAudio = function () {
+        return new Promise((resolve) => {
+          try {
+            // Return data from completeRecorder, not streamRecorder
+            if (!window.audioCapture.completeRecorder) {
+              console.log('[KAIRO] No complete recorder found');
+              resolve(null);
+              return;
+            }
+
+            const processChunks = () => {
+              try {
+                // Get all chunks including any that arrived after stop was called
+                const allChunks = [...window.audioCapture.completeChunks];
+
+                console.log('[KAIRO] Processing chunks:', allChunks.length);
+
+                if (allChunks.length === 0) {
+                  console.log('[KAIRO] No chunks recorded');
+                  resolve(null);
+                  return;
+                }
+
+                const blob = new Blob(allChunks, { type: 'audio/webm;codecs=opus' });
+                console.log('[KAIRO] Blob created, size:', blob.size);
+
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  try {
+                    const base64Data = reader.result.split(',')[1];
+                    if (!base64Data) {
+                      console.error('[KAIRO] No base64 data in result');
+                      resolve(null);
+                      return;
+                    }
+                    console.log('[KAIRO] Successfully converted to base64');
+                    resolve({
+                      audio: base64Data,
+                      size: blob.size,
+                      chunks: allChunks.length
+                    });
+                  } catch (e) {
+                    console.error('[KAIRO] Error processing blob:', e);
+                    resolve(null);
+                  }
+                };
+                reader.onerror = () => {
+                  console.error('[KAIRO] FileReader error');
+                  resolve(null);
+                };
+                reader.readAsDataURL(blob);
+              } catch (e) {
+                console.error('[KAIRO] Error in processChunks:', e);
+                resolve(null);
+              }
+            };
+
+            // If recorder is still active, stop it and wait for final data
+            if (window.audioCapture.completeRecorder.state === 'recording') {
+              console.log('[KAIRO] Recorder is active, stopping...');
+
+              // Strategy: Wait for final dataavailable event before processing
+              let finalDataReceived = false;
+              let stopHandlerCalled = false;
+              const initialChunkCount = window.audioCapture.completeChunks.length;
+
+              // Set up handler for final data
+              const dataHandler = (event) => {
+                console.log('[KAIRO] Final dataavailable event received, chunk size:', event.data?.size);
+                if (event.data && event.data.size > 0) {
+                  // This will be added to completeChunks by the ondataavailable handler
+                  finalDataReceived = true;
+                }
+              };
+
+              // Listen for final data
+              window.audioCapture.completeRecorder.addEventListener('dataavailable', dataHandler, { once: true });
+
+              // Set up handler for when recorder stops
+              const stopHandler = () => {
+                if (stopHandlerCalled) return;
+                stopHandlerCalled = true;
+
+                console.log('[KAIRO] Stop event received');
+                console.log('[KAIRO] Initial chunks:', initialChunkCount, 'Current chunks:', window.audioCapture.completeChunks.length);
+
+                // Remove the data handler if it hasn't fired
+                try {
+                  window.audioCapture.completeRecorder.removeEventListener('dataavailable', dataHandler);
+                } catch (e) { }
+
+                // Wait longer to ensure all data is written
+                // Use multiple delays to check if chunks are still arriving
+                const checkAndProcess = (attempt = 0) => {
+                  const currentChunkCount = window.audioCapture.completeChunks.length;
+                  console.log('[KAIRO] Check attempt', attempt, 'chunks:', currentChunkCount);
+
+                  if (attempt === 0 && !finalDataReceived) {
+                    // First check: wait for final data event (up to 500ms)
+                    setTimeout(() => checkAndProcess(1), 500);
+                  } else if (attempt < 3) {
+                    // Additional checks: wait to see if more chunks arrive
+                    setTimeout(() => {
+                      const newChunkCount = window.audioCapture.completeChunks.length;
+                      if (newChunkCount > currentChunkCount) {
+                        console.log('[KAIRO] More chunks arrived, waiting again...');
+                        checkAndProcess(attempt + 1);
+                      } else {
+                        console.log('[KAIRO] No new chunks, processing...');
+                        processChunks();
+                      }
+                    }, 200);
+                  } else {
+                    // Final attempt: process what we have
+                    console.log('[KAIRO] Final check, processing...');
+                    processChunks();
+                  }
+                };
+
+                checkAndProcess(0);
+              };
+
+              window.audioCapture.completeRecorder.onstop = stopHandler;
+
+              // Request final data before stopping (this triggers final dataavailable)
+              try {
+                console.log('[KAIRO] Requesting final data...');
+                window.audioCapture.completeRecorder.requestData();
+              } catch (e) {
+                console.log('[KAIRO] Could not request final data:', e);
+              }
+
+              // Wait a moment for requestData to be processed, then stop
+              setTimeout(() => {
+                try {
+                  console.log('[KAIRO] Calling stop()...');
+                  window.audioCapture.completeRecorder.stop();
+                } catch (e) {
+                  console.error('[KAIRO] Error stopping recorder:', e);
+                  // If stop fails, process what we have
+                  processChunks();
+                }
+              }, 100); // Small delay to let requestData finish
+
+            } else if (window.audioCapture.completeRecorder.state === 'paused') {
+              console.log('[KAIRO] Recorder is paused, processing existing chunks');
+              // If paused, just process existing chunks
+              processChunks();
+            } else {
+              console.log('[KAIRO] Recorder already stopped, processing existing chunks');
+              // Already stopped, process chunks immediately
+              processChunks();
+            }
+          } catch (error) {
+            console.error('[KAIRO] Error in stopAndGetAudio:', error);
+            resolve(null);
+          }
+        });
+      };
+    });
+
+    console.log('✅ Audio capture system injected for Google Meet (two-recorder architecture)');
   }
 
   /**

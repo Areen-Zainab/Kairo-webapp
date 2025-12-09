@@ -191,7 +191,7 @@ const LiveMeetingView = () => {
       setIsLeavingMeeting(false);
     }
   };
-  const [activeTab, setActiveTab] = useState<SidebarTab>('memory');
+  const [activeTab, setActiveTab] = useState<SidebarTab>('notes');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [meetingDuration, setMeetingDuration] = useState(0);
   const [newNote, setNewNote] = useState('');
@@ -792,10 +792,10 @@ const LiveMeetingView = () => {
   };
 
   const tabs = [
-    { id: 'memory' as SidebarTab, label: 'Memory', icon: Brain, count: memoryItems.length },
-    { id: 'chat' as SidebarTab, label: 'Chat', icon: MessageSquare, count: memoryChat.length },
-    { id: 'actions' as SidebarTab, label: 'Actions', icon: CheckSquare, count: actionItems.filter(a => !a.isCompleted).length },
     { id: 'notes' as SidebarTab, label: 'Notes', icon: StickyNote, count: notes.length },
+    { id: 'actions' as SidebarTab, label: 'Actions', icon: CheckSquare, count: actionItems.filter(a => !a.isCompleted).length },
+    { id: 'chat' as SidebarTab, label: 'Chat', icon: MessageSquare, count: memoryChat.length },
+    { id: 'memory' as SidebarTab, label: 'Memory', icon: Brain, count: memoryItems.length },
   ];
 
   const mobileTabs = [
