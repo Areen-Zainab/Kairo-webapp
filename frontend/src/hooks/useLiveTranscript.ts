@@ -15,6 +15,7 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usePolling, setUsePolling] = useState(false); // Fallback flag
+  const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -46,14 +47,14 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
 
       if (response.data?.entries) {
         const data = response.data;
-        
+
         setEntries((prev) => {
           const map = new Map(prev.map((entry) => [entry.id, entry]));
-          
+
           data.entries.forEach((entry: TranscriptEntry) => {
             map.set(entry.id, entry);
           });
-          
+
           return Array.from(map.values()).sort((a, b) => a.chunkIndex - b.chunkIndex);
         });
 
@@ -78,10 +79,10 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
     if (usePolling) {
       // Initial fetch
       fetchTranscript();
-      
+
       // Set up polling interval
       intervalRef.current = window.setInterval(fetchTranscript, pollInterval);
-      
+
       return () => {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
@@ -100,25 +101,26 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
     const wsUrl = `${protocol}//${host}:${port}/ws/transcript?meetingId=${meetingId}`;
 
     console.log(`🔌 Connecting to WebSocket: ${wsUrl}`);
-    
+
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log('✅ WebSocket connected for live transcript');
       setError(null);
+      setIsConnected(true);
       reconnectAttemptsRef.current = 0; // Reset reconnect attempts on success
     };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        
+
         if (message.type === 'transcript') {
           const data = message.data;
-          
+
           setEntries((prev) => {
             const map = new Map(prev.map((entry) => [entry.id, entry]));
-            
+
             map.set(`chunk_${data.chunkIndex}`, {
               id: `chunk_${data.chunkIndex}`,
               chunkIndex: data.chunkIndex,
@@ -127,7 +129,7 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
               rawTimestamp: data.timestamp,
               speaker: data.speaker || 'Speaker 1'
             });
-            
+
             return Array.from(map.values()).sort((a, b) => a.chunkIndex - b.chunkIndex);
           });
 
@@ -135,7 +137,7 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
           lastTimestampRef.current = data.timestamp;
         } else if (message.type === 'connected') {
           console.log(`✅ WebSocket connection confirmed for meeting ${message.meetingId}`);
-          
+
           // Fetch existing transcripts on initial connection
           fetchTranscript();
         }
@@ -151,19 +153,20 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
 
     ws.onclose = (event) => {
       console.log(`🔌 WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
-      
+      setIsConnected(false);
+
       // Don't reconnect if it was an intentional close (code 1000)
       if (event.code === 1000) {
         return;
       }
-      
+
       // Attempt reconnection if not intentional close
       if (reconnectAttemptsRef.current < maxReconnectAttempts) {
         reconnectAttemptsRef.current++;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000); // Exponential backoff, max 10s
-        
+
         console.log(`🔄 Attempting to reconnect WebSocket (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts}) in ${delay}ms...`);
-        
+
         reconnectTimeoutRef.current = window.setTimeout(() => {
           // Reset usePolling to trigger reconnection attempt
           // This will cause the effect to re-run and try WebSocket again
@@ -193,6 +196,7 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
     entries,
     loading,
     error,
-    refresh: fetchTranscript
+    refresh: fetchTranscript,
+    isConnected: isConnected || usePolling
   };
 };

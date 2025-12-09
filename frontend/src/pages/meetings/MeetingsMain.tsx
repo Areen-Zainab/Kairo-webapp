@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { 
-  Calendar, 
-  Video, 
-  Search, 
-  Filter, 
+import {
+  Calendar,
+  Video,
+  Search,
+  Filter,
   ArrowUpRight,
   FileText,
   Brain,
@@ -55,10 +55,10 @@ const MeetingsDashboard = () => {
   const { user, workspaces } = useUser();
   const { workspaceId } = useParams<{ workspaceId?: string }>();
   const [searchParams] = useSearchParams();
-  
+
   const initialTab = (searchParams.get('tab') as TabType) || 'all';
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
-  
+
   // Update tab when URL param changes
   useEffect(() => {
     const tabParam = searchParams.get('tab') as TabType;
@@ -80,7 +80,7 @@ const MeetingsDashboard = () => {
     meetingId: null,
     meetingName: ''
   });
-  
+
   const [currentWorkspace, setCurrentWorkspace] = useState<any>(null);
   const [realMeetings, setRealMeetings] = useState<any[]>([]);
   const [isLoadingMeetings, setIsLoadingMeetings] = useState(false);
@@ -90,14 +90,17 @@ const MeetingsDashboard = () => {
   const timeFilterMenuRef = useRef<HTMLDivElement>(null);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  
+
   // Track live and ended meetings
   const [endedMeetingId, setEndedMeetingId] = useState<string | null>(null);
   const [dismissLiveBanner, setDismissLiveBanner] = useState(false);
   const [dismissEndedBanner, setDismissEndedBanner] = useState(false);
   const [lastKnownLiveMeetings, setLastKnownLiveMeetings] = useState<Set<number>>(new Set());
 
-  const { success: toastSuccess, error: toastError } = useToastContext();
+  const { success: toastSuccess, error: toastError, info: toastInfo } = useToastContext();
+
+  // Track meetings pending insights generation
+  const [pendingInsightsMeetings, setPendingInsightsMeetings] = useState<Set<string>>(new Set());
 
   // Show ended banner if navigated from live page with state
   useEffect(() => {
@@ -105,13 +108,17 @@ const MeetingsDashboard = () => {
     if (incomingEndedId) {
       setEndedMeetingId(String(incomingEndedId));
       setDismissEndedBanner(false);
+
+      // Show initial toast and start tracking for insights
+      toastInfo('Meeting ended. You will be notified when AI insights are ready.', 'Processing', 5000);
+      setPendingInsightsMeetings(prev => new Set(prev).add(String(incomingEndedId)));
+
       // Clear state so back/forward doesn't re-trigger
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location, navigate]);
-
+  }, [location, navigate, toastInfo]);
   // Check if user is areeba@kairo.com to show dummy data
-  const shouldShowDummyData = user?.email?.toLowerCase() === 'areeba@kairo.com';
+
 
   // Load current workspace from URL param or localStorage
   useEffect(() => {
@@ -139,7 +146,7 @@ const MeetingsDashboard = () => {
   useEffect(() => {
     const fetchMeetings = async () => {
       const wsId = workspaceId || currentWorkspace?.id;
-      if (!wsId || shouldShowDummyData) return;
+      if (!wsId) return;
 
       setIsLoadingMeetings(true);
       try {
@@ -161,12 +168,12 @@ const MeetingsDashboard = () => {
     };
 
     fetchMeetings();
-  }, [workspaceId, currentWorkspace, shouldShowDummyData]);
+  }, [workspaceId, currentWorkspace]);
 
   const handleMeetingCreated = () => {
     // Refresh meetings after creating a new one
     const wsId = workspaceId || currentWorkspace?.id;
-    if (wsId && !shouldShowDummyData) {
+    if (wsId) {
       apiService.getMeetingsByWorkspace(parseInt(wsId))
         .then(response => {
           if (response.data?.meetings) {
@@ -201,7 +208,7 @@ const MeetingsDashboard = () => {
 
   const handleDeleteConfirm = async () => {
     if (!deleteModalState.meetingId) return;
-    
+
     try {
       const response = await apiService.deleteMeeting(deleteModalState.meetingId);
       if (response.error) {
@@ -213,7 +220,7 @@ const MeetingsDashboard = () => {
       }
     } catch (error) {
       console.error('Error deleting meeting:', error);
-      
+
       // Extract error message
       let errorMessage = 'Failed to delete meeting';
       if (error instanceof Error) {
@@ -221,7 +228,7 @@ const MeetingsDashboard = () => {
       } else if (typeof error === 'object' && error !== null && 'message' in error) {
         errorMessage = (error as any).message;
       }
-      
+
       toastError(errorMessage, 'Error');
     } finally {
       setDeleteModalState({ isOpen: false, meetingId: null, meetingName: '' });
@@ -239,7 +246,7 @@ const MeetingsDashboard = () => {
       }
     } catch (error) {
       console.error('Error completing meeting:', error);
-      
+
       // Extract error message
       let errorMessage = 'Failed to mark meeting as completed';
       if (error instanceof Error) {
@@ -247,7 +254,7 @@ const MeetingsDashboard = () => {
       } else if (typeof error === 'object' && error !== null && 'message' in error) {
         errorMessage = (error as any).message;
       }
-      
+
       toastError(errorMessage, 'Error');
     }
   };
@@ -263,7 +270,7 @@ const MeetingsDashboard = () => {
       }
     } catch (error) {
       console.error('Error cancelling meeting:', error);
-      
+
       // Extract error message
       let errorMessage = 'Failed to cancel meeting';
       if (error instanceof Error) {
@@ -271,7 +278,7 @@ const MeetingsDashboard = () => {
       } else if (typeof error === 'object' && error !== null && 'message' in error) {
         errorMessage = (error as any).message;
       }
-      
+
       toastError(errorMessage, 'Error');
     }
   };
@@ -281,7 +288,7 @@ const MeetingsDashboard = () => {
     const startTime = new Date(meeting.startTime);
     const endTime = new Date(meeting.endTime);
     const now = new Date();
-    
+
     // Determine status
     let status: 'live' | 'upcoming' | 'completed' = 'upcoming';
     if (meeting.status === 'completed' || meeting.status === 'cancelled') {
@@ -329,105 +336,71 @@ const MeetingsDashboard = () => {
     };
   });
 
-  const stats = shouldShowDummyData ? [
-    { label: 'Total Meetings', value: '24', change: '+12%', icon: Video, color: 'from-blue-500 to-cyan-500' },
-    { label: 'This Week', value: '8', change: '+3', icon: Calendar, color: 'from-purple-500 to-pink-500' },
-    { label: 'Transcripts Ready', value: '18', change: '100%', icon: FileText, color: 'from-green-500 to-emerald-500' },
-    { label: 'AI Insights', value: '156', change: '+23', icon: Brain, color: 'from-orange-500 to-red-500' },
-  ] : [
+  const stats = [
     { label: 'Total Meetings', value: String(realMeetings.length), change: '', icon: Video, color: 'from-blue-500 to-cyan-500' },
     { label: 'Upcoming', value: String(transformedRealMeetings.filter(m => m.status === 'upcoming').length), change: '', icon: Calendar, color: 'from-purple-500 to-pink-500' },
     { label: 'Completed', value: String(transformedRealMeetings.filter(m => m.status === 'completed').length), change: '', icon: FileText, color: 'from-green-500 to-emerald-500' },
     { label: 'Live Now', value: String(transformedRealMeetings.filter(m => m.status === 'live').length), change: '', icon: Brain, color: 'from-orange-500 to-red-500' },
   ];
 
-  const dummyMeetings: Meeting[] = shouldShowDummyData ? [
-    {
-      id: '1',
-      title: 'Sprint Planning – Team Kairo',
-      date: 'Today',
-      time: '10:00 AM - 11:00 AM',
-      duration: '1h',
-      status: 'live',
-      participants: [
-        { name: 'Areeba', avatar: 'AR' },
-        { name: 'Sana', avatar: 'SK' },
-        { name: 'Muhammad', avatar: 'MJ' },
-      ],
-      summary: 'Prioritizing Q4 backlog and discussing sprint goals',
-      topics: ['Q4 Planning', 'Backlog', 'Sprint Goals'],
-      aiInsights: 12,
-      tasks: 8,
-    },
-    {
-      id: '2',
-      title: 'Product Roadmap Review',
-      date: 'Tomorrow',
-      time: '2:00 PM - 3:30 PM',
-      duration: '1.5h',
-      status: 'upcoming',
-      participants: [
-        { name: 'Fatima', avatar: 'FC' },
-        { name: 'Daniyal', avatar: 'DL' },
-      ],
-      summary: 'Reviewing Q1 2025 product roadmap with stakeholders',
-      topics: ['Product Strategy', 'Roadmap', 'Q1 Goals'],
-      tasks: 5,
-    },
-    {
-      id: '3',
-      title: 'Design System Workshop',
-      date: 'Oct 15, 2024',
-      time: '9:00 AM - 10:30 AM',
-      duration: '1.5h',
-      status: 'completed',
-      participants: [
-        { name: 'Ali', avatar: 'AT' },
-        { name: 'Layla', avatar: 'LM' },
-        { name: 'Tariq', avatar: 'TP' },
-      ],
-      summary: 'Established new component guidelines and updated design tokens',
-      topics: ['Design System', 'Components', 'Guidelines'],
-      aiInsights: 8,
-      transcriptReady: true,
-      memoryLinks: 3,
-      tasks: 12,
-    },
-    {
-      id: '4',
-      title: 'Client Demo: New Features',
-      date: 'Oct 20, 2024',
-      time: '3:00 PM - 4:00 PM',
-      duration: '1h',
-      status: 'upcoming',
-      participants: [
-        { name: 'Areeba', avatar: 'AR' },
-        { name: 'Client', avatar: 'CL' },
-      ],
-      summary: 'Showcasing latest platform updates to client',
-      topics: ['Demo', 'Features', 'Client Feedback'],
-    },
-  ] : [];
+  const meetings: Meeting[] = transformedRealMeetings;
 
-  // Use real meetings for non-demo users, dummy meetings for demo
-  const meetings: Meeting[] = shouldShowDummyData ? dummyMeetings : transformedRealMeetings;
+  // Poll for insights completion
+  useEffect(() => {
+    if (pendingInsightsMeetings.size === 0) return;
+
+    const pollInterval = setInterval(async () => {
+      pendingInsightsMeetings.forEach(async (meetingId) => {
+        try {
+          const numericId = parseInt(meetingId);
+          if (isNaN(numericId)) return;
+
+          const response = await apiService.getAIInsights(numericId);
+
+          // Check if generated or has substantial content
+          if (response.data && (response.data.generated || (response.data.summary && response.data.keyDecisions.length > 0))) {
+            // Find meeting title for the toast
+            const meeting = meetings.find(m => m.id === meetingId);
+            const title = meeting?.title || 'Meeting';
+
+            toastSuccess(`AI Insights for "${title}" are ready!`, 'Insights Generated', 8000);
+
+            // Remove from pending set
+            setPendingInsightsMeetings(prev => {
+              const next = new Set(prev);
+              next.delete(meetingId);
+              return next;
+            });
+
+            // Trigger meeting list refresh to show new insights count/status
+            handleMeetingCreated();
+          }
+        } catch (error) {
+          console.error(`Error polling insights for meeting ${meetingId}:`, error);
+          // Optional: Remove from pending if error persists? For now, keep retrying.
+        }
+      });
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [pendingInsightsMeetings, meetings, toastSuccess]);
 
   const liveMeeting = meetings.find(m => m.status === 'live');
   const endedMeeting = meetings.find(m => m.status === 'completed' && endedMeetingId === m.id);
 
   // Monitor for newly ended meetings
   useEffect(() => {
-    if (shouldShowDummyData) return;
-    
+
+
     const checkForEndedMeetings = () => {
       const currentlyLiveMeetingIds = new Set<number>();
-      
+
       meetings.forEach(m => {
         if (m.status === 'live' && m.backendId) {
           currentlyLiveMeetingIds.add(m.backendId);
         }
       });
-      
+
       // Check which meetings just ended (were live before, but not live now)
       const newlyEnded: string[] = [];
       lastKnownLiveMeetings.forEach(meetingId => {
@@ -439,15 +412,15 @@ const MeetingsDashboard = () => {
           }
         }
       });
-      
+
       // Only update if the set actually changed
       const currentIdsArray = Array.from(currentlyLiveMeetingIds).sort().join(',');
       const lastIdsArray = Array.from(lastKnownLiveMeetings).sort().join(',');
-      
+
       if (currentIdsArray !== lastIdsArray) {
         setLastKnownLiveMeetings(currentlyLiveMeetingIds);
       }
-      
+
       // Show banner for newly ended meetings (no toast)
       newlyEnded.forEach(meetingId => {
         const meeting = meetings.find(m => m.id === meetingId);
@@ -456,17 +429,17 @@ const MeetingsDashboard = () => {
         }
       });
     };
-    
+
     checkForEndedMeetings();
     const intervalId = setInterval(checkForEndedMeetings, 30000); // Check every 30 seconds
-    
+
     return () => clearInterval(intervalId);
-  }, [meetings, lastKnownLiveMeetings, dismissEndedBanner, shouldShowDummyData]);
+  }, [meetings, lastKnownLiveMeetings, dismissEndedBanner]);
 
   const handleMeetingClick = (meetingId: string) => {
     // Find the meeting to determine its status
     const meeting = meetings.find(m => m.id === meetingId);
-    
+
     if (meeting?.status === 'live') {
       navigate(`/workspace/meetings/live/${meetingId}`);
     } else if (meeting?.status === 'upcoming') {
@@ -521,7 +494,7 @@ const MeetingsDashboard = () => {
     if (activeTab === 'upcoming') return meeting.status === 'upcoming';
     if (activeTab === 'history') return meeting.status === 'completed';
     return true;
-  }).filter(meeting => 
+  }).filter(meeting =>
     meeting.title.toLowerCase().includes(searchQuery.toLowerCase())
   ).filter(withinTimeFilter);
 
@@ -540,7 +513,7 @@ const MeetingsDashboard = () => {
           onJoin={() => {
             if (liveMeeting?.backendId) {
               const meetId = liveMeeting.backendId.toString();
-              const navPath = workspaceId 
+              const navPath = workspaceId
                 ? `/workspace/${workspaceId}/meetings/live/${meetId}`
                 : `/workspace/meetings/live/${meetId}`;
               navigate(navPath);
@@ -556,7 +529,7 @@ const MeetingsDashboard = () => {
           onView={() => {
             if (endedMeeting?.backendId) {
               const meetId = endedMeeting.backendId.toString();
-              const navPath = workspaceId 
+              const navPath = workspaceId
                 ? `/workspace/${workspaceId}/meetings/${meetId}`
                 : `/workspace/meetings/${meetId}`;
               navigate(navPath);
@@ -577,51 +550,47 @@ const MeetingsDashboard = () => {
               {currentWorkspace ? `Manage meetings for ${currentWorkspace.name}` : 'Manage your meetings and AI-powered insights'}
             </p>
           </div>
-          
+
           {/* Controls Row - Below on smaller screens */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {/* View Type Toggle */}
             <div className="flex items-center space-x-1 rounded-lg p-0.5 bg-white border border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50">
               <button
                 onClick={() => setViewType('list')}
-                className={`p-1.5 sm:p-2 rounded transition-all ${
-                  viewType === 'list'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
-                }`}
+                className={`p-1.5 sm:p-2 rounded transition-all ${viewType === 'list'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
+                  }`}
                 title="List View"
               >
                 <List className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setViewType('grid')}
-                className={`p-1.5 sm:p-2 rounded transition-all ${
-                  viewType === 'grid'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
-                }`}
+                className={`p-1.5 sm:p-2 rounded transition-all ${viewType === 'grid'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
+                  }`}
                 title="Grid View"
               >
                 <LayoutGrid className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setViewType('kanban')}
-                className={`p-1.5 sm:p-2 rounded transition-all ${
-                  viewType === 'kanban'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
-                }`}
+                className={`p-1.5 sm:p-2 rounded transition-all ${viewType === 'kanban'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
+                  }`}
                 title="Kanban View"
               >
                 <Columns className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setViewType('calendar')}
-                className={`p-1.5 sm:p-2 rounded transition-all ${
-                  viewType === 'calendar'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
-                }`}
+                className={`p-1.5 sm:p-2 rounded transition-all ${viewType === 'calendar'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'
+                  }`}
                 title="Calendar View"
               >
                 <CalendarDays className="w-4 h-4" />
@@ -644,11 +613,11 @@ const MeetingsDashboard = () => {
               {showTimeFilterMenu && (
                 <div className="absolute left-0 top-full mt-2 w-48 rounded-lg shadow-xl z-50 bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60" role="menu">
                   <div className="p-1">
-                    <button onClick={() => { setTimeFilter('all'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='all' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">All</button>
-                    <button onClick={() => { setTimeFilter('today'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='today' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">Today</button>
-                    <button onClick={() => { setTimeFilter('week'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='week' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Week</button>
-                    <button onClick={() => { setTimeFilter('month'); setShowTimeFilterMenu(false); }} className={`w/full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='month' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Month</button>
-                    <button onClick={() => { setTimeFilter('quarter'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter==='quarter' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Quarter</button>
+                    <button onClick={() => { setTimeFilter('all'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'all' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">All</button>
+                    <button onClick={() => { setTimeFilter('today'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'today' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">Today</button>
+                    <button onClick={() => { setTimeFilter('week'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'week' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Week</button>
+                    <button onClick={() => { setTimeFilter('month'); setShowTimeFilterMenu(false); }} className={`w/full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'month' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Month</button>
+                    <button onClick={() => { setTimeFilter('quarter'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'quarter' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Quarter</button>
                   </div>
                 </div>
               )}
@@ -728,23 +697,21 @@ const MeetingsDashboard = () => {
                 left: `${(tabs.findIndex(t => t.id === activeTab) * 100) / tabs.length}%`,
               }}
             />
-            
+
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as TabType)}
                 className="relative flex-1 flex items-center justify-center space-x-2 px-5 py-2.5 rounded-md transition-all duration-200 z-10"
               >
-                <span className={`font-medium text-sm transition-all ${
-                  activeTab === tab.id ? 'text-white' : 'text-gray-600 dark:text-slate-400'
-                }`}>
+                <span className={`font-medium text-sm transition-all ${activeTab === tab.id ? 'text-white' : 'text-gray-600 dark:text-slate-400'
+                  }`}>
                   {tab.label}
                 </span>
-                <span className={`px-1.5 py-0.5 rounded text-xs font-medium transition-all ${
-                  activeTab === tab.id 
-                    ? 'bg-white/15 text-white' 
-                    : 'bg-gray-100 text-gray-600 dark:bg-slate-700/30 dark:text-slate-500'
-                }`}>
+                <span className={`px-1.5 py-0.5 rounded text-xs font-medium transition-all ${activeTab === tab.id
+                  ? 'bg-white/15 text-white'
+                  : 'bg-gray-100 text-gray-600 dark:bg-slate-700/30 dark:text-slate-500'
+                  }`}>
                   {tab.count}
                 </span>
               </button>
@@ -768,8 +735,8 @@ const MeetingsDashboard = () => {
         )}
 
         {!isLoadingMeetings && filteredMeetings.length > 0 && viewType === 'list' && (
-          <ListView 
-            meetings={filteredMeetings} 
+          <ListView
+            meetings={filteredMeetings}
             onMeetingClick={handleMeetingClick}
             onJoinMeeting={handleJoinMeeting}
             onDeleteMeeting={(id) => {
@@ -819,7 +786,7 @@ const MeetingsDashboard = () => {
           <CalendarView meetings={filteredMeetings} />
         )}
 
-        {!shouldShowDummyData && !workspaceId && !currentWorkspace?.id && (
+        {!workspaceId && !currentWorkspace?.id && (
           <div className="text-center py-20">
             <Video className="w-14 h-14 text-slate-600 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-400 mb-2">No workspace selected</h3>

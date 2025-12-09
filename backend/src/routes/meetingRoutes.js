@@ -9,7 +9,7 @@ const prisma = require("../lib/prisma");
 const { authenticateToken } = require("../middleware/auth");
 const { stopMeetingSession, getActiveSessions, removeFromActiveSessions, activeSessions } = require("../jobs/autoJoinMeetings");
 const multer = require('multer');
-const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile, getLiveTranscriptEntries, getDiarizedTranscript } = require("../utils/meetingFileStorage");
+const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile, getLiveTranscriptEntries, getDiarizedTranscript, findMeetingDirectory } = require("../utils/meetingFileStorage");
 const { getMeetingStats } = require("../utils/meetingStats");
 
 const router = express.Router();
@@ -394,6 +394,67 @@ router.get("/:id", authenticateToken, async (req, res) => {
         console.log(`[Meeting ${meetingId}] Audio URL set to:`, audioUrl);
       } else {
         console.log(`[Meeting ${meetingId}] No audio file found, audioUrl will be null`);
+      }
+    }
+
+    // Update meeting start/end times if we have actual stats and they differ significantly
+    if (meeting.status === 'completed' && stats && stats.audioDurationSeconds > 0) {
+      try {
+        let updates = {};
+        const durationMin = Math.ceil(stats.audioDurationSeconds / 60);
+
+        // 1. Check Duration
+        // Update if duration differs by more than 1 minute
+        if (Math.abs(meeting.duration - durationMin) > 1) {
+          updates.duration = durationMin;
+        }
+
+        // 2. Try to get actual Text Start Time from directory name
+        const meetingDir = findMeetingDirectory(meetingId);
+        let actualStartTime = null;
+        if (meetingDir) {
+          const dirName = path.basename(meetingDir);
+          // Format: {id}_{title}_{YYYY-MM-DD}_{HH-mm-ss-SSS}
+          // specific regex to capture date and time parts at the end
+          const match = dirName.match(/_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2}-\d{3})$/);
+          if (match) {
+            const dateStr = match[1]; // 2025-12-08
+            const timeStr = match[2].replace(/-/g, ':').replace(/:(\d{3})$/, '.$1'); // 20:32:48.288
+            const isoString = `${dateStr}T${timeStr}`;
+            const parsedDate = new Date(isoString);
+
+            if (!isNaN(parsedDate.getTime())) {
+              actualStartTime = parsedDate;
+            }
+          }
+        }
+
+        // 3. Determine Start Time to use (Actual or Stored)
+        const startTimeToUse = actualStartTime || new Date(meeting.startTime);
+
+        // Update Start Time if actual found and differs by > 2 mins
+        if (actualStartTime && Math.abs(actualStartTime.getTime() - new Date(meeting.startTime).getTime()) > 2 * 60 * 1000) {
+          updates.startTime = actualStartTime;
+        }
+
+        // 4. Calculate End Time
+        const newEndTime = new Date(startTimeToUse.getTime() + stats.audioDurationSeconds * 1000);
+
+        // Update End Time if differs by > 2 mins
+        if (Math.abs(newEndTime.getTime() - new Date(meeting.endTime).getTime()) > 2 * 60 * 1000) {
+          updates.endTime = newEndTime;
+        }
+
+        // Apply updates if any
+        if (Object.keys(updates).length > 0) {
+          console.log(`[Meeting ${meetingId}] Updating meeting times based on actual stats:`, updates);
+          const updatedMeeting = await Meeting.update(meetingId, updates);
+
+          // Update the meeting object to return
+          Object.assign(meeting, updatedMeeting);
+        }
+      } catch (updateError) {
+        console.error(`[Meeting ${meetingId}] Error auto-updating meeting times:`, updateError);
       }
     }
 
@@ -1002,7 +1063,7 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
 
     // Atomic check and lock mechanism to prevent duplicate bot instances
     const { getActiveSessions, activeSessions, getJoinLocks, setJoinLock, clearJoinLock } = require("../jobs/autoJoinMeetings");
-    
+
     // Check if bot is already active for this meeting (atomic check)
     const activeSessionIds = getActiveSessions();
     if (activeSessionIds.includes(meetingId)) {
@@ -1026,11 +1087,12 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
         data: {
           metadata: {
             ...(meeting.metadata || {}),
-            botJoinTriggeredAt: new Date().toISOString()
+            botJoinTriggeredAt: new Date().toISOString(),
+            botStatus: 'joining'
           }
         }
       });
-      console.log(`📝 [ROUTE] Updated metadata with botJoinTriggeredAt for meeting ${meetingId}`);
+      console.log(`📝 [ROUTE] Updated metadata with botJoinTriggeredAt (joining) for meeting ${meetingId}`);
     } catch (metadataError) {
       console.error(`⚠️ [ROUTE] Failed to update metadata for meeting ${meetingId}:`, metadataError);
       // Continue anyway - lock mechanism will still prevent duplicates
@@ -1061,13 +1123,33 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
 
     // Start bot and store session in activeSessions
     bot.start()
-      .then((session) => {
+      .then(async (session) => {
         // Double-check before storing (atomic operation to prevent race conditions)
         if (!activeSessions.has(meetingId)) {
           // Store session in activeSessions Map so it can be stopped later
           activeSessions.set(meetingId, session);
           console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
           console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+
+          // Update meeting status to in-progress and botStatus to joined
+          try {
+            await prisma.meeting.update({
+              where: { id: meetingId },
+              data: {
+                status: 'in-progress',
+                metadata: {
+                  ...(meeting.metadata || {}),
+                  botJoinTriggeredAt: new Date().toISOString(), // Keep this for history
+                  botStatus: 'joined',
+                  botJoinedAt: new Date().toISOString()
+                }
+              }
+            });
+            console.log(`✅ [ROUTE] Updated meeting ${meetingId} status to in-progress and botStatus to joined`);
+          } catch (updateError) {
+            console.error(`⚠️ [ROUTE] Failed to update status for meeting ${meetingId}:`, updateError);
+          }
+
         } else {
           console.log(`⚠️ [ROUTE] Bot session already exists for meeting ${meetingId}, stopping duplicate`);
           // Stop the duplicate session if it was created
@@ -1083,7 +1165,7 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
       .catch((error) => {
         console.error(`❌ [ROUTE] Error starting bot for meeting ${meetingId}:`, error);
         console.error(error.stack);
-        
+
         // Update metadata to indicate failure (allows cron job to retry if needed)
         prisma.meeting.update({
           where: { id: meetingId },
@@ -1091,14 +1173,15 @@ router.post('/:id/bot/join', authenticateToken, async (req, res) => {
             metadata: {
               ...(meeting.metadata || {}),
               botJoinError: error.message,
-              botJoinFailedAt: new Date().toISOString()
+              botJoinFailedAt: new Date().toISOString(),
+              botStatus: 'failed'
               // Keep botJoinTriggeredAt to prevent immediate retry by cron
             }
           }
         }).catch((updateErr) => {
           console.error(`⚠️ [ROUTE] Failed to update metadata on error for meeting ${meetingId}:`, updateErr);
         });
-        
+
         // Clear lock on error
         clearJoinLock(meetingId);
       });
@@ -1153,7 +1236,7 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
 
     // Atomic check and lock mechanism to prevent duplicate bot instances (same as primary route)
     const { getActiveSessions, activeSessions, getJoinLocks, setJoinLock, clearJoinLock } = require("../jobs/autoJoinMeetings");
-    
+
     // Check if bot is already active for this meeting (atomic check)
     const activeSessionIds = getActiveSessions();
     if (activeSessionIds.includes(meetingId)) {
@@ -1177,11 +1260,12 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
         data: {
           metadata: {
             ...(meeting.metadata || {}),
-            botJoinTriggeredAt: new Date().toISOString()
+            botJoinTriggeredAt: new Date().toISOString(),
+            botStatus: 'joining'
           }
         }
       });
-      console.log(`📝 [ROUTE] Updated metadata with botJoinTriggeredAt for meeting ${meetingId}`);
+      console.log(`📝 [ROUTE] Updated metadata with botJoinTriggeredAt (joining) for meeting ${meetingId}`);
     } catch (metadataError) {
       console.error(`⚠️ [ROUTE] Failed to update metadata for meeting ${meetingId}:`, metadataError);
       // Continue anyway - lock mechanism will still prevent duplicates
@@ -1212,13 +1296,32 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
 
     // Start bot and store session in activeSessions
     bot.start()
-      .then((session) => {
+      .then(async (session) => {
         // Double-check before storing (atomic operation to prevent race conditions)
         if (!activeSessions.has(meetingId)) {
           // Store session in activeSessions Map so it can be stopped later
           activeSessions.set(meetingId, session);
           console.log(`✅ [ROUTE] Bot session started and stored for meeting ${meetingId}`);
           console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ')}`);
+
+          // Update meeting status to in-progress and botStatus to joined
+          try {
+            await prisma.meeting.update({
+              where: { id: meetingId },
+              data: {
+                status: 'in-progress',
+                metadata: {
+                  ...(meeting.metadata || {}),
+                  botJoinTriggeredAt: new Date().toISOString(), // Keep this
+                  botStatus: 'joined',
+                  botJoinedAt: new Date().toISOString()
+                }
+              }
+            });
+            console.log(`✅ [ROUTE] Updated meeting ${meetingId} status to in-progress and botStatus to joined`);
+          } catch (updateError) {
+            console.error(`⚠️ [ROUTE] Failed to update status for meeting ${meetingId}:`, updateError);
+          }
         } else {
           console.log(`⚠️ [ROUTE] Bot session already exists for meeting ${meetingId}, stopping duplicate`);
           // Stop the duplicate session if it was created
@@ -1234,7 +1337,7 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
       .catch((error) => {
         console.error(`❌ [ROUTE] Error starting bot for meeting ${meetingId}:`, error);
         console.error(error.stack);
-        
+
         // Update metadata to indicate failure (allows cron job to retry if needed)
         prisma.meeting.update({
           where: { id: meetingId },
@@ -1242,14 +1345,15 @@ router.post('/bot/join', authenticateToken, async (req, res) => {
             metadata: {
               ...(meeting.metadata || {}),
               botJoinError: error.message,
-              botJoinFailedAt: new Date().toISOString()
+              botJoinFailedAt: new Date().toISOString(),
+              botStatus: 'failed'
               // Keep botJoinTriggeredAt to prevent immediate retry by cron
             }
           }
         }).catch((updateErr) => {
           console.error(`⚠️ [ROUTE] Failed to update metadata on error for meeting ${meetingId}:`, updateErr);
         });
-        
+
         // Clear lock on error
         clearJoinLock(meetingId);
       });
@@ -1666,9 +1770,15 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
         sentiment: null,
         topics: [],
         participants: [],
-        generated: false
+        generated: false,
+        generating: meeting.metadata?.aiInsightsStatus === 'generating',
+        progress: meeting.metadata?.aiInsightsProgress || 0
       });
     }
+
+    // Check if generation is in progress based on metadata
+    const isGenerating = meeting.metadata?.aiInsightsStatus === 'generating';
+    const progress = meeting.metadata?.aiInsightsProgress || 0;
 
     // If no insights found, return empty structure
     if (!insightsRows || insightsRows.length === 0) {
@@ -1679,7 +1789,9 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
         sentiment: null,
         topics: [],
         participants: [],
-        generated: false
+        generated: false,
+        generating: isGenerating,
+        progress: progress
       });
     }
 
@@ -1691,7 +1803,9 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
       sentiment: null,
       topics: [],
       participants: [],
-      generated: true
+      generated: true,
+      generating: isGenerating,
+      progress: progress
     };
 
     for (const row of insightsRows) {
@@ -1797,23 +1911,49 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
     const AIInsightsService = require('../services/AIInsightsService');
 
     // Delete existing insights and reset flag in a transaction
+    // Delete existing insights and reset flag + set generating status in a transaction
     const meetingIdStr = String(meetingId);
     await prisma.$transaction(async (tx) => {
       // Delete existing insights
-      await tx.$executeRaw`
-        DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}
-      `;
+      try {
+        await tx.aiInsight.deleteMany({
+          where: { meetingId: meetingIdStr }
+        });
+      } catch (e) {
+        // Fallback or ignore if table issues
+        await tx.$executeRaw`DELETE FROM ai_insights WHERE meeting_id = ${meetingIdStr}`;
+      }
 
-      // Reset the flag to allow regeneration
+      // Update metadata to indicate generation is in progress
+      // We need to fetch current metadata first to preserve other fields
+      const currentMeeting = await tx.meeting.findUnique({
+        where: { id: meetingId },
+        select: { metadata: true }
+      });
+
+      const currentMetadata = currentMeeting?.metadata || {};
+
+      await tx.meeting.update({
+        where: { id: meetingId },
+        data: {
+          updatedAt: new Date(),
+          metadata: {
+            ...currentMetadata,
+            aiInsightsStatus: 'generating',
+            aiInsightsStartTime: new Date().toISOString()
+          }
+        }
+      });
+
+      // Reset the legacy flag if it exists (using raw SQL to avoid schema errors if column missing)
       try {
         await tx.$executeRaw`
           UPDATE meetings 
-          SET ai_insights_generated = FALSE, updated_at = CURRENT_TIMESTAMP
+          SET ai_insights_generated = FALSE
           WHERE id = ${meetingId}
         `;
       } catch (error) {
-        // Field might not exist yet - that's okay, log but don't fail
-        console.warn(`Note: Could not reset ai_insights_generated flag (field may not exist): ${error.message}`);
+        // Field might not exist yet - that's okay
       }
     });
 

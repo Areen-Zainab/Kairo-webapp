@@ -1,4 +1,4 @@
-const API_BASE_URL =  'http://localhost:5000/api'; // 
+const API_BASE_URL = 'http://localhost:5000/api'; // 
 
 interface ApiResponse<T = any> {
   data?: T;
@@ -145,16 +145,16 @@ class ApiService {
       // Continue with existing token if localStorage access fails
       // Don't clear this.token - it might still be valid
     }
-    
+
     const url = `${this.baseURL}${endpoint}`;
-    
+
     // Build headers - ensure Authorization is included if token exists
     // CRITICAL: Build headers object carefully to ensure Authorization is always included when token exists
     const headers: Record<string, string> = {};
-    
+
     // First, set Content-Type
     headers['Content-Type'] = 'application/json';
-    
+
     // Then, spread any custom headers from options (but don't let them overwrite Authorization)
     if (options.headers) {
       // Handle both Headers object and plain object
@@ -174,13 +174,13 @@ class ApiService {
         });
       }
     }
-    
+
     // Always include Authorization header if token is available
     // Set it LAST to ensure it's never overwritten
     if (this.token && this.token.trim()) {
       const authValue = `Bearer ${this.token.trim()}`;
       headers['Authorization'] = authValue;
-      
+
       // Log for debugging
       if (endpoint.includes('/meetings')) {
         console.log(`[ApiService] Adding Authorization header for ${endpoint} (token length: ${this.token.length})`);
@@ -200,29 +200,29 @@ class ApiService {
         }
       }
     }
-    
+
     // Verify Authorization header is set before making request
     if (!headers['Authorization'] && !endpoint.startsWith('/auth/')) {
       console.error(`[ApiService] CRITICAL: Authorization header missing for ${endpoint} even though token exists: ${!!this.token}`);
     }
-    
+
     // CRITICAL: Build config carefully - options.headers should NOT overwrite our headers
     // Extract headers from options separately to prevent overwrite
     const { headers: optionsHeaders, ...restOptions } = options;
-    
+
     // Final check: ensure Authorization is in headers before building config
     const finalHeaders = { ...headers };
     if (this.token && this.token.trim() && !finalHeaders['Authorization']) {
       console.error(`[ApiService] CRITICAL BUG: Token exists but Authorization header missing! Adding it now.`);
       finalHeaders['Authorization'] = `Bearer ${this.token.trim()}`;
     }
-    
+
     const config: RequestInit = {
       ...restOptions, // Spread options first (without headers)
       headers: finalHeaders, // Then set our carefully constructed headers (this takes precedence)
       method: options.method || 'GET', // Ensure method is set
     };
-    
+
     // Final verification: ensure Authorization header is in the final config
     if (finalHeaders['Authorization'] && endpoint.includes('/meetings')) {
       const authHeader = typeof config.headers === 'object' && !(config.headers instanceof Headers)
@@ -244,18 +244,18 @@ class ApiService {
         if (response.status === 401) {
           // Try to extract a more detailed error message
           let errorMessage = data.error || data.message || 'Authentication required';
-          
+
           // If there's nested error information, extract it
           if (typeof data === 'object' && data.details) {
             errorMessage = data.details;
           }
-          
+
           // Only clear token for actual expiration or invalid token errors
           // Don't clear for "Access token required" - that might just mean token wasn't sent
           const shouldClearToken = errorMessage.toLowerCase().includes('token expired') ||
-                                   errorMessage.toLowerCase().includes('invalid token') ||
-                                   errorMessage.toLowerCase().includes('invalid or inactive user');
-          
+            errorMessage.toLowerCase().includes('invalid token') ||
+            errorMessage.toLowerCase().includes('invalid or inactive user');
+
           if (shouldClearToken && this.token) {
             console.warn(`[ApiService] Received 401 with token error for ${endpoint}: ${errorMessage}`);
             console.warn(`[ApiService] Clearing token due to: ${errorMessage}`);
@@ -276,14 +276,14 @@ class ApiService {
             // 3. Backend issue
             console.warn(`[ApiService] Received 401 for ${endpoint}, but token exists in memory (error: ${errorMessage})`);
             console.warn(`[ApiService] Token in memory: ${this.token ? 'exists' : 'missing'}, length: ${this.token?.length || 0}`);
-            
+
             // If error is "Access token required", it means header wasn't sent
             // This is a bug - token exists but wasn't included
             if (errorMessage.toLowerCase().includes('access token required')) {
               console.error(`[ApiService] BUG: Token exists but wasn't sent in Authorization header for ${endpoint}`);
             }
           }
-          
+
           // Provide more helpful error message
           if (errorMessage === 'Access token required' || errorMessage === 'Authentication required') {
             // If we have a token but got this error, it's likely a bug
@@ -293,20 +293,20 @@ class ApiService {
               errorMessage = 'Please log in to continue. Your session may have expired.';
             }
           }
-          
+
           return {
             error: errorMessage,
           };
         }
-        
+
         // Try to extract a more detailed error message
         let errorMessage = data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
-        
+
         // If there's nested error information, extract it
         if (typeof data === 'object' && data.details) {
           errorMessage = data.details;
         }
-        
+
         return {
           error: errorMessage,
         };
@@ -315,7 +315,7 @@ class ApiService {
       return { data };
     } catch (error) {
       console.error('API request failed:', error);
-      
+
       // Better error messages for common network issues
       let errorMessage = 'Network error occurred';
       if (error instanceof TypeError && error.message.includes('fetch')) {
@@ -323,7 +323,7 @@ class ApiService {
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
-      
+
       return {
         error: errorMessage,
       };
@@ -337,7 +337,7 @@ class ApiService {
       const demoToken = 'demo_token_' + Date.now();
       this.setToken(demoToken);
       console.log('[ApiService] Demo login successful, token set');
-      
+
       return {
         data: {
           user: {
@@ -371,7 +371,7 @@ class ApiService {
       if (!response.data.token.startsWith('demo_token_')) {
         try {
           localStorage.removeItem('demoUser');
-        } catch {}
+        } catch { }
       }
     } else {
       console.warn('[ApiService] Login response missing token');
@@ -393,7 +393,7 @@ class ApiService {
       if (!response.data.token.startsWith('demo_token_')) {
         try {
           localStorage.removeItem('demoUser');
-        } catch {}
+        } catch { }
       }
     } else {
       console.warn('[ApiService] Signup response missing token');
@@ -410,7 +410,7 @@ class ApiService {
     this.clearToken();
     try {
       localStorage.clear();
-    } catch {}
+    } catch { }
     return response;
   }
 
@@ -418,7 +418,7 @@ class ApiService {
     // Check if this is a demo account
     const demoUser = localStorage.getItem('demoUser');
     const token = localStorage.getItem('authToken');
-    
+
     if (demoUser && token && token.startsWith('demo_token_')) {
       try {
         const user = JSON.parse(demoUser);
@@ -618,7 +618,7 @@ class ApiService {
     // Ensure token is refreshed before making request
     // Note: request() will also refresh token, but this ensures we have it before the request
     this.refreshToken();
-    
+
     // Double-check token is available before making request
     if (!this.token) {
       const tokenFromStorage = localStorage.getItem('authToken');
@@ -632,7 +632,7 @@ class ApiService {
         };
       }
     }
-    
+
     return this.request<{ meeting: any }>('/meetings', {
       method: 'POST',
       body: JSON.stringify(meetingData),
@@ -688,7 +688,7 @@ class ApiService {
   async updateMeetingStatus(meetingId: number, status: string): Promise<ApiResponse<{ meeting: any }>> {
     // Ensure token is refreshed before making request
     this.refreshToken();
-    
+
     // Double-check token is available
     if (!this.token) {
       const tokenFromStorage = localStorage.getItem('authToken');
@@ -696,7 +696,7 @@ class ApiService {
         this.token = tokenFromStorage.trim();
       }
     }
-    
+
     return this.request<{ meeting: any }>(`/meetings/${meetingId}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
@@ -774,10 +774,10 @@ class ApiService {
     if (filters?.type) {
       params.append('type', filters.type);
     }
-    
+
     const queryString = params.toString();
     const endpoint = queryString ? `/notifications?${queryString}` : '/notifications';
-    
+
     return this.request<NotificationsResponse>(endpoint);
   }
 
@@ -955,6 +955,8 @@ class ApiService {
       sentiment?: string;
     }>;
     generated: boolean;
+    generating?: boolean;
+    progress?: number;
   }>> {
     return this.request(`/meetings/${meetingId}/ai-insights`);
   }

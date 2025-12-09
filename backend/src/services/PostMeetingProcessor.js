@@ -4,7 +4,7 @@ const path = require('path');
 const { getAudioFileDuration } = require('../utils/meetingStats');
 
 // Base directory for all meeting data (same as MeetingBot uses)
-const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../src/services/meeting_data');
+const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../data/meetings');
 
 class PostMeetingProcessor {
   /**
@@ -77,7 +77,7 @@ class PostMeetingProcessor {
 
       // Get actual audio duration from the file
       const durationSeconds = await getAudioFileDuration(audioFilePath);
-      
+
       if (!durationSeconds || durationSeconds <= 0) {
         console.log(`[PostMeetingProcessor] Could not determine audio duration for meeting ${meetingId}`);
         return false;

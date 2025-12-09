@@ -227,7 +227,7 @@ const LiveMeetingView = () => {
 
   // Get live transcript entries from backend
   const meetingId = meeting ? parseInt(meeting.id) : null;
-  const { entries: liveTranscriptEntries, loading: transcriptLoading } = useLiveTranscript(meetingId, 3000);
+  const { entries: liveTranscriptEntries, loading: transcriptLoading, isConnected: isTranscriptConnected } = useLiveTranscript(meetingId, 3000);
 
   // System messages from privacy mode toggle
   const [systemMessages, setSystemMessages] = useState<TranscriptEntry[]>([]);
@@ -450,8 +450,13 @@ const LiveMeetingView = () => {
           }
 
           // Check if bot has already joined - only consider 'in-progress' as confirmed join
-          const botHasJoined = fetchedMeeting.metadata?.botJoinTriggeredAt &&
-            fetchedMeeting.status === 'in-progress';
+          let botHasJoined = false;
+          if (fetchedMeeting.metadata?.botStatus) {
+            botHasJoined = fetchedMeeting.metadata.botStatus === 'joined';
+          } else {
+            botHasJoined = fetchedMeeting.metadata?.botJoinTriggeredAt &&
+              fetchedMeeting.status === 'in-progress';
+          }
 
           if (botHasJoined) {
             setIsBotJoined(true);
@@ -529,8 +534,14 @@ const LiveMeetingView = () => {
             });
 
             // Only consider 'in-progress' status as confirmed join
-            const botHasJoined = updatedMeeting.metadata?.botJoinTriggeredAt &&
-              updatedMeeting.status === 'in-progress';
+            // Prioritize explicit botStatus from backend, fallback to legacy check
+            let botHasJoined = false;
+            if (updatedMeeting.metadata?.botStatus) {
+              botHasJoined = updatedMeeting.metadata.botStatus === 'joined';
+            } else {
+              botHasJoined = updatedMeeting.metadata?.botJoinTriggeredAt &&
+                updatedMeeting.status === 'in-progress';
+            }
 
             if (botHasJoined) {
               setIsBotJoined(true);
@@ -1070,6 +1081,7 @@ const LiveMeetingView = () => {
                   transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
                   transcript={transcript}
                   isLoading={transcriptLoading}
+                  isConnected={isTranscriptConnected}
                   onRefer={(text) => {
                     const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
                     setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
@@ -1101,6 +1113,7 @@ const LiveMeetingView = () => {
               transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
               transcript={transcript}
               isLoading={transcriptLoading}
+              isConnected={isTranscriptConnected}
               onRefer={(text) => {
                 const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
                 setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
