@@ -15,3 +15,5 @@ venv/
 .vscode/
 
 /venv/
+
+ai-layer/agents/__pycache__/

@@ -33,7 +33,7 @@ class SummaryAgent:
     # Groq API configuration
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
     GROQ_MODEL = "llama-3.3-70b-versatile"  # Fast and capable Llama model
-    GROQ_API_KEY_ENV = "GROQ-API"
+    GROQ_API_KEY_ENV = "GROQ_API_KEY"  # Fixed: was "GROQ-API"
     
     # Chunking configuration for long transcripts
     CHUNK_THRESHOLD_WORDS = 2000
@@ -41,8 +41,15 @@ class SummaryAgent:
     CHUNK_OVERLAP_WORDS = 200
 
     def __init__(self):
-        self.api_key = os.getenv(self.GROQ_API_KEY_ENV)
+        self.api_key = os.getenv("GROQ_API_KEY")
         self.use_api = bool(self.api_key)
+        
+        # Debug: Print API key status
+        if self.use_api:
+            print(f" Groq API key found (length: {len(self.api_key)})")
+        else:
+            print(f" Groq API key not found. Set {"GROQ_API_KEY"} environment variable.")
+            print("  Falling back to extractive summary mode.")
     
     def _preprocess_text(self, text: str) -> str:
         """Remove timestamps, speaker labels, and normalize whitespace from transcript."""
@@ -164,12 +171,13 @@ class SummaryAgent:
         
         if participants:
             speaker_names = [p.get("name", "Unknown") for p in participants[:5]]
+            speaker_names = [n for n in speaker_names if n != "Unknown"]
             if speaker_names:
                 context_parts.append(f"Key participants: {', '.join(speaker_names)}")
         
         if topic_segments:
             topics = [t.get("name") or t.get("title", "") for t in topic_segments[:5]]
-            topics = [t for t in topics if t]
+            topics = [t for t in topics if t and t != "[UNKNOWN]" and "unknown" not in t.lower()]
             if topics:
                 context_parts.append(f"Main topics: {', '.join(topics)}")
         
@@ -178,8 +186,6 @@ class SummaryAgent:
         
         if action_items:
             context_parts.append(f"{len(action_items)} action items were identified")
-        else:
-            context_parts.append("No action items were identified")
         
         if sentiment:
             overall = sentiment.get("overall", "Neutral")
@@ -291,20 +297,34 @@ JSON Response:"""
             sentiment: Overall sentiment analysis
             participants: List of participant analysis (with speaker info)
         """
-        if not transcript:
+        if not transcript or not transcript.strip():
             return SummaryResult(
                 paragraph="No transcript content available.",
                 bullets=["The meeting transcript was empty, so no summary could be generated."],
                 confidence=0.0
             ).to_dict()
 
+        # Debug: Log what data is available
+        print("\n=== Summary Agent Input ===")
+        print(f"Transcript length: {len(transcript)} characters")
+        print(f"Topic segments: {len(topic_segments) if topic_segments else 0}")
+        print(f"Decisions: {len(decisions) if decisions else 0}")
+        print(f"Action items: {len(action_items) if action_items else 0}")
+        print(f"Participants: {len(participants) if participants else 0}")
+        
         # Try Groq API first if API key is available
         if self.use_api:
             try:
-                return self._generate_with_groq(transcript, topic_segments, decisions, action_items, sentiment, participants)
+                print("\n[INFO] Attempting Groq API summary generation...")
+                result = self._generate_with_groq(transcript, topic_segments, decisions, action_items, sentiment, participants)
+                print("[OK] Groq API summary generated successfully")
+                return result
             except Exception as e:
-                print(f"Warning: Groq API summary generation failed: {e}. Falling back to extractive summary.")
+                print(f"\n[ERROR] Groq API summary generation failed: {type(e).__name__}: {str(e)}")
+                print("  Falling back to extractive summary...")
                 # Fall through to fallback method
+        else:
+            print("\n[INFO] No API key available, using extractive summary...")
 
         # Fallback to simple extractive summary
         return self._generate_extractive(transcript, topic_segments, decisions, action_items, sentiment, participants)
@@ -425,6 +445,7 @@ JSON Response:"""
                 confidence=confidence
             ).to_dict()
         except json.JSONDecodeError as e:
+            print(f"API Response content: {content[:500]}...")
             raise ValueError(f"Failed to parse Groq API JSON response: {e}")
 
     def _build_summary_prompt(
@@ -442,7 +463,7 @@ JSON Response:"""
         if len(transcript) > max_length:
             transcript = "..." + transcript[-max_length:]
 
-        # Build context from other agents - clean all text
+        # Build context from other agents - clean all text and filter out unknowns
         context_parts = []
         
         # Add participant/speaker context
@@ -450,6 +471,9 @@ JSON Response:"""
             speaker_info = []
             for p in participants[:10]:
                 name = self._clean_text(p.get("name", "Unknown"))
+                if name == "Unknown" or not name:
+                    continue
+                    
                 speaking_time = p.get("speakingTime", 0)
                 engagement = p.get("engagement", "Unknown")
                 contributions = [self._clean_text(c) for c in p.get("keyContributions", [])]
@@ -463,21 +487,25 @@ JSON Response:"""
             if speaker_info:
                 context_parts.append("PARTICIPANTS:\n" + "\n".join(f"- {s}" for s in speaker_info))
         
-        # Add topic context
+        # Add topic context - FILTER OUT UNKNOWN TOPICS
         if topic_segments:
             topic_details = []
             for t in topic_segments[:8]:
                 name = self._clean_text(t.get("name") or t.get("title", ""))
+                
+                # Skip unknown or empty topics
+                if not name or name == "[UNKNOWN]" or "unknown" in name.lower():
+                    continue
+                    
                 mentions = t.get("mentions", 0)
                 topic_sentiment = t.get("sentiment", "")
                 
-                if name:
-                    topic_str = f"{name}"
-                    if mentions:
-                        topic_str += f" (mentioned {mentions} times)"
-                    if topic_sentiment:
-                        topic_str += f" [sentiment: {topic_sentiment}]"
-                    topic_details.append(topic_str)
+                topic_str = f"{name}"
+                if mentions:
+                    topic_str += f" (mentioned {mentions} times)"
+                if topic_sentiment:
+                    topic_str += f" [sentiment: {topic_sentiment}]"
+                topic_details.append(topic_str)
             
             if topic_details:
                 context_parts.append("KEY TOPICS IDENTIFIED:\n" + "\n".join(f"- {t}" for t in topic_details))
@@ -487,7 +515,7 @@ JSON Response:"""
             decision_details = []
             for d in decisions[:5]:
                 decision_text = self._clean_text(d.get("decision") or d.get("text", ""))
-                if decision_text:
+                if decision_text and decision_text != "[UNKNOWN]":
                     decision_details.append(decision_text[:150])
             if decision_details:
                 context_parts.append(f"DECISIONS MADE ({len(decisions)} total):\n" + "\n".join(f"- {d}" for d in decision_details))
@@ -500,13 +528,11 @@ JSON Response:"""
                 assignee = self._clean_text(item.get("assignee", ""))
                 if title:
                     action_str = title[:100]
-                    if assignee:
+                    if assignee and assignee != "Unknown":
                         action_str += f" (assigned to {assignee})"
                     action_details.append(action_str)
             if action_details:
                 context_parts.append(f"ACTION ITEMS IDENTIFIED ({len(action_items)} total):\n" + "\n".join(f"- {a}" for a in action_details))
-        else:
-            context_parts.append("IMPORTANT: No action items were found in the transcript.")
         
         # Add sentiment context
         if sentiment:
@@ -522,16 +548,16 @@ JSON Response:"""
                 sentiment_text += f"\n- Breakdown: Positive {pos:.1%}, Neutral {neu:.1%}, Negative {neg:.1%}"
             context_parts.append(sentiment_text)
         
-        context_section = "\n\n".join(context_parts) if context_parts else ""
+        context_section = "\n\n".join(context_parts) if context_parts else "No additional context available from other analysis agents."
 
         return f"""Analyze the following meeting transcript and create a comprehensive, accurate summary.
 
 CRITICAL INSTRUCTIONS:
 1. **Write in Your Own Words**: NEVER copy sentences directly from the transcript. Paraphrase and synthesize the information.
 
-2. **Speaker Attribution**: Use the participant information to properly identify WHO said or contributed WHAT. Always attribute key points to specific speakers when possible.
+2. **Extract Topics from Transcript**: Read the transcript carefully and identify the ACTUAL topics discussed. Do not rely solely on the context section if topics are marked as UNKNOWN.
 
-3. **Topic Extraction**: Identify SPECIFIC, CONCRETE topics discussed. Avoid generic topics - identify actual subject matter.
+3. **Speaker Attribution**: Identify speakers from the transcript and attribute key points to them.
 
 4. **Accuracy**: Only include information explicitly stated in the transcript. Do not infer or assume.
 
@@ -542,9 +568,9 @@ CONTEXT FROM OTHER ANALYSIS AGENTS:
 
 Generate:
 1. **paragraph**: A comprehensive 2-4 paragraph summary written in YOUR OWN WORDS that:
-   - Opens with the meeting's main purpose and key participants (mention names)
-   - Describes SPECIFIC topics discussed with details from the transcript
-   - Attributes key contributions to specific speakers
+   - Opens with the meeting's main purpose and identifies key participants from the transcript
+   - Describes SPECIFIC topics discussed with details from the transcript (extract these from the actual conversation)
+   - Attributes key contributions to specific speakers when identifiable
    - Summarizes important decisions made
    - Lists action items with assignees (if any), OR explicitly states "No action items were identified"
    - Reflects the actual sentiment/tone
@@ -552,7 +578,7 @@ Generate:
    - MUST be written as a coherent narrative, NOT copied sentences
    
 2. **bullets**: A list of 6-10 specific bullet points written in YOUR OWN WORDS that:
-   - Identify CONCRETE topics discussed (not generic categories)
+   - Identify CONCRETE topics discussed (extract from transcript, not from context if marked UNKNOWN)
    - Attribute key points to specific speakers when possible
    - Include key decisions with context
    - List action items with assignees, OR state "No action items identified"
@@ -588,7 +614,9 @@ JSON Response:"""
         sentiment: Optional[Dict[str, Any]] = None,
         participants: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Fallback: Generate extractive summary using simple heuristics."""
+        """Fallback: Generate extractive summary from transcript directly."""
+        print("Using extractive summary fallback...")
+        
         # Clean the transcript first
         clean_transcript = self._preprocess_text(transcript)
         
@@ -598,6 +626,9 @@ JSON Response:"""
             sent = sent.strip()
             if len(sent.split()) > 4:  # Only keep substantial sentences
                 sentences.append(sent)
+
+        # Extract topics directly from transcript using keyword analysis
+        extracted_topics = self._extract_topics_from_text(clean_transcript)
 
         # Create paragraph summary
         paragraph_sections: List[str] = []
@@ -611,57 +642,78 @@ JSON Response:"""
                     f"The meeting included {len(participants)} participants, with key contributors being {', '.join(speaker_names)}."
                 )
 
-        if topic_segments:
-            titles = [self._clean_text(seg.get("title") or seg.get("name", "")) for seg in topic_segments[:5]]
-            titles = [t for t in titles if t]
-            if titles:
+        # Use extracted topics instead of relying on topic_segments if they're unknown
+        if extracted_topics:
+            if len(extracted_topics) > 1:
                 paragraph_sections.append(
-                    f"The discussion covered several important topics including {', '.join(titles[:-1])} and {titles[-1]}." if len(titles) > 1
-                    else f"The discussion focused on {titles[0]}."
+                    f"The discussion covered several topics including {', '.join(extracted_topics[:-1])} and {extracted_topics[-1]}."
                 )
+            else:
+                paragraph_sections.append(f"The discussion focused on {extracted_topics[0]}.")
+        elif topic_segments:
+            # Only use topic_segments if they have valid data
+            titles = [self._clean_text(seg.get("title") or seg.get("name", "")) for seg in topic_segments[:5]]
+            titles = [t for t in titles if t and t != "[UNKNOWN]" and "unknown" not in t.lower()]
+            if titles:
+                if len(titles) > 1:
+                    paragraph_sections.append(
+                        f"The discussion covered several important topics including {', '.join(titles[:-1])} and {titles[-1]}."
+                    )
+                else:
+                    paragraph_sections.append(f"The discussion focused on {titles[0]}.")
+
+        # Extract key points from first few sentences
+        if sentences:
+            key_points = sentences[:3]
+            for point in key_points:
+                if len(point.split()) > 10:  # Only substantial sentences
+                    # Paraphrase by extracting main subject
+                    paragraph_sections.append(f"The team discussed matters related to {point.split()[:15]}")
+                    break
 
         if decisions:
             decision_count = len(decisions)
-            paragraph_sections.append(
-                f"The team reached {decision_count} important decision{'s' if decision_count > 1 else ''} during the meeting."
-            )
+            # Try to extract decision details
+            decision_details = []
+            for d in decisions[:2]:
+                dec_text = self._clean_text(d.get("decision") or d.get("text", ""))
+                if dec_text and dec_text != "[UNKNOWN]":
+                    decision_details.append(dec_text[:80])
+            
+            if decision_details:
+                paragraph_sections.append(
+                    f"Key decisions were made regarding: {'; '.join(decision_details)}."
+                )
+            else:
+                paragraph_sections.append(
+                    f"The team reached {decision_count} important decision{'s' if decision_count > 1 else ''} during the meeting."
+                )
 
         if action_items:
             action_count = len(action_items)
             paragraph_sections.append(
                 f"A total of {action_count} action item{'s were' if action_count > 1 else ' was'} identified and assigned to team members for follow-up."
             )
-        else:
-            paragraph_sections.append("No specific action items were identified during this meeting.")
 
         if sentiment:
             overall = sentiment.get("overall", "neutral").lower()
             paragraph_sections.append(
-                f"The overall tone of the discussion was {overall}, reflecting the team's approach to the topics at hand."
+                f"The overall tone of the discussion was {overall}."
             )
 
-        # Add general discussion context (paraphrased)
-        if sentences:
-            paragraph_sections.append(
-                f"The conversation began with introductions and agenda setting, followed by detailed discussions on the main topics, and concluded with summary of key points and next steps."
-            )
-
-        paragraph = " ".join(paragraph_sections)
+        paragraph = " ".join(paragraph_sections) if paragraph_sections else "Meeting transcript analysis completed."
 
         # Create bullet points
         bullets: List[str] = []
         
-        if topic_segments:
-            for seg in topic_segments[:5]:
-                title = self._clean_text(seg.get("title") or seg.get("name", ""))
-                if title:
-                    bullets.append(f"Discussion topic: {title}")
+        # Add extracted topics as bullets
+        for topic in extracted_topics[:3]:
+            bullets.append(f"Discussion topic: {topic}")
         
         if decisions:
             for decision in decisions[:3]:
                 decision_text = self._clean_text(decision.get("decision") or decision.get("text", ""))
-                if decision_text:
-                    # Paraphrase by shortening and rephrasing
+                if decision_text and decision_text != "[UNKNOWN]":
                     bullets.append(f"Key decision: {decision_text[:120]}")
         
         if action_items:
@@ -673,17 +725,20 @@ JSON Response:"""
                         bullets.append(f"Action: {title[:100]} (Owner: {assignee})")
                     else:
                         bullets.append(f"Action: {title[:100]}")
-        else:
-            bullets.append("No action items were identified requiring follow-up")
         
-        # Add a general discussion point if we have sentences
+        # Add general discussion points from sentences
         if sentences and len(bullets) < 5:
-            # Paraphrase the first sentence instead of copying it
-            bullets.append("Team members engaged in productive dialogue on key meeting objectives")
+            for sent in sentences[:3]:
+                if len(sent.split()) > 10:
+                    # Paraphrase the sentence
+                    words = sent.split()[:15]
+                    bullets.append(f"Team discussed: {' '.join(words)}...")
+                    if len(bullets) >= 5:
+                        break
 
         # Ensure at least one bullet
         if not bullets:
-            bullets = ["Meeting transcript was analyzed and processed"]
+            bullets = ["Meeting transcript was analyzed but specific details were limited"]
 
         # Clean all bullets
         bullets = [self._clean_text(b) for b in bullets]
@@ -694,6 +749,41 @@ JSON Response:"""
             bullets=bullets[:7],
             confidence=0.5
         ).to_dict()
+    
+    def _extract_topics_from_text(self, text: str) -> List[str]:
+        """Extract likely topics from transcript text using simple keyword analysis."""
+        # Common meeting topic indicators
+        topic_indicators = [
+            r'discuss(?:ed|ing)?\s+(?:about\s+)?([a-z\s]{3,30})',
+            r'talk(?:ed|ing)?\s+about\s+([a-z\s]{3,30})',
+            r'regarding\s+([a-z\s]{3,30})',
+            r'concerning\s+([a-z\s]{3,30})',
+            r'focus(?:ed|ing)?\s+on\s+([a-z\s]{3,30})',
+            r'topic(?:\s+is|\s+was)?\s+([a-z\s]{3,30})',
+            r'agenda(?:\s+item)?:\s+([a-z\s]{3,30})',
+        ]
+        
+        topics = []
+        lower_text = text.lower()
+        
+        for pattern in topic_indicators:
+            matches = re.findall(pattern, lower_text)
+            for match in matches:
+                topic = match.strip()
+                # Clean up the topic
+                topic = re.sub(r'\b(the|a|an|and|or|but|in|on|at|to|for)\b', '', topic).strip()
+                topic = ' '.join(topic.split())  # normalize whitespace
+                
+                if len(topic) > 3 and topic not in topics:
+                    topics.append(topic.title())
+                    
+                if len(topics) >= 5:
+                    break
+            
+            if len(topics) >= 5:
+                break
+        
+        return topics[:5]
     
     def write_summary_to_file(
         self,
@@ -708,7 +798,7 @@ JSON Response:"""
                 file.write("=" * 50 + "\n\n")
                 file.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 file.write(f"Source: {source_file}\n")
-                file.write(f"Model: {self.GROQ_MODEL}\n")
+                file.write(f"Model: {self.GROQ_MODEL if self.use_api else 'Extractive (Fallback)'}\n")
                 file.write(f"Confidence: {summary_result.get('confidence', 0.0):.2f}\n\n")
                 file.write("-" * 50 + "\n\n")
                 
