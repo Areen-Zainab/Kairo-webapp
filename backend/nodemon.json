@@ -1,0 +1,12 @@
+{
+    "watch": [
+        "src"
+    ],
+    "ignore": [
+        "src/services/meeting_data/**",
+        "node_modules/**",
+        "*.test.js"
+    ],
+    "ext": "js,json",
+    "exec": "node src/server.js"
+}

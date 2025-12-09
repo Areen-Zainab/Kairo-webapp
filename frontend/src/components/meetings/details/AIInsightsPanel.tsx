@@ -11,8 +11,8 @@ interface AIInsightsPanelProps {
 const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsights }) => {
   const [format, setFormat] = useState<'paragraph' | 'bullets'>('paragraph');
   const [isExporting, setIsExporting] = useState(false);
-  
-  const { insights, loading, error, isRegenerating, refetch, regenerate } = useAIInsights(meeting.id);
+
+  const { insights, loading, error, isRegenerating, generationProgress, refetch, regenerate } = useAIInsights(meeting.id);
 
   // Default empty insights structure
   const aiInsights = insights || {
@@ -36,21 +36,21 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
   const handleExport = async (exportFormat: 'pdf' | 'markdown' | 'text') => {
     setIsExporting(true);
-    
+
     let content = '';
-    
+
     if (exportFormat === 'markdown') {
       content = `# AI Insights - ${meeting.title}\n\n`;
       content += `**Date:** ${meeting.date}\n`;
       content += `**Duration:** ${meeting.duration} minutes\n\n`;
-      
+
       content += `## Summary\n\n`;
       if (format === 'paragraph' && aiInsights.summary) {
         content += `${aiInsights.summary.paragraph}\n\n`;
       } else if (aiInsights.summary) {
         content += aiInsights.summary.bullets.map((bullet: string) => `- ${bullet}`).join('\n') + '\n\n';
       }
-      
+
       content += `## Key Decisions\n\n`;
       aiInsights.keyDecisions.forEach((decision: typeof aiInsights.keyDecisions[0], index: number) => {
         content += `### ${index + 1}. ${decision.decision}\n`;
@@ -58,7 +58,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
         content += `**Impact:** ${decision.impact}\n`;
         content += `**Participants:** ${decision.participants.join(', ')}\n\n`;
       });
-      
+
       content += `## Action Items\n\n`;
       aiInsights.actionItems.forEach((item: typeof aiInsights.actionItems[0], index: number) => {
         content += `### ${index + 1}. ${item.item}\n`;
@@ -71,14 +71,14 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
       content = `AI INSIGHTS - ${meeting.title}\n`;
       content += `Date: ${meeting.date}\n`;
       content += `Duration: ${meeting.duration} minutes\n\n`;
-      
+
       content += `SUMMARY:\n`;
       if (format === 'paragraph' && aiInsights.summary) {
         content += `${aiInsights.summary.paragraph}\n\n`;
       } else if (aiInsights.summary) {
         content += aiInsights.summary.bullets.map((bullet: string) => `• ${bullet}`).join('\n') + '\n\n';
       }
-      
+
       content += `KEY DECISIONS:\n`;
       aiInsights.keyDecisions.forEach((decision: typeof aiInsights.keyDecisions[0], index: number) => {
         content += `${index + 1}. ${decision.decision}\n`;
@@ -87,9 +87,9 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
         content += `   Participants: ${decision.participants.join(', ')}\n\n`;
       });
     }
-    
-    const blob = new Blob([content], { 
-      type: exportFormat === 'markdown' ? 'text/markdown' : 'text/plain' 
+
+    const blob = new Blob([content], {
+      type: exportFormat === 'markdown' ? 'text/markdown' : 'text/plain'
     });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -99,15 +99,15 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     setIsExporting(false);
     onExportInsights(exportFormat);
   };
 
   const handleCopy = () => {
     if (!aiInsights.summary) return;
-    const content = format === 'paragraph' 
-      ? aiInsights.summary.paragraph 
+    const content = format === 'paragraph'
+      ? aiInsights.summary.paragraph
       : aiInsights.summary.bullets.join('\n');
     navigator.clipboard.writeText(content);
   };
@@ -147,6 +147,38 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
   // Empty state (insights not generated yet)
   if (!insights?.generated || (!aiInsights.summary && aiInsights.keyDecisions.length === 0)) {
+    // Show progress state if actively regenerating
+    if (isRegenerating || (insights && !insights.generated && !error)) {
+      const currentProgress = generationProgress;
+
+      return (
+        <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-6">
+          <div className="relative">
+            <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-xs font-bold text-blue-600">{currentProgress}%</span>
+            </div>
+          </div>
+
+          <div className="text-center max-w-md space-y-2">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Generating AI Insights
+            </h3>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">
+              Analyzing meeting transcript, extracting action items, and summarizing key decisions...
+            </p>
+          </div>
+
+          <div className="w-full max-w-xs bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+            <div
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${currentProgress}%` }}
+            ></div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <FileText className="w-12 h-12 text-slate-400" />
@@ -189,34 +221,32 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
             Intelligent analysis of meeting content and discussions
           </p>
         </div>
-        
+
         <div className="flex items-center space-x-3">
           {/* Format Toggle */}
           <div className="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
             <button
               onClick={() => setFormat('paragraph')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                format === 'paragraph'
-                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${format === 'paragraph'
+                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
             >
               <AlignLeft className="w-4 h-4" />
               <span>Paragraph</span>
             </button>
             <button
               onClick={() => setFormat('bullets')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                format === 'bullets'
-                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${format === 'bullets'
+                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
             >
               <List className="w-4 h-4" />
               <span>Bullets</span>
             </button>
           </div>
-          
+
           {/* Regenerate Button */}
           <button
             onClick={() => regenerate()}
@@ -236,7 +266,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
               </>
             )}
           </button>
-          
+
           {/* Export Buttons */}
           <div className="flex items-center space-x-2">
             <button
@@ -298,25 +328,25 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
           </h4>
           <div className="space-y-4">
             {aiInsights.keyDecisions.map((decision: typeof aiInsights.keyDecisions[0], index: number) => (
-            <div key={index} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-              <h5 className="font-medium text-slate-900 dark:text-white mb-2">
-                {decision.decision}
-              </h5>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="text-slate-500 dark:text-slate-400">Context:</span>
-                  <p className="text-slate-700 dark:text-slate-300">{decision.context}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500 dark:text-slate-400">Impact:</span>
-                  <p className="text-slate-700 dark:text-slate-300">{decision.impact}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500 dark:text-slate-400">Participants:</span>
-                  <p className="text-slate-700 dark:text-slate-300">{decision.participants.join(', ')}</p>
+              <div key={index} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                <h5 className="font-medium text-slate-900 dark:text-white mb-2">
+                  {decision.decision}
+                </h5>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400">Context:</span>
+                    <p className="text-slate-700 dark:text-slate-300">{decision.context}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400">Impact:</span>
+                    <p className="text-slate-700 dark:text-slate-300">{decision.impact}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400">Participants:</span>
+                    <p className="text-slate-700 dark:text-slate-300">{decision.participants.join(', ')}</p>
+                  </div>
                 </div>
               </div>
-            </div>
             ))}
           </div>
         </div>
@@ -330,26 +360,25 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
           </h4>
           <div className="space-y-3">
             {aiInsights.actionItems.map((item: typeof aiInsights.actionItems[0], index: number) => (
-            <div key={index} className="flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-              <div className="flex-1">
-                <p className="font-medium text-slate-900 dark:text-white">{item.item}</p>
-                <div className="flex items-center space-x-4 mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  {item.assignee && <span>Assignee: {item.assignee}</span>}
-                  {item.dueDate && <span>Due: {item.dueDate}</span>}
-                  {item.priority && (
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      item.priority === 'High' 
+              <div key={index} className="flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                <div className="flex-1">
+                  <p className="font-medium text-slate-900 dark:text-white">{item.item}</p>
+                  <div className="flex items-center space-x-4 mt-1 text-sm text-slate-600 dark:text-slate-400">
+                    {item.assignee && <span>Assignee: {item.assignee}</span>}
+                    {item.dueDate && <span>Due: {item.dueDate}</span>}
+                    {item.priority && (
+                      <span className={`px-2 py-1 rounded-full text-xs ${item.priority === 'High'
                         ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                         : item.priority === 'Medium'
-                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                        : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                    }`}>
-                      {item.priority}
-                    </span>
-                  )}
+                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                          : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        }`}>
+                        {item.priority}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
             ))}
           </div>
         </div>
@@ -373,8 +402,8 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
                 <div className="w-20 h-2 bg-slate-200 dark:bg-slate-700 rounded-full">
-                  <div 
-                    className="h-2 bg-green-500 rounded-full" 
+                  <div
+                    className="h-2 bg-green-500 rounded-full"
                     style={{ width: `${aiInsights.sentiment.breakdown.positive * 100}%` }}
                   ></div>
                 </div>
@@ -382,8 +411,8 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-20 h-2 bg-slate-200 dark:bg-slate-700 rounded-full">
-                  <div 
-                    className="h-2 bg-yellow-500 rounded-full" 
+                  <div
+                    className="h-2 bg-yellow-500 rounded-full"
                     style={{ width: `${aiInsights.sentiment.breakdown.neutral * 100}%` }}
                   ></div>
                 </div>
@@ -391,8 +420,8 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-20 h-2 bg-slate-200 dark:bg-slate-700 rounded-full">
-                  <div 
-                    className="h-2 bg-red-500 rounded-full" 
+                  <div
+                    className="h-2 bg-red-500 rounded-full"
                     style={{ width: `${aiInsights.sentiment.breakdown.negative * 100}%` }}
                   ></div>
                 </div>
@@ -414,21 +443,20 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
               </h4>
               <div className="space-y-3">
                 {aiInsights.topics.map((topic: typeof aiInsights.topics[0], index: number) => (
-              <div key={index} className="flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                <div>
-                  <p className="font-medium text-slate-900 dark:text-white">{topic.name}</p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">{topic.mentions} mentions</p>
-                </div>
-                <span className={`px-2 py-1 rounded-full text-xs ${
-                  topic.sentiment === 'Positive' 
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                    : topic.sentiment === 'Negative'
-                    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                }`}>
-                  {topic.sentiment}
-                </span>
-                </div>
+                  <div key={index} className="flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+                    <div>
+                      <p className="font-medium text-slate-900 dark:text-white">{topic.name}</p>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">{topic.mentions} mentions</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs ${topic.sentiment === 'Positive'
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : topic.sentiment === 'Negative'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                      }`}>
+                      {topic.sentiment}
+                    </span>
+                  </div>
                 ))}
               </div>
             </div>
@@ -449,29 +477,28 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
                         {formatSpeakingTime(participant.speakingTime)}
                       </span>
                     </div>
-                <div className="flex items-center space-x-2 mb-2">
-                  <span className="text-sm text-slate-600 dark:text-slate-400">Engagement:</span>
-                  <span className={`px-2 py-1 rounded-full text-xs ${
-                    participant.engagement === 'High' 
-                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                      : participant.engagement === 'Medium'
-                      ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                  }`}>
-                    {participant.engagement}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Key Contributions:</p>
-                  <ul className="text-sm text-slate-700 dark:text-slate-300">
-                    {participant.keyContributions.map((contribution: string, idx: number) => (
-                      <li key={idx} className="flex items-start space-x-1">
-                        <span className="w-1 h-1 bg-slate-400 rounded-full mt-2 flex-shrink-0"></span>
-                        <span>{contribution}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="text-sm text-slate-600 dark:text-slate-400">Engagement:</span>
+                      <span className={`px-2 py-1 rounded-full text-xs ${participant.engagement === 'High'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : participant.engagement === 'Medium'
+                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        }`}>
+                        {participant.engagement}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Key Contributions:</p>
+                      <ul className="text-sm text-slate-700 dark:text-slate-300">
+                        {participant.keyContributions.map((contribution: string, idx: number) => (
+                          <li key={idx} className="flex items-start space-x-1">
+                            <span className="w-1 h-1 bg-slate-400 rounded-full mt-2 flex-shrink-0"></span>
+                            <span>{contribution}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
                 ))}
               </div>

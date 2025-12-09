@@ -1,6 +1,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../lib/prisma');
 const { findMeetingDirectory } = require('../utils/meetingFileStorage');
@@ -35,10 +36,10 @@ class AIInsightsService {
    */
   async checkTranscriptAvailable(meetingId) {
     console.log(`🔍 [checkTranscriptAvailable] Looking for transcript for meeting ${meetingId}...`);
-    
+
     // Try multiple possible locations
     const possiblePaths = [];
-    
+
     // 1. Check in meeting_data directory (primary location: {meetingId}_{name}_{timestamp}/)
     const meetingDir = findMeetingDirectory(meetingId);
     if (meetingDir) {
@@ -48,7 +49,7 @@ class AIInsightsService {
         path.join(meetingDir, 'transcript_diarized.txt'),
         path.join(meetingDir, 'transcript_complete.txt')
       );
-      
+
       // Also check transcripts subdirectory
       const transcriptsSubdir = path.join(meetingDir, 'transcripts');
       if (fs.existsSync(transcriptsSubdir)) {
@@ -66,13 +67,13 @@ class AIInsightsService {
     } else {
       console.warn(`   Meeting directory not found for meeting ${meetingId}`);
     }
-    
+
     // 2. Check in recordings directory (fallback location)
     const RECORDINGS_DIR = path.join(__dirname, 'recordings');
     if (fs.existsSync(RECORDINGS_DIR)) {
       try {
         const files = fs.readdirSync(RECORDINGS_DIR);
-        const transcriptFiles = files.filter(f => 
+        const transcriptFiles = files.filter(f =>
           f.startsWith('transcript_') && (f.endsWith('.txt') || f.endsWith('.json'))
         );
         transcriptFiles.forEach(f => {
@@ -85,9 +86,9 @@ class AIInsightsService {
         console.warn(`   Could not read recordings directory: ${err.message}`);
       }
     }
-    
+
     console.log(`   Checking ${possiblePaths.length} possible transcript locations...`);
-    
+
     // Try each path
     for (const transcriptPath of possiblePaths) {
       if (fs.existsSync(transcriptPath)) {
@@ -105,7 +106,7 @@ class AIInsightsService {
         }
       }
     }
-    
+
     // If no transcript found, return error with helpful message
     console.error(`❌ No transcript found for meeting ${meetingId}`);
     console.error(`   Checked ${possiblePaths.length} possible locations`);
@@ -125,7 +126,7 @@ class AIInsightsService {
     try {
       // Convert meetingId to string for VARCHAR comparison
       const meetingIdStr = String(meetingId);
-      
+
       // First check the ai_insights table using Prisma's type-safe method
       try {
         const count = await prisma.aiInsight.count({
@@ -133,7 +134,7 @@ class AIInsightsService {
             meetingId: meetingIdStr
           }
         });
-        
+
         if (count > 0) {
           return true;
         }
@@ -194,7 +195,7 @@ class AIInsightsService {
         console.log(`   Reading JSON transcript...`);
         transcriptJson = JSON.parse(fs.readFileSync(transcriptPath, 'utf8'));
         console.log(`   JSON parsed successfully. Utterances: ${transcriptJson.utterances?.length || 0}`);
-        
+
         // Convert to text format using Python converter
         console.log(`   Converting JSON to text format...`);
         transcriptText = await this.convertJsonToText(transcriptPath);
@@ -208,7 +209,7 @@ class AIInsightsService {
       console.log(`   Reading TXT transcript...`);
       transcriptText = fs.readFileSync(transcriptPath, 'utf8');
       console.log(`   TXT loaded (${transcriptText.length} characters)`);
-      
+
       // Try to create a basic JSON structure from TXT for compatibility
       // Split by lines and create a simple structure
       const lines = transcriptText.split('\n').filter(line => line.trim());
@@ -226,7 +227,7 @@ class AIInsightsService {
           end_time: (index + 1) * 5.0
         }))
       };
-      
+
       console.log(`   Converted TXT to JSON structure with ${lines.length} utterances`);
     } else {
       throw new Error(`Unsupported transcript format: ${transcriptPath}`);
@@ -247,11 +248,11 @@ class AIInsightsService {
     return new Promise((resolve, reject) => {
       const pythonExe = this.getPythonExecutable();
       const scriptPath = TRANSCRIPT_CONVERTER_PATH;
-      
+
       // Use absolute paths and properly escape them for Python
       const absoluteJsonPath = path.resolve(jsonPath);
       const absoluteScriptDir = path.resolve(path.dirname(scriptPath));
-      
+
       // For Windows, we need to properly escape backslashes and quotes in the Python string
       // Use JSON.stringify to properly escape the path
       const escapedJsonPath = JSON.stringify(absoluteJsonPath);
@@ -362,14 +363,18 @@ print(result)
       const pythonExe = this.getPythonExecutable();
       const scriptPath = PARTICIPANT_AGENT_PATH;
 
-      // Create a temporary JSON file to pass to the agent
-      const tempJsonPath = path.join(__dirname, `temp_transcript_${Date.now()}.json`);
+      // Create a temporary JSON file in data/temp directory (not in src/ to avoid nodemon restarts)
+      const tempDir = path.resolve(__dirname, '../../data/temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      const tempJsonPath = path.join(tempDir, `temp_transcript_${Date.now()}.json`);
       fs.writeFileSync(tempJsonPath, JSON.stringify(transcriptJson));
-      
+
       // Use absolute paths and properly escape them for Python
       const absoluteTempPath = path.resolve(tempJsonPath);
       const absoluteScriptDir = path.resolve(path.dirname(scriptPath));
-      
+
       // For Windows, we need to properly escape backslashes and quotes in the Python string
       // Use JSON.stringify to properly escape the paths
       const escapedTempPath = JSON.stringify(absoluteTempPath);
@@ -433,10 +438,50 @@ print(result)
   }
 
   /**
+   * Update progress in database
+   */
+  async updateProgress(meetingId, progress) {
+    try {
+      const meetingIdInt = parseInt(meetingId);
+      const currentMeeting = await prisma.meeting.findUnique({
+        where: { id: meetingIdInt },
+        select: { metadata: true }
+      });
+
+      if (currentMeeting) {
+        await prisma.meeting.update({
+          where: { id: meetingIdInt },
+          data: {
+            updatedAt: new Date(), // Keep activity alive
+            metadata: {
+              ...(currentMeeting.metadata || {}),
+              aiInsightsProgress: Math.round(progress)
+            }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn(`Failed to update progress for ${meetingId}: ${e.message}`);
+    }
+  }
+
+  /**
    * Run all agents in parallel where possible
    */
-  async runAllAgents(transcriptText, transcriptJson) {
+  async runAllAgents(meetingId, transcriptText, transcriptJson) {
     console.log('🤖 Running all AI agents...');
+
+    // Total steps: 5 text agents + 1 participant agent = 6 steps
+    const totalSteps = 6;
+    let completedSteps = 0;
+
+    // Helper to increment and save progress
+    const incrementProgress = async () => {
+      completedSteps++;
+      const progress = (completedSteps / totalSteps) * 90; // Cap at 90% until final save
+      console.log(`   Progress: ${Math.round(progress)}% (${completedSteps}/${totalSteps})`);
+      await this.updateProgress(meetingId, progress);
+    };
 
     // Run text-based agents in parallel
     const textAgents = [
@@ -452,9 +497,11 @@ print(result)
         console.log(`  Running ${name} agent...`);
         const result = await this.runTextAgent(key, transcriptText);
         console.log(`  ✅ ${name} agent completed`);
+        await incrementProgress();
         return { key, result, success: true };
       } catch (error) {
         console.error(`  ❌ ${name} agent failed:`, error.message);
+        await incrementProgress(); // Count as complete even if failed
         return { key, result: null, success: false, error: error.message };
       }
     });
@@ -465,9 +512,11 @@ print(result)
         console.log('  Running Participant Analysis agent...');
         const result = await this.runParticipantAgent(transcriptJson);
         console.log('  ✅ Participant Analysis agent completed');
+        await incrementProgress();
         return { key: 'participants', result, success: true };
       } catch (error) {
         console.error('  ❌ Participant Analysis agent failed:', error.message);
+        await incrementProgress();
         return { key: 'participants', result: null, success: false, error: error.message };
       }
     })();
@@ -547,7 +596,7 @@ print(result)
       if (insights.summary) {
         const content = JSON.stringify(insights.summary);
         const confidence = insights.summary.confidence || 0.85;
-        
+
         await tx.aiInsight.create({
           data: {
             id: uuidv4(),
@@ -564,7 +613,7 @@ print(result)
       if (insights.decisions && Array.isArray(insights.decisions) && insights.decisions.length > 0) {
         const content = JSON.stringify(insights.decisions);
         const avgConfidence = insights.decisions.reduce((sum, d) => sum + (d.confidence || 0.8), 0) / insights.decisions.length;
-        
+
         await tx.aiInsight.create({
           data: {
             id: uuidv4(),
@@ -581,7 +630,7 @@ print(result)
       if (insights.sentiment) {
         const content = JSON.stringify(insights.sentiment);
         const confidence = insights.sentiment.confidence || 0.8;
-        
+
         await tx.aiInsight.create({
           data: {
             id: uuidv4(),
@@ -598,7 +647,7 @@ print(result)
       if (insights.topics && Array.isArray(insights.topics) && insights.topics.length > 0) {
         const content = JSON.stringify(insights.topics);
         const avgConfidence = 0.8; // Topics don't have individual confidence
-        
+
         await tx.aiInsight.create({
           data: {
             id: uuidv4(),
@@ -615,7 +664,7 @@ print(result)
       if (insights.actionItems && Array.isArray(insights.actionItems) && insights.actionItems.length > 0) {
         const content = JSON.stringify(insights.actionItems);
         const avgConfidence = insights.actionItems.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / insights.actionItems.length;
-        
+
         await tx.aiInsight.create({
           data: {
             id: uuidv4(),
@@ -632,7 +681,7 @@ print(result)
       if (insights.participants && Array.isArray(insights.participants) && insights.participants.length > 0) {
         const content = JSON.stringify(insights.participants);
         const avgConfidence = 0.85; // Participants don't have individual confidence
-        
+
         await tx.aiInsight.create({
           data: {
             id: uuidv4(),
@@ -646,18 +695,53 @@ print(result)
       }
 
       // Mark meeting as insights generated (if field exists)
+      // Mark meeting as insights generated (if field exists) AND update metadata
       try {
+        // Get current metadata first
+        const currentMeeting = await tx.meeting.findUnique({
+          where: { id: parseInt(meetingIdStr) },
+          select: { metadata: true }
+        });
+
+        const currentMetadata = currentMeeting?.metadata || {};
+
         await tx.meeting.update({
           where: { id: parseInt(meetingIdStr) },
           data: {
-            aiInsightsGenerated: true,
-            updatedAt: new Date()
+            aiInsightsGenerated: true, // Type-safe update if field exists in schema
+            updatedAt: new Date(),
+            metadata: {
+              ...currentMetadata,
+              aiInsightsStatus: 'completed',
+              aiInsightsCompletedAt: new Date().toISOString()
+            }
           }
         });
-        console.log(`   ✅ Updated meeting ai_insights_generated flag`);
+        console.log(`   ✅ Updated meeting metadata (status: completed)`);
       } catch (error) {
-        // Field might not exist yet - log but don't fail
-        console.warn(`Note: Could not update ai_insights_generated flag (field may not exist): ${error.message}`);
+        // Fallback for aiInsightsGenerated if it's missing in schema but try validation first
+        console.warn(`Note: Type-safe update failed: ${error.message}. Trying partial update...`);
+        // Retry just metadata if previous failed (likely due to aiInsightsGenerated)
+        try {
+          const currentMeeting = await tx.meeting.findUnique({
+            where: { id: parseInt(meetingIdStr) },
+            select: { metadata: true }
+          });
+          const currentMetadata = currentMeeting?.metadata || {};
+
+          await tx.meeting.update({
+            where: { id: parseInt(meetingIdStr) },
+            data: {
+              metadata: {
+                ...currentMetadata,
+                aiInsightsStatus: 'completed',
+                aiInsightsCompletedAt: new Date().toISOString()
+              }
+            }
+          });
+        } catch (e) {
+          console.error(`Failed to update completion status: ${e.message}`);
+        }
       }
     });
 
@@ -694,14 +778,14 @@ print(result)
       console.log(`   Transcript path: ${transcriptCheck.transcriptPath}`);
       const { transcriptText, transcriptJson } = await this.loadDiarizedTranscript(meetingId);
       console.log(`✅ Transcript loaded (${transcriptText.length} characters)`);
-      
+
       if (transcriptText.length < 50) {
         console.warn(`⚠️  Transcript is very short (${transcriptText.length} chars), insights may be limited`);
       }
 
       // Run all agents
       console.log('🤖 Running AI agents...');
-      const insights = await this.runAllAgents(transcriptText, transcriptJson);
+      const insights = await this.runAllAgents(meetingId, transcriptText, transcriptJson);
       console.log('✅ All agents completed');
 
       // Save to database
@@ -714,6 +798,31 @@ print(result)
     } catch (error) {
       console.error(`❌ AI insights generation failed for meeting ${meetingId}:`, error);
       console.error(`   Error stack:`, error.stack);
+
+      // Update metadata to indicate failure
+      try {
+        const meetingIdInt = parseInt(meetingId);
+        const currentMeeting = await prisma.meeting.findUnique({
+          where: { id: meetingIdInt },
+          select: { metadata: true }
+        });
+
+        if (currentMeeting) {
+          await prisma.meeting.update({
+            where: { id: meetingIdInt },
+            data: {
+              metadata: {
+                ...(currentMeeting.metadata || {}),
+                aiInsightsStatus: 'failed',
+                aiInsightsError: error.message
+              }
+            }
+          });
+        }
+      } catch (updateError) {
+        console.error(`Failed to update failure status: ${updateError.message}`);
+      }
+
       return { success: false, error: error.message };
     }
   }

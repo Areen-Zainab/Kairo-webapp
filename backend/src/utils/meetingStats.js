@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
+const ffprobe = require('@ffprobe-installer/ffprobe');
 const { promisify } = require('util');
 const { findMeetingDirectory } = require('./meetingFileStorage');
 
@@ -18,9 +19,7 @@ async function getAudioFileDuration(audioPath) {
   }
 
   try {
-    const ffmpegPath = ffmpeg.path;
-    // Use ffprobe instead of ffmpeg for duration extraction
-    const ffprobePath = ffmpegPath.replace('ffmpeg.exe', 'ffprobe.exe').replace('ffmpeg', 'ffprobe');
+    const ffprobePath = ffprobe.path;
 
     // Try JSON output first (most reliable)
     const jsonCommand = `"${ffprobePath}" -v error -show_entries format=duration -of json "${audioPath}"`;

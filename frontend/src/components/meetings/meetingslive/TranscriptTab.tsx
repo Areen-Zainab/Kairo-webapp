@@ -15,6 +15,7 @@ interface TranscriptTabProps {
   transcript: TranscriptEntry[];
   onRefer?: (text: string) => void;
   isLoading?: boolean;
+  isConnected?: boolean;
 }
 
 // Track which entries have been animated (shared across all AnimatedText instances)
@@ -42,7 +43,7 @@ const AnimatedText: React.FC<{ text: string; entryId: string }> = ({ text, entry
     const words = text.split(' ');
     setDisplayedText('');
     let currentIndex = 0;
-    
+
     intervalRef.current = setInterval(() => {
       if (currentIndex < words.length) {
         setDisplayedText(words.slice(0, currentIndex + 1).join(' '));
@@ -67,7 +68,7 @@ const AnimatedText: React.FC<{ text: string; entryId: string }> = ({ text, entry
   return <span>{displayedText || text}</span>;
 };
 
-const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript, onRefer, isLoading = false }) => {
+const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript, onRefer, isLoading = false, isConnected = false }) => {
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full bg-gray-50 dark:bg-slate-900/20">
       <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
@@ -112,7 +113,21 @@ const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript
             </div>
           )
         ))}
-        {transcript.length === 0 && (
+
+        {/* Listening Indicator when Connected */}
+        {isConnected && (
+          <div className="flex items-center gap-2 pl-9">
+            <div className="flex gap-1 h-3 items-end">
+              <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+              <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+              <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce"></div>
+            </div>
+            <span className="text-xs text-purple-500 italic">Listening...</span>
+          </div>
+        )}
+
+        {/* Empty State / Connecting State */}
+        {transcript.length === 0 && !isConnected && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="flex gap-1 mb-3">
               <div className="w-2 h-2 bg-gray-400 dark:bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>

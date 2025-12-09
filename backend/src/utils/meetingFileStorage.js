@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Base directory for all meeting data (same as MeetingBot uses)
-const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../src/services/meeting_data');
+const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../data/meetings');
 
 /**
  * Get the meeting directory path for a given meeting ID
@@ -38,7 +38,7 @@ function ensureUploadsDirectory(meetingId) {
     const meetingDirName = `${meetingId}_meeting_${Date.now()}`;
     const newMeetingDir = path.join(MEETING_DATA_BASE_DIR, meetingDirName);
     fs.mkdirSync(newMeetingDir, { recursive: true });
-    
+
     const uploadsDir = path.join(newMeetingDir, 'uploads');
     fs.mkdirSync(uploadsDir, { recursive: true });
     return { meetingDir: newMeetingDir, uploadsDir, relativePath: `${meetingDirName}/uploads` };
@@ -70,7 +70,7 @@ async function saveMeetingFile(meetingId, fileBuffer, originalFilename) {
   const ext = path.extname(sanitized);
   const basename = path.basename(sanitized, ext);
   const filename = `${basename}_${timestamp}${ext}`;
-  
+
   const fullPath = path.join(uploadsDir, filename);
   fs.writeFileSync(fullPath, fileBuffer);
 
@@ -142,7 +142,7 @@ function findCompleteAudioFile(meetingId) {
   console.log(`[findCompleteAudioFile] Looking for audio file for meeting ${meetingId}`);
   const meetingDir = findMeetingDirectory(meetingId);
   console.log(`[findCompleteAudioFile] Meeting directory:`, meetingDir);
-  
+
   if (!meetingDir) {
     console.log(`[findCompleteAudioFile] No meeting directory found for meeting ${meetingId}`);
     return null;
@@ -151,20 +151,20 @@ function findCompleteAudioFile(meetingId) {
   try {
     const files = fs.readdirSync(meetingDir);
     console.log(`[findCompleteAudioFile] Files in directory:`, files);
-    
+
     // Look for complete audio files (prefer MP3, then WebM)
     const mp3File = files.find(f => f.includes('_complete.mp3'));
     console.log(`[findCompleteAudioFile] MP3 file found:`, mp3File);
-    
+
     if (mp3File) {
       const fullPath = path.join(meetingDir, mp3File);
       console.log(`[findCompleteAudioFile] Returning MP3 path:`, fullPath);
       return fullPath;
     }
-    
+
     const webmFile = files.find(f => f.includes('_complete.webm'));
     console.log(`[findCompleteAudioFile] WebM file found:`, webmFile);
-    
+
     if (webmFile) {
       const fullPath = path.join(meetingDir, webmFile);
       console.log(`[findCompleteAudioFile] Returning WebM path:`, fullPath);
@@ -219,11 +219,11 @@ function getLiveTranscriptEntries(meetingId, since = null) {
 
         const timestamp = lines[0].trim();
         const text = lines.slice(1).join('\n').trim();
-        
+
         if (!text) continue;
 
         const timestampDate = new Date(timestamp);
-        
+
         // Filter by since timestamp if provided
         if (sinceDate && timestampDate <= sinceDate) {
           continue;
@@ -270,13 +270,13 @@ function getDiarizedTranscript(meetingId) {
   // Try JSON file first, fallback to TXT for backwards compatibility
   const diarizedJsonPath = path.join(meetingDir, 'transcript_diarized.json');
   const diarizedTxtPath = path.join(meetingDir, 'transcript_diarized.txt');
-  
+
   // Prefer JSON file
   if (fs.existsSync(diarizedJsonPath)) {
     try {
       const content = fs.readFileSync(diarizedJsonPath, 'utf8');
       const data = JSON.parse(content);
-      
+
       if (!data.utterances || !Array.isArray(data.utterances)) {
         console.error(`Invalid JSON structure in transcript_diarized.json for meeting ${meetingId}`);
         return [];
@@ -285,14 +285,14 @@ function getDiarizedTranscript(meetingId) {
       // Find the minimum start time to normalize timestamps (handle cases where first entry doesn't start at 0)
       let minStartTime = Infinity;
       data.utterances.forEach(utterance => {
-        const startTime = utterance.diarized_start !== undefined 
-          ? utterance.diarized_start 
+        const startTime = utterance.diarized_start !== undefined
+          ? utterance.diarized_start
           : (utterance.start_time !== undefined ? utterance.start_time : 0);
         if (startTime < minStartTime) {
           minStartTime = startTime;
         }
       });
-      
+
       // If minStartTime is > 0, we need to normalize (subtract offset) so first entry starts at 0
       // This ensures transcript timestamps match audio file timeline starting from 0:00
       const timeOffset = minStartTime > 0 ? minStartTime : 0;
@@ -300,13 +300,13 @@ function getDiarizedTranscript(meetingId) {
       const entries = data.utterances.map((utterance, index) => {
         // PRIORITY: Use diarized_start if available (actual audio time from diarization)
         // Otherwise fall back to start_time (chunk-based, less accurate)
-        const actualStartTime = utterance.diarized_start !== undefined 
-          ? utterance.diarized_start 
+        const actualStartTime = utterance.diarized_start !== undefined
+          ? utterance.diarized_start
           : (utterance.start_time !== undefined ? utterance.start_time : 0);
-        const actualEndTime = utterance.diarized_end !== undefined 
-          ? utterance.diarized_end 
+        const actualEndTime = utterance.diarized_end !== undefined
+          ? utterance.diarized_end
           : (utterance.end_time !== undefined ? utterance.end_time : actualStartTime + 3);
-        
+
         // Normalize timestamps: subtract offset so first entry starts at 0
         // This ensures sync with audio/video playback which starts at 0:00
         const normalizedStartTime = actualStartTime - timeOffset;
@@ -336,7 +336,7 @@ function getDiarizedTranscript(meetingId) {
       return [];
     }
   }
-  
+
   // Fallback to TXT file for backwards compatibility
   if (fs.existsSync(diarizedTxtPath)) {
     try {
@@ -350,7 +350,7 @@ function getDiarizedTranscript(meetingId) {
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        
+
         // Skip empty lines
         if (!line) {
           // If we have accumulated text, save the previous entry
@@ -358,7 +358,7 @@ function getDiarizedTranscript(meetingId) {
             const [startTime, endTime] = currentTimeRange ? currentTimeRange.split(' - ') : ['0', '10'];
             const startSeconds = parseFloat(startTime.replace('s', ''));
             const endSeconds = parseFloat(endTime.replace('s', ''));
-            
+
             entries.push({
               id: `entry_${entryIndex++}`,
               timestamp: startSeconds,
@@ -381,7 +381,7 @@ function getDiarizedTranscript(meetingId) {
             const [startTime, endTime] = currentTimeRange ? currentTimeRange.split(' - ') : ['0', '10'];
             const startSeconds = parseFloat(startTime.replace('s', ''));
             const endSeconds = parseFloat(endTime.replace('s', ''));
-            
+
             entries.push({
               id: `entry_${entryIndex++}`,
               timestamp: startSeconds,
@@ -392,7 +392,7 @@ function getDiarizedTranscript(meetingId) {
               confidence: 1.0
             });
           }
-          
+
           // Start new entry
           currentSpeaker = speakerMatch[1];
           currentTimeRange = `${speakerMatch[2]}s - ${speakerMatch[3]}s`;
@@ -413,7 +413,7 @@ function getDiarizedTranscript(meetingId) {
         const [startTime, endTime] = currentTimeRange ? currentTimeRange.split(' - ') : ['0', '10'];
         const startSeconds = parseFloat(startTime.replace('s', ''));
         const endSeconds = parseFloat(endTime.replace('s', ''));
-        
+
         entries.push({
           id: `entry_${entryIndex++}`,
           timestamp: startSeconds,

@@ -78,7 +78,7 @@ async function autoJoinMeetings() {
 
         // Join meeting using MeetingBot
         console.log(`🤖 Joining meeting ${meeting.id} (${meeting.title})...`);
-        
+
         const bot = new MeetingBot({
           meetUrl: link,
           botName: process.env.BOT_NAME || 'Kairo Bot',
@@ -99,7 +99,7 @@ async function autoJoinMeetings() {
               await session.stop();
             }
             activeSessions.delete(meeting.id);
-            
+
             // Update meeting status
             await prisma.meeting.update({
               where: { id: meeting.id },
@@ -111,10 +111,12 @@ async function autoJoinMeetings() {
         }, durationMinutes * 60 * 1000);
 
         // Mark as triggered to prevent duplicates; also set status to in-progress
-        const newMetadata = { 
-          ...(meta || {}), 
+        const newMetadata = {
+          ...(meta || {}),
           botJoinTriggeredAt: new Date().toISOString(),
-          botSessionId: String(session.meetingId)
+          botSessionId: String(session.meetingId),
+          botStatus: 'joined',
+          botJoinedAt: new Date().toISOString()
         };
 
         await prisma.meeting.update({
@@ -130,7 +132,7 @@ async function autoJoinMeetings() {
       } catch (err) {
         console.error(`❌ Auto-join error for meeting ${meeting.id}:`, err);
         errors.push({ meetingId: meeting.id, error: err.message });
-        
+
         // Update meeting status to indicate failure
         try {
           await prisma.meeting.update({
@@ -140,7 +142,8 @@ async function autoJoinMeetings() {
               metadata: {
                 ...(meeting.metadata || {}),
                 botJoinError: err.message,
-                botJoinFailedAt: new Date().toISOString()
+                botJoinFailedAt: new Date().toISOString(),
+                botStatus: 'failed'
               }
             }
           });
@@ -185,15 +188,15 @@ async function stopMeetingSession(meetingId) {
   console.log(`\n🛑 [stopMeetingSession] Attempting to stop meeting ${meetingId}...`);
   console.log(`   Active sessions: ${Array.from(activeSessions.keys()).join(', ') || 'none'}`);
   console.log(`   Looking for session with key: ${meetingId} (type: ${typeof meetingId})`);
-  
+
   const session = activeSessions.get(meetingId);
-  
+
   if (!session) {
     console.log(`⚠️ [stopMeetingSession] No active session found for meeting ${meetingId}`);
     console.log(`   Available session IDs: ${Array.from(activeSessions.keys()).map(id => `${id} (${typeof id})`).join(', ') || 'none'}`);
     return false;
   }
-  
+
   if (!session.stop || typeof session.stop !== 'function') {
     console.error(`❌ [stopMeetingSession] Session found but stop() method is missing or not a function`);
     console.error(`   Session type: ${typeof session}`);
@@ -201,7 +204,7 @@ async function stopMeetingSession(meetingId) {
     activeSessions.delete(meetingId);
     return false;
   }
-  
+
   try {
     console.log(`🛑 [stopMeetingSession] Calling session.stop() for meeting ${meetingId}...`);
     await session.stop();

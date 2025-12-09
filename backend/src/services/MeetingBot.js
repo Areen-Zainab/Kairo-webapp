@@ -14,7 +14,7 @@ const zoomPlatform = require('./bot-join/zoomService');
 puppeteer.use(StealthPlugin());
 
 // Base directory for all meeting data
-const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../src/services/meeting_data');
+const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../data/meetings');
 if (!fs.existsSync(MEETING_DATA_BASE_DIR)) {
   fs.mkdirSync(MEETING_DATA_BASE_DIR, { recursive: true });
 }
@@ -33,15 +33,15 @@ class MeetingBot {
     this.actionItemsInterval = null;
     this.actionItemsRunning = false;
     this.actionItemsExtractionEnabled = true;
-    
+
     // Track meeting timing for duration calculation
     this.joinTime = null;
     this.stopTime = null;
-    
+
     // Detect platform and set handlers
     this.platform = this.detectPlatform(config.meetUrl);
     this.platformHandlers = this.platform === 'zoom' ? zoomPlatform : meetPlatform;
-    
+
     console.log(`🎯 Detected platform: ${this.platform.toUpperCase()}`);
   }
 
@@ -67,16 +67,16 @@ class MeetingBot {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 80);
-    
+
     const meetingTimestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T').join('_').split('Z')[0];
     const meetingNameSlug = this.config.meetingTitle ? slugify(this.config.meetingTitle) : 'meeting';
     const meetingIdStr = this.config.meetingId ? String(this.config.meetingId) : 'unknown';
-    
+
     // Create directory: {MeetingID}_{MeetingName}_{timestamp}
     const meetingDirName = `${meetingIdStr}_${meetingNameSlug}_${meetingTimestamp}`;
     this.meetingDataDir = path.join(MEETING_DATA_BASE_DIR, meetingDirName);
     this.chunksDir = path.join(this.meetingDataDir, 'chunks');
-    
+
     // Create directories
     if (!fs.existsSync(this.meetingDataDir)) {
       fs.mkdirSync(this.meetingDataDir, { recursive: true });
@@ -126,9 +126,9 @@ class MeetingBot {
    */
   async joinMeeting() {
     console.log(`\n⏳ Loading ${this.platform} meeting...`);
-    
+
     const botName = this.config.botName || process.env.BOT_NAME || 'Kairo Bot';
-    
+
     await this.platformHandlers.navigateToMeeting(this.page, this.config.meetUrl, botName);
     console.log('✅ Page loaded');
 
@@ -159,7 +159,7 @@ class MeetingBot {
 
     // Wait a bit more and check again (error screen might appear with delay)
     await new Promise(resolve => setTimeout(resolve, 3000));
-    
+
     // Second check for error screen after delay
     if (this.platform === 'meet' && this.platformHandlers.detectJoinError) {
       const hasError = await this.platformHandlers.detectJoinError(this.page);
@@ -206,7 +206,7 @@ class MeetingBot {
 
     console.log('\n✅ Bot joined successfully!');
     console.log('🎤 Recording meeting audio...');
-    
+
     // Track join time for duration calculation
     this.joinTime = new Date();
     console.log(`⏰ Join time recorded: ${this.joinTime.toISOString()}`);
@@ -268,7 +268,7 @@ class MeetingBot {
 
     while (attempt < MAX_RETRY_ATTEMPTS) {
       attempt++;
-      
+
       try {
         // Initialize browser and page
         if (attempt === 1) {
@@ -300,30 +300,30 @@ class MeetingBot {
 
         // Join the meeting (waits 2 seconds after clicking join)
         await this.joinMeeting();
-        
+
         // If we get here, join was successful - start transcription immediately
         // This prevents chunk accumulation before processing begins
         await this.audioRecorder.startRealtimeTranscription();
-        
+
         break; // Exit retry loop
-        
+
       } catch (error) {
         lastError = error;
         console.error(`❌ [MeetingBot.start] Attempt ${attempt}/${MAX_RETRY_ATTEMPTS} failed: ${error.message}`);
-        
+
         // Close browser before retry
         try {
           await this.cleanup();
         } catch (cleanupError) {
           console.error(`⚠️ [MeetingBot.start] Error during cleanup after join failure:`, cleanupError.message);
         }
-        
+
         // If this was the last attempt, throw the error
         if (attempt >= MAX_RETRY_ATTEMPTS) {
           console.error(`❌ [MeetingBot.start] All ${MAX_RETRY_ATTEMPTS} attempts failed. Giving up.`);
           throw lastError;
         }
-        
+
         // Wait a bit before retrying (exponential backoff)
         const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
         console.log(`⏳ [MeetingBot.start] Waiting ${waitTime}ms before retry...`);
@@ -415,7 +415,7 @@ class MeetingBot {
         // 1. Stop streamRecorder and flush pending chunks
         await this.audioRecorder.stopRecording();
         console.log(`   ✅ Step 1 complete: stopRecording() finished`);
-        
+
         console.log(`\n💾 [MeetingBot.stop] Step 2: Saving complete recording...`);
         // 2. Get complete recording (this will stop completeRecorder)
         // Add timeout wrapper to ensure we don't hang forever
@@ -426,16 +426,16 @@ class MeetingBot {
             resolve(null);
           }, 35000); // 35 second timeout (5s more than the internal timeout)
         });
-        
+
         const saveResult = await Promise.race([savePromise, saveTimeout]);
         console.log(`   ✅ Step 2 complete: saveCompleteRecording() finished`);
         console.log(`   Save result: ${saveResult ? 'success' : 'no recording saved or timed out'}`);
-        
+
         // Update meeting recording URL and duration in database
         if (this.meetingId) {
           try {
-            
-            
+
+
             // Update recording URL and duration with complete system path
             if (saveResult) {
               // Prefer MP3 path, fallback to WebM path
@@ -446,7 +446,7 @@ class MeetingBot {
                   parseInt(this.meetingId),
                   recordingPath
                 );
-                
+
                 // Update meeting duration with actual audio file duration
                 console.log(`\n⏰ [MeetingBot.stop] Updating meeting duration from audio file...`);
                 await PostMeetingProcessor.updateMeetingDuration(
@@ -467,23 +467,23 @@ class MeetingBot {
         } else {
           console.log(`   ⚠️  No meeting ID available, skipping database updates`);
         }
-        
+
         // Finalize transcription with complete audio file if available
         // NOTE: This runs in the background (non-blocking) so bot can leave meeting immediately
         // Diarization will complete asynchronously and update files when done
         if (this.audioRecorder.transcriptionService) {
           const transcriptionService = this.audioRecorder.transcriptionService;
           const audioPath = saveResult?.mp3Path || null;
-          
+
           if (audioPath) {
             console.log(`\n🎭 [MeetingBot.stop] Starting transcription finalization with diarization (background)...`);
             console.log(`   Audio file: ${path.basename(audioPath)}`);
             console.log(`   Bot will leave meeting while diarization runs in background`);
-            } else {
+          } else {
             console.log(`\n🎭 [MeetingBot.stop] Starting transcription finalization without diarization (background)...`);
             console.log(`   Bot will leave meeting while finalization runs in background`);
           }
-          
+
           // Run finalization in background (don't await - non-blocking)
           transcriptionService.finalize(audioPath)
             .then(() => {
@@ -491,17 +491,17 @@ class MeetingBot {
             })
             .catch((error) => {
               console.error(`⚠️  [Background] Transcription finalization failed: ${error.message}`);
-            console.error(`   Error stack:`, error.stack);
+              console.error(`   Error stack:`, error.stack);
             })
             .finally(() => {
-            // Cleanup transcription service after finalization (whether it succeeded or failed)
+              // Cleanup transcription service after finalization (whether it succeeded or failed)
               if (transcriptionService) {
                 transcriptionService.cleanup();
               }
             });
-          
+
           // Clear reference immediately (cleanup happens in background promise)
-              this.audioRecorder.transcriptionService = null;
+          this.audioRecorder.transcriptionService = null;
         } else {
           console.log(`   ⚚️  No transcription service available to finalize`);
         }
@@ -526,13 +526,13 @@ class MeetingBot {
       }
 
       console.log(`\n🚪 [MeetingBot.stop] Step 4: Leaving meeting and closing browser...`);
-      
+
       // Close WebSocket connections for this meeting
       if (this.meetingId) {
         try {
           const { closeMeetingConnections } = require('./WebSocketServer');
-          const meetingIdNum = typeof this.meetingId === 'string' 
-            ? parseInt(this.meetingId, 10) 
+          const meetingIdNum = typeof this.meetingId === 'string'
+            ? parseInt(this.meetingId, 10)
             : this.meetingId;
           if (!isNaN(meetingIdNum)) {
             closeMeetingConnections(meetingIdNum);
@@ -541,7 +541,7 @@ class MeetingBot {
           console.warn(`⚠️  Error closing WebSocket connections: ${wsError.message}`);
         }
       }
-      
+
       // Leave meeting and close browser
       await this.cleanup();
       console.log(`\n✅ [MeetingBot.stop] Stop process completed successfully!`);
@@ -619,7 +619,7 @@ class MeetingBot {
     } else {
       console.log(`   ⚠️ No browser to close`);
     }
-    
+
     console.log(`\n✅ [MeetingBot.cleanup] Cleanup completed`);
   }
 
