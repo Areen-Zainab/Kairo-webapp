@@ -435,16 +435,43 @@ class AudioRecorder {
 
       // Switch the active track, preferring remote audio over local mic
       window.switchTrackForRecording = function (track, source) {
-        if (!track || track.kind !== 'audio' || track.readyState !== 'live') return;
+        console.log('[KAIRO] 🔄 switchTrackForRecording called:', {
+          hasTrack: !!track,
+          trackKind: track?.kind,
+          trackState: track?.readyState,
+          source: source,
+          trackId: track?.id,
+          trackLabel: track?.label
+        });
+
+        if (!track || track.kind !== 'audio' || track.readyState !== 'live') {
+          console.log('[KAIRO] ❌ Invalid track - skipping switch');
+          return;
+        }
 
         const currentSource = window.audioCapture.trackSource;
         const currentTrack = window.audioCapture.trackToRecord;
 
+        console.log('[KAIRO] Current state:', {
+          currentSource: currentSource,
+          currentTrackId: currentTrack?.id,
+          newSource: source,
+          newTrackId: track.id
+        });
+
         // If we already have a remote track, don't downgrade to local
-        if (currentSource === 'remote' && source === 'local') return;
+        if (currentSource === 'remote' && source === 'local') {
+          console.log('[KAIRO] ⚠️ Not downgrading from remote to local track');
+          return;
+        }
 
         // If the incoming track is the same as current, nothing to do
-        if (currentTrack && currentTrack.id === track.id && currentSource === source) return;
+        if (currentTrack && currentTrack.id === track.id && currentSource === source) {
+          console.log('[KAIRO] ⚠️ Same track and source - no change needed');
+          return;
+        }
+
+        console.log('[KAIRO] 🔄 Switching to new track...');
 
         // Swap to the new track
         window.stopRecorders();
@@ -454,19 +481,28 @@ class AudioRecorder {
         // Restart recording on the new track
         try {
           if (window.startAudioRecording) {
+            console.log('[KAIRO] 🎬 Starting recording with new track...');
             window.startAudioRecording();
+          } else {
+            console.log('[KAIRO] ❌ startAudioRecording function not available');
           }
-        } catch (_) { }
+        } catch (e) {
+          console.log('[KAIRO] ❌ Error starting recording:', e.message);
+        }
       };
 
       // EARLY INTERCEPTION: Override getUserMedia to capture audio streams
       const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getUserMedia = function (constraints) {
-        console.log('[KAIRO] getUserMedia called with constraints:', constraints);
+        console.log('[KAIRO] 📞 getUserMedia called with constraints:', constraints);
 
         return originalGetUserMedia(constraints).then(stream => {
+          console.log('[KAIRO] 📞 getUserMedia succeeded, checking for audio tracks...');
+          
           // Check if this stream has audio
           const audioTracks = stream.getAudioTracks();
+          console.log('[KAIRO] 📞 getUserMedia stream has', audioTracks.length, 'audio tracks');
+          
           if (audioTracks.length > 0) {
             // Mark as local microphone; will be replaced by remote when available
             console.log('[KAIRO] 🎤 Captured local mic track from getUserMedia');
@@ -477,11 +513,13 @@ class AudioRecorder {
               enabled: audioTracks[0].enabled
             });
             window.switchTrackForRecording(audioTracks[0], 'local');
+          } else {
+            console.log('[KAIRO] ⚠️ getUserMedia stream has no audio tracks');
           }
 
           return stream;
         }).catch(error => {
-          console.log('[KAIRO] getUserMedia failed:', error.message);
+          console.log('[KAIRO] ❌ getUserMedia failed:', error.message);
           throw error;
         });
       };
@@ -494,11 +532,16 @@ class AudioRecorder {
         }
 
         const videos = document.querySelectorAll('video');
-        for (const video of videos) {
+        console.log('[KAIRO] 📺 Video monitor check: found', videos.length, 'video elements');
+        
+        for (let i = 0; i < videos.length; i++) {
+          const video = videos[i];
           if (video.srcObject && video.srcObject.getAudioTracks) {
             const audioTracks = video.srcObject.getAudioTracks();
+            console.log(`[KAIRO] 📺 Video ${i} has`, audioTracks.length, 'audio tracks');
+            
             if (audioTracks.length > 0 && audioTracks[0].readyState === 'live') {
-              console.log('[KAIRO] 🎤 Found audio track in video element');
+              console.log('[KAIRO] 🎤 Found audio track in video element', i);
               console.log('[KAIRO] Track details:', {
                 id: audioTracks[0].id,
                 label: audioTracks[0].label,
@@ -509,6 +552,8 @@ class AudioRecorder {
               clearInterval(videoMonitor);
               break;
             }
+          } else {
+            console.log(`[KAIRO] 📺 Video ${i} has no srcObject or getAudioTracks`);
           }
         }
       }, 500); // Check every 500ms
@@ -516,12 +561,15 @@ class AudioRecorder {
       // ZOOM-SPECIFIC: Also monitor for MediaStream objects being created
       const originalMediaStream = window.MediaStream;
       window.MediaStream = function(...args) {
+        console.log('[KAIRO] 📡 New MediaStream created with args:', args.length);
         const stream = new originalMediaStream(...args);
         
         // Check if this stream has audio tracks
         setTimeout(() => {
           try {
             const audioTracks = stream.getAudioTracks();
+            console.log('[KAIRO] 📡 MediaStream has', audioTracks.length, 'audio tracks');
+            
             if (audioTracks.length > 0 && audioTracks[0].readyState === 'live') {
               console.log('[KAIRO] 🎤 Found audio track in new MediaStream');
               console.log('[KAIRO] Track details:', {
@@ -533,11 +581,14 @@ class AudioRecorder {
               
               // Only switch if we don't already have a recording track
               if (!window.audioCapture?.isRecording) {
+                console.log('[KAIRO] 🔄 Switching to MediaStream track (not currently recording)');
                 window.switchTrackForRecording(audioTracks[0], 'stream');
+              } else {
+                console.log('[KAIRO] ⚠️ Already recording, not switching to MediaStream track');
               }
             }
           } catch (e) {
-            // Ignore errors
+            console.log('[KAIRO] ❌ Error checking MediaStream tracks:', e.message);
           }
         }, 100);
         
@@ -634,7 +685,18 @@ class AudioRecorder {
             console.log('[KAIRO] ⚠️ No track to record');
             return;
           }
-          if (window.audioCapture.isRecording) return;
+          if (window.audioCapture.isRecording) {
+            console.log('[KAIRO] ⚠️ Already recording, skipping start');
+            return;
+          }
+
+          console.log('[KAIRO] 🎬 Starting audio recording with track:', {
+            id: window.audioCapture.trackToRecord.id,
+            label: window.audioCapture.trackToRecord.label,
+            readyState: window.audioCapture.trackToRecord.readyState,
+            enabled: window.audioCapture.trackToRecord.enabled,
+            source: window.audioCapture.trackSource
+          });
 
           // Reset buffers when (re)starting on a new track
           window.audioCapture.completeChunks = [];
@@ -642,6 +704,7 @@ class AudioRecorder {
           window.audioCapture.lastProcessedIndex = 0;
 
           window.audioCapture.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          console.log('[KAIRO] Created audio context, state:', window.audioCapture.audioContext.state);
           resumeAudioContextIfNeeded(window.audioCapture.audioContext).catch(() => { });
 
           const dest = window.audioCapture.audioContext.createMediaStreamDestination();
@@ -1115,15 +1178,93 @@ class AudioRecorder {
             }
           }
 
-          return {
-            success: false,
-            message: 'No audio tracks found',
-            debugInfo: {
-              videoElements: videos.length,
-              hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
-              hasAudioContext: !!(window.AudioContext || window.webkitAudioContext)
+          // Strategy 4: Force getUserMedia as last resort
+          console.log('[KAIRO-ZOOM] No tracks found, will try getUserMedia in background...');
+          try {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+              // Start getUserMedia in background - don't await here since we're in page.evaluate()
+              navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                .then(stream => {
+                  const audioTracks = stream.getAudioTracks();
+                  if (audioTracks.length > 0) {
+                    console.log('[KAIRO-ZOOM] Got audio track from forced getUserMedia');
+                    if (window.audioCapture && window.switchTrackForRecording) {
+                      window.switchTrackForRecording(audioTracks[0], 'forced_getUserMedia');
+                    }
+                  }
+                })
+                .catch(e => {
+                  console.log('[KAIRO-ZOOM] Forced getUserMedia failed:', e.message);
+                });
             }
-          };
+          } catch (e) {
+            console.log('[KAIRO-ZOOM] Error setting up forced getUserMedia:', e.message);
+          }
+
+          // If we still don't have a track, return partial success
+          // (getUserMedia is running in background and may succeed later)
+          if (!foundTrack) {
+            return {
+              success: false,
+              message: 'No audio tracks found, but getUserMedia is attempting in background',
+              debugInfo: {
+                videoElements: videos.length,
+                hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
+                hasAudioContext: !!(window.AudioContext || window.webkitAudioContext),
+                backgroundGetUserMedia: true
+              }
+            };
+          }
+
+          // If we found a track through other strategies, set it up
+          console.log(`[KAIRO-ZOOM] Setting up audio capture with track from ${trackSource}...`);
+
+          // Initialize audio capture if not already initialized
+          if (!window.audioCapture) {
+            window.audioCapture = {
+              audioContext: null,
+              completeRecorder: null,
+              completeChunks: [],
+              streamRecorder: null,
+              streamChunks: [],
+              lastProcessedIndex: 0,
+              isRecording: false,
+              trackToRecord: null,
+              trackSource: null
+            };
+          }
+
+          // Set the track and source
+          window.audioCapture.trackToRecord = foundTrack;
+          window.audioCapture.trackSource = trackSource;
+
+          // Try to start recording
+          try {
+            if (window.startAudioRecording) {
+              window.startAudioRecording();
+              return {
+                success: true,
+                alreadyWorking: false,
+                message: `Audio capture started with track from ${trackSource}`,
+                trackInfo: {
+                  id: foundTrack.id,
+                  label: foundTrack.label,
+                  readyState: foundTrack.readyState,
+                  source: trackSource
+                }
+              };
+            } else {
+              return {
+                success: false,
+                message: 'startAudioRecording function not available'
+              };
+            }
+          } catch (e) {
+            return {
+              success: false,
+              message: 'Error starting audio recording: ' + e.message
+            };
+          }
         });
 
         if (result.success) {

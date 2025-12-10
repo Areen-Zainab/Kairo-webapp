@@ -154,6 +154,37 @@ class ActionItemService {
       
       console.log(`✅ [ActionItemService] ${highConfidenceItems.length} high-confidence items to process`);
 
+      // Filter out placeholder/dummy action items
+      const realActionItems = highConfidenceItems.filter(item => {
+        const title = (item.title || '').toLowerCase();
+        const description = (item.description || '').toLowerCase();
+        const action = (item.action || '').toLowerCase();
+        
+        // Filter out common placeholder patterns
+        const placeholderPatterns = [
+          'no action items detected',
+          'no actionable items',
+          'no action items found',
+          'no tasks identified',
+          'no follow-up items',
+          'no action items were identified',
+          'no specific action items'
+        ];
+        
+        return !placeholderPatterns.some(pattern => 
+          title.includes(pattern) || 
+          description.includes(pattern) || 
+          action.includes(pattern)
+        );
+      });
+
+      if (realActionItems.length === 0) {
+        console.log(`⚠️ [ActionItemService] All items were placeholders - no real action items to process`);
+        return { added: 0, updated: 0, items: [] };
+      }
+
+      console.log(`✅ [ActionItemService] ${realActionItems.length} real action items after filtering placeholders`);
+
       const existingItems = await prisma.actionItem.findMany({
         where: {
           meetingId,
@@ -171,7 +202,7 @@ class ActionItemService {
       const processedItems = [];
       const itemsToUpdate = [];
 
-      for (const item of highConfidenceItems) {
+      for (const item of realActionItems) {
         const normalizedItem = {
           title: item.title || item.description?.substring(0, 100) || 'Untitled Action Item',
           description: item.description || item.title || '',

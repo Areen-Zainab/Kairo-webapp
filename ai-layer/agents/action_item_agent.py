@@ -210,7 +210,7 @@ class ActionItemAgent:
     def run(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract action items from transcript using Groq API or fallback method."""
         if not transcript or len(transcript.strip()) < 50:
-            return [self._no_action_items_placeholder()]
+            return []  # Return empty list instead of placeholder
 
         # Clean transcript
         clean_transcript = self._clean_text(transcript)
@@ -237,8 +237,8 @@ class ActionItemAgent:
         if pattern_results:
             return pattern_results
         
-        # No action items found by any method
-        return [self._no_action_items_placeholder()]
+        # No action items found by any method - return empty list
+        return []
 
     def _extract_with_hf(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract action items using Hugging Face hosted model."""
@@ -522,13 +522,4 @@ JSON Response:"""
         raw = [s.strip() for s in text.replace("?", ".").replace("!", ".").split(".")]
         return [s for s in raw if s]
 
-    def _no_action_items_placeholder(self) -> Dict[str, Any]:
-        """Return a clear placeholder when no action items are identified."""
-        return {
-            "action": "No action items detected.",
-            "title": "No action items detected",
-            "description": "No actionable items were identified in this meeting.",
-            "assignee": None,
-            "due_date": None,
-            "confidence": 0.5
-        }
+

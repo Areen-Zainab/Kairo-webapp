@@ -350,18 +350,95 @@ class MeetingBot {
         // For Zoom, we need to reinject audio capture after joining audio
         if (this.platform === 'zoom') {
           console.log('\n🔄 [Zoom] Reinjecting audio capture after audio join...');
+          
+          // Wait a bit longer for Zoom audio to fully initialize
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
           const reinjectSuccess = await this.audioRecorder.reinjectAudioCaptureForZoom();
           if (!reinjectSuccess) {
             console.log('⚠️ [Zoom] Audio capture reinjection failed - trying alternative approach...');
-            // Try the alternative approach with a delay
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            await this.audioRecorder.reinjectAudioCaptureForZoom();
+            // Try the alternative approach with a longer delay
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            const secondAttempt = await this.audioRecorder.reinjectAudioCaptureForZoom();
+            
+            if (!secondAttempt) {
+              console.log('❌ [Zoom] Both reinjection attempts failed - audio capture may not work');
+              
+              // Try one more aggressive approach - force trigger getUserMedia
+              try {
+                await this.page.evaluate(() => {
+                  console.log('[KAIRO-ZOOM-FORCE] Attempting to force getUserMedia...');
+                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                      .then(stream => {
+                        console.log('[KAIRO-ZOOM-FORCE] Got stream from forced getUserMedia');
+                        const audioTracks = stream.getAudioTracks();
+                        if (audioTracks.length > 0 && window.switchTrackForRecording) {
+                          console.log('[KAIRO-ZOOM-FORCE] Switching to forced track');
+                          window.switchTrackForRecording(audioTracks[0], 'forced');
+                        }
+                      })
+                      .catch(e => {
+                        console.log('[KAIRO-ZOOM-FORCE] Forced getUserMedia failed:', e.message);
+                      });
+                  }
+                });
+              } catch (forceError) {
+                console.error('❌ [Zoom] Force getUserMedia attempt failed:', forceError.message);
+              }
+            }
           }
         }
 
         // If we get here, join was successful - start transcription immediately
         // This prevents chunk accumulation before processing begins
         await this.audioRecorder.startRealtimeTranscription();
+
+        // For Zoom, add a periodic check to ensure audio capture is working
+        if (this.platform === 'zoom') {
+          console.log('\n🔍 [Zoom] Setting up periodic audio capture verification...');
+          this.zoomAudioCheckInterval = setInterval(async () => {
+            try {
+              if (!this.page || this.page.isClosed()) {
+                clearInterval(this.zoomAudioCheckInterval);
+                return;
+              }
+
+              const audioStatus = await this.page.evaluate(() => {
+                return {
+                  isRecording: window.audioCapture?.isRecording || false,
+                  hasTrack: !!(window.audioCapture?.trackToRecord),
+                  chunks: window.audioCapture?.streamChunks?.length || 0,
+                  trackState: window.audioCapture?.trackToRecord?.readyState || 'none'
+                };
+              });
+
+              console.log(`🔍 [Zoom] Audio check: recording=${audioStatus.isRecording}, hasTrack=${audioStatus.hasTrack}, chunks=${audioStatus.chunks}, trackState=${audioStatus.trackState}`);
+
+              // If not recording but should be, try to fix it
+              if (!audioStatus.isRecording) {
+                console.log('⚠️ [Zoom] Audio not recording - attempting to restart...');
+                await this.audioRecorder.reinjectAudioCaptureForZoom();
+              }
+
+              // If we have chunks, audio is working - stop checking
+              if (audioStatus.chunks > 0) {
+                console.log('✅ [Zoom] Audio capture confirmed working - stopping periodic checks');
+                clearInterval(this.zoomAudioCheckInterval);
+              }
+            } catch (error) {
+              console.error('❌ [Zoom] Error in audio check:', error.message);
+            }
+          }, 10000); // Check every 10 seconds
+
+          // Stop checking after 2 minutes
+          setTimeout(() => {
+            if (this.zoomAudioCheckInterval) {
+              clearInterval(this.zoomAudioCheckInterval);
+              console.log('⏰ [Zoom] Stopped periodic audio checks after 2 minutes');
+            }
+          }, 120000);
+        }
 
         break; // Exit retry loop
 
@@ -451,6 +528,12 @@ class MeetingBot {
         clearInterval(this.actionItemsInterval);
         this.actionItemsInterval = null;
         console.log('   ✅ Cleared actionItemsInterval');
+      }
+
+      if (this.zoomAudioCheckInterval) {
+        clearInterval(this.zoomAudioCheckInterval);
+        this.zoomAudioCheckInterval = null;
+        console.log('   ✅ Cleared zoomAudioCheckInterval');
       }
 
       // Stop audio recording and save complete recording
