@@ -169,16 +169,40 @@ class MeetingBot {
       }
     }
 
-    // Check recording status
+    // Check recording status with detailed debugging
     let recordingStatus = { isRecording: false, hasTrack: false, chunks: 0 };
     try {
       if (this.page && !this.page.isClosed()) {
         recordingStatus = await this.page.evaluate(() => {
-          return {
+          // Comprehensive audio debugging
+          const debugInfo = {
             isRecording: window.audioCapture?.isRecording || false,
             hasTrack: !!(window.audioCapture?.trackToRecord),
-            chunks: window.audioCapture?.streamChunks?.length || 0
+            chunks: window.audioCapture?.streamChunks?.length || 0,
+            trackDetails: window.audioCapture?.trackToRecord ? {
+              id: window.audioCapture.trackToRecord.id,
+              label: window.audioCapture.trackToRecord.label,
+              readyState: window.audioCapture.trackToRecord.readyState,
+              enabled: window.audioCapture.trackToRecord.enabled
+            } : null,
+            videoElements: document.querySelectorAll('video').length,
+            videoElementsWithAudio: 0,
+            hasAudioContext: !!(window.AudioContext || window.webkitAudioContext),
+            hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia
           };
+
+          // Count video elements with audio
+          const videos = document.querySelectorAll('video');
+          for (const video of videos) {
+            if (video.srcObject && video.srcObject.getAudioTracks) {
+              const audioTracks = video.srcObject.getAudioTracks();
+              if (audioTracks.length > 0) {
+                debugInfo.videoElementsWithAudio++;
+              }
+            }
+          }
+
+          return debugInfo;
         });
       }
     } catch (error) {
@@ -189,18 +213,34 @@ class MeetingBot {
     console.log('  🎵 Audio track found:', recordingStatus.hasTrack ? 'YES' : 'NO');
     console.log('  🔴 Recording:', recordingStatus.isRecording ? 'YES' : 'NO');
     console.log('  📦 Chunks:', recordingStatus.chunks);
+    console.log('  📺 Video elements:', recordingStatus.videoElements);
+    console.log('  🎤 Video elements with audio:', recordingStatus.videoElementsWithAudio);
+    
+    if (recordingStatus.trackDetails) {
+      console.log('  📋 Track details:', recordingStatus.trackDetails);
+    }
 
-    if (!recordingStatus.isRecording && recordingStatus.hasTrack) {
-      console.log('\n⚠️ Recording not started automatically, forcing start...');
-      try {
-        if (this.page && !this.page.isClosed()) {
-          await this.page.evaluate(() => {
-            try { window.startAudioRecording(); } catch (e) { console.error(e); }
-          });
-          await new Promise(resolve => setTimeout(resolve, 2000));
+    if (!recordingStatus.isRecording) {
+      if (recordingStatus.hasTrack) {
+        console.log('\n⚠️ Recording not started automatically, forcing start...');
+        try {
+          if (this.page && !this.page.isClosed()) {
+            await this.page.evaluate(() => {
+              try { 
+                console.log('[KAIRO] Manually starting audio recording...');
+                window.startAudioRecording(); 
+              } catch (e) { 
+                console.error('[KAIRO] Error starting recording:', e); 
+              }
+            });
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        } catch (error) {
+          console.error('❌ Error starting recording:', error.message);
         }
-      } catch (error) {
-        console.error('❌ Error starting recording:', error.message);
+      } else {
+        console.log('\n⚠️ No audio track found - this may indicate an issue with audio capture');
+        console.log('   This is common with Zoom and will be addressed after joining audio');
       }
     }
 
@@ -306,6 +346,18 @@ class MeetingBot {
 
         // Join the meeting (waits 2 seconds after clicking join)
         await this.joinMeeting();
+
+        // For Zoom, we need to reinject audio capture after joining audio
+        if (this.platform === 'zoom') {
+          console.log('\n🔄 [Zoom] Reinjecting audio capture after audio join...');
+          const reinjectSuccess = await this.audioRecorder.reinjectAudioCaptureForZoom();
+          if (!reinjectSuccess) {
+            console.log('⚠️ [Zoom] Audio capture reinjection failed - trying alternative approach...');
+            // Try the alternative approach with a delay
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            await this.audioRecorder.reinjectAudioCaptureForZoom();
+          }
+        }
 
         // If we get here, join was successful - start transcription immediately
         // This prevents chunk accumulation before processing begins

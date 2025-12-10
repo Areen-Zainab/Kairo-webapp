@@ -311,11 +311,77 @@ async function clickJoinButton(page) {
   // Debug audio capture for final verification
   const audioDebug = await debugAudioCapture(page);
 
-  // If audio capture still isn't working, log detailed warning
+  // If audio capture still isn't working, try one more aggressive approach
   if (!audioDebug.hasAudioCapture || !audioDebug.audioCaptureDetails?.hasTrack) {
-    console.log('\n⚠️ Audio capture verification failed after all attempts!');
-    console.log('   This indicates an issue with Zoom audio initialization.');
-    console.log('   Recording and transcription will likely not work correctly.');
+    console.log('\n⚠️ Audio capture verification failed - trying aggressive fallback...');
+    
+    // Try to manually trigger audio capture by looking for any available audio tracks
+    const fallbackResult = await page.evaluate(() => {
+      try {
+        // Look for any audio tracks in the page
+        const allAudioTracks = [];
+        
+        // Check all video elements
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => {
+          if (video.srcObject && video.srcObject.getAudioTracks) {
+            const tracks = video.srcObject.getAudioTracks();
+            tracks.forEach(track => {
+              if (track.readyState === 'live') {
+                allAudioTracks.push({
+                  source: 'video_element',
+                  track: track,
+                  id: track.id,
+                  label: track.label
+                });
+              }
+            });
+          }
+        });
+
+        // If we found any tracks, try to use the first one
+        if (allAudioTracks.length > 0) {
+          const bestTrack = allAudioTracks[0];
+          console.log('[KAIRO-FALLBACK] Found audio track:', bestTrack.id, bestTrack.label);
+          
+          // Initialize audio capture if needed
+          if (!window.audioCapture) {
+            window.audioCapture = {
+              audioContext: null,
+              completeRecorder: null,
+              completeChunks: [],
+              streamRecorder: null,
+              streamChunks: [],
+              lastProcessedIndex: 0,
+              isRecording: false,
+              trackToRecord: null
+            };
+          }
+          
+          // Set the track and try to start recording
+          window.audioCapture.trackToRecord = bestTrack.track;
+          
+          if (window.startAudioRecording) {
+            window.startAudioRecording();
+            return { success: true, trackId: bestTrack.id, trackLabel: bestTrack.label };
+          }
+        }
+        
+        return { success: false, tracksFound: allAudioTracks.length };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    });
+    
+    if (fallbackResult.success) {
+      console.log(`✅ Fallback successful - using track: ${fallbackResult.trackLabel || fallbackResult.trackId}`);
+    } else {
+      console.log(`❌ Fallback failed - tracks found: ${fallbackResult.tracksFound || 0}`);
+      if (fallbackResult.error) {
+        console.log(`   Error: ${fallbackResult.error}`);
+      }
+      console.log('   Recording and transcription will likely not work correctly.');
+    }
   }
 
   // Final verification

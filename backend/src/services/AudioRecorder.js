@@ -470,10 +470,19 @@ class AudioRecorder {
           if (audioTracks.length > 0) {
             // Mark as local microphone; will be replaced by remote when available
             console.log('[KAIRO] 🎤 Captured local mic track from getUserMedia');
+            console.log('[KAIRO] Track details:', {
+              id: audioTracks[0].id,
+              label: audioTracks[0].label,
+              readyState: audioTracks[0].readyState,
+              enabled: audioTracks[0].enabled
+            });
             window.switchTrackForRecording(audioTracks[0], 'local');
           }
 
           return stream;
+        }).catch(error => {
+          console.log('[KAIRO] getUserMedia failed:', error.message);
+          throw error;
         });
       };
 
@@ -490,6 +499,12 @@ class AudioRecorder {
             const audioTracks = video.srcObject.getAudioTracks();
             if (audioTracks.length > 0 && audioTracks[0].readyState === 'live') {
               console.log('[KAIRO] 🎤 Found audio track in video element');
+              console.log('[KAIRO] Track details:', {
+                id: audioTracks[0].id,
+                label: audioTracks[0].label,
+                readyState: audioTracks[0].readyState,
+                enabled: audioTracks[0].enabled
+              });
               window.switchTrackForRecording(audioTracks[0], 'remote');
               clearInterval(videoMonitor);
               break;
@@ -497,6 +512,37 @@ class AudioRecorder {
           }
         }
       }, 500); // Check every 500ms
+
+      // ZOOM-SPECIFIC: Also monitor for MediaStream objects being created
+      const originalMediaStream = window.MediaStream;
+      window.MediaStream = function(...args) {
+        const stream = new originalMediaStream(...args);
+        
+        // Check if this stream has audio tracks
+        setTimeout(() => {
+          try {
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length > 0 && audioTracks[0].readyState === 'live') {
+              console.log('[KAIRO] 🎤 Found audio track in new MediaStream');
+              console.log('[KAIRO] Track details:', {
+                id: audioTracks[0].id,
+                label: audioTracks[0].label,
+                readyState: audioTracks[0].readyState,
+                enabled: audioTracks[0].enabled
+              });
+              
+              // Only switch if we don't already have a recording track
+              if (!window.audioCapture?.isRecording) {
+                window.switchTrackForRecording(audioTracks[0], 'stream');
+              }
+            }
+          } catch (e) {
+            // Ignore errors
+          }
+        }, 100);
+        
+        return stream;
+      };
 
       // Stop monitoring after 30 seconds
       setTimeout(() => clearInterval(videoMonitor), 30000);
@@ -870,144 +916,242 @@ class AudioRecorder {
         return false;
       }
 
-      const result = await this.page.evaluate(() => {
-        // Check if audio capture is already working
-        if (window.audioCapture?.isRecording && window.audioCapture?.trackToRecord) {
-          return {
-            success: true,
-            alreadyWorking: true,
-            message: 'Audio capture already active'
-          };
-        }
+      // Multiple strategies with retries
+      const maxAttempts = 5;
+      const delayBetweenAttempts = 2000;
 
-        console.log('[KAIRO-ZOOM] Searching for audio tracks...');
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        console.log(`🔄 [Zoom] Attempt ${attempt}/${maxAttempts}...`);
 
-        // Strategy 1: Look for video elements with audio tracks
-        const videos = document.querySelectorAll('video');
-        let foundTrack = null;
-
-        for (let i = 0; i < videos.length; i++) {
-          const video = videos[i];
-          if (video.srcObject && video.srcObject.getTracks) {
-            const tracks = video.srcObject.getTracks();
-            const audioTrack = tracks.find(t => t.kind === 'audio' && t.readyState === 'live');
-
-            if (audioTrack) {
-              console.log(`[KAIRO-ZOOM] Found audio track in video element ${i}`);
-              foundTrack = audioTrack;
-              break;
-            }
-          }
-        }
-
-        // Strategy 2: If no track found in video elements, try to intercept new RTCPeerConnection
-        if (!foundTrack) {
-          console.log('[KAIRO-ZOOM] No audio track in video elements, setting up RTCPeerConnection hook...');
-
-          // Store reference to original RTCPeerConnection
-          const OriginalRTC = window.RTCPeerConnection;
-
-          // Get all existing RTCPeerConnection instances (if browser exposes them)
-          // This is a fallback - most browsers don't expose existing instances
-          try {
-            // Try to find existing peer connections through global objects
-            const possiblePCs = [];
-
-            // Check if Zoom stores peer connections in global scope
-            for (const key in window) {
-              try {
-                if (window[key] && window[key].constructor &&
-                  window[key].constructor.name === 'RTCPeerConnection') {
-                  possiblePCs.push(window[key]);
-                }
-              } catch (e) {
-                // Skip properties that throw errors
-              }
-            }
-
-            // Try to get tracks from existing peer connections
-            for (const pc of possiblePCs) {
-              try {
-                const receivers = pc.getReceivers ? pc.getReceivers() : [];
-                for (const receiver of receivers) {
-                  if (receiver.track && receiver.track.kind === 'audio' &&
-                    receiver.track.readyState === 'live') {
-                    console.log('[KAIRO-ZOOM] Found audio track in existing RTCPeerConnection');
-                    foundTrack = receiver.track;
-                    break;
-                  }
-                }
-                if (foundTrack) break;
-              } catch (e) {
-                console.log('[KAIRO-ZOOM] Error checking peer connection:', e.message);
-              }
-            }
-          } catch (e) {
-            console.log('[KAIRO-ZOOM] Could not search existing peer connections:', e.message);
-          }
-        }
-
-        // If we found a track, set it up for recording
-        if (foundTrack) {
-          console.log('[KAIRO-ZOOM] Setting up audio capture with found track...');
-
-          // Initialize audio capture if not already initialized
-          if (!window.audioCapture) {
-            window.audioCapture = {
-              audioContext: null,
-              completeRecorder: null,
-              completeChunks: [],
-              streamRecorder: null,
-              streamChunks: [],
-              lastProcessedIndex: 0,
-              isRecording: false,
-              trackToRecord: null
+        const result = await this.page.evaluate(() => {
+          // Check if audio capture is already working
+          if (window.audioCapture?.isRecording && window.audioCapture?.trackToRecord) {
+            return {
+              success: true,
+              alreadyWorking: true,
+              message: 'Audio capture already active'
             };
           }
 
-          // Set the track
-          window.audioCapture.trackToRecord = foundTrack;
+          console.log('[KAIRO-ZOOM] Searching for audio tracks...');
 
-          // Try to start recording
-          try {
-            if (window.startAudioRecording) {
-              window.startAudioRecording();
-              return {
-                success: true,
-                alreadyWorking: false,
-                message: 'Audio capture started with found track'
+          // Strategy 1: Look for video elements with audio tracks
+          const videos = document.querySelectorAll('video');
+          let foundTrack = null;
+          let trackSource = 'unknown';
+
+          for (let i = 0; i < videos.length; i++) {
+            const video = videos[i];
+            if (video.srcObject && video.srcObject.getTracks) {
+              const tracks = video.srcObject.getTracks();
+              const audioTrack = tracks.find(t => t.kind === 'audio' && t.readyState === 'live');
+
+              if (audioTrack) {
+                console.log(`[KAIRO-ZOOM] Found audio track in video element ${i}:`, {
+                  id: audioTrack.id,
+                  label: audioTrack.label,
+                  readyState: audioTrack.readyState,
+                  enabled: audioTrack.enabled
+                });
+                foundTrack = audioTrack;
+                trackSource = 'video_element';
+                break;
+              }
+            }
+          }
+
+          // Strategy 2: Check for getUserMedia streams
+          if (!foundTrack) {
+            console.log('[KAIRO-ZOOM] Checking for getUserMedia streams...');
+            
+            // Try to trigger getUserMedia if not already done
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+              // This is async, but we'll set up the hook for when it happens
+              navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                .then(stream => {
+                  const audioTracks = stream.getAudioTracks();
+                  if (audioTracks.length > 0) {
+                    console.log('[KAIRO-ZOOM] Got audio track from getUserMedia');
+                    if (window.audioCapture && window.switchTrackForRecording) {
+                      window.switchTrackForRecording(audioTracks[0], 'local');
+                    }
+                  }
+                })
+                .catch(e => {
+                  console.log('[KAIRO-ZOOM] getUserMedia failed:', e.message);
+                });
+            }
+          }
+
+          // Strategy 3: Look for existing RTCPeerConnection instances
+          if (!foundTrack) {
+            console.log('[KAIRO-ZOOM] Searching existing RTCPeerConnections...');
+
+            try {
+              // Check global objects for peer connections
+              const possiblePCs = [];
+
+              // Look in common Zoom global variables
+              const zoomGlobals = ['ZoomMtg', 'ZmMtg', 'webClient', 'client'];
+              for (const globalName of zoomGlobals) {
+                try {
+                  if (window[globalName]) {
+                    console.log(`[KAIRO-ZOOM] Found ${globalName} global`);
+                    // Try to find peer connections in the object
+                    const searchForPCs = (obj, depth = 0) => {
+                      if (depth > 3) return; // Limit recursion depth
+                      for (const key in obj) {
+                        try {
+                          if (obj[key] && obj[key].constructor && 
+                              obj[key].constructor.name === 'RTCPeerConnection') {
+                            possiblePCs.push(obj[key]);
+                          } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+                            searchForPCs(obj[key], depth + 1);
+                          }
+                        } catch (e) {
+                          // Skip properties that throw errors
+                        }
+                      }
+                    };
+                    searchForPCs(window[globalName]);
+                  }
+                } catch (e) {
+                  console.log(`[KAIRO-ZOOM] Error checking ${globalName}:`, e.message);
+                }
+              }
+
+              // Also check window directly for RTCPeerConnection instances
+              for (const key in window) {
+                try {
+                  if (window[key] && window[key].constructor &&
+                    window[key].constructor.name === 'RTCPeerConnection') {
+                    possiblePCs.push(window[key]);
+                  }
+                } catch (e) {
+                  // Skip properties that throw errors
+                }
+              }
+
+              console.log(`[KAIRO-ZOOM] Found ${possiblePCs.length} potential peer connections`);
+
+              // Try to get tracks from existing peer connections
+              for (const pc of possiblePCs) {
+                try {
+                  const receivers = pc.getReceivers ? pc.getReceivers() : [];
+                  console.log(`[KAIRO-ZOOM] Checking PC with ${receivers.length} receivers`);
+                  
+                  for (const receiver of receivers) {
+                    if (receiver.track && receiver.track.kind === 'audio' &&
+                      receiver.track.readyState === 'live') {
+                      console.log('[KAIRO-ZOOM] Found audio track in RTCPeerConnection:', {
+                        id: receiver.track.id,
+                        label: receiver.track.label,
+                        readyState: receiver.track.readyState
+                      });
+                      foundTrack = receiver.track;
+                      trackSource = 'rtc_peer_connection';
+                      break;
+                    }
+                  }
+                  if (foundTrack) break;
+                } catch (e) {
+                  console.log('[KAIRO-ZOOM] Error checking peer connection:', e.message);
+                }
+              }
+            } catch (e) {
+              console.log('[KAIRO-ZOOM] Error searching peer connections:', e.message);
+            }
+          }
+
+          // If we found a track, set it up for recording
+          if (foundTrack) {
+            console.log(`[KAIRO-ZOOM] Setting up audio capture with track from ${trackSource}...`);
+
+            // Initialize audio capture if not already initialized
+            if (!window.audioCapture) {
+              window.audioCapture = {
+                audioContext: null,
+                completeRecorder: null,
+                completeChunks: [],
+                streamRecorder: null,
+                streamChunks: [],
+                lastProcessedIndex: 0,
+                isRecording: false,
+                trackToRecord: null,
+                trackSource: null
               };
-            } else {
+            }
+
+            // Set the track and source
+            window.audioCapture.trackToRecord = foundTrack;
+            window.audioCapture.trackSource = trackSource;
+
+            // Try to start recording
+            try {
+              if (window.startAudioRecording) {
+                window.startAudioRecording();
+                return {
+                  success: true,
+                  alreadyWorking: false,
+                  message: `Audio capture started with track from ${trackSource}`,
+                  trackInfo: {
+                    id: foundTrack.id,
+                    label: foundTrack.label,
+                    readyState: foundTrack.readyState,
+                    source: trackSource
+                  }
+                };
+              } else {
+                return {
+                  success: false,
+                  message: 'startAudioRecording function not available'
+                };
+              }
+            } catch (e) {
               return {
                 success: false,
-                message: 'startAudioRecording function not available'
+                message: 'Error starting audio recording: ' + e.message
               };
             }
-          } catch (e) {
-            return {
-              success: false,
-              message: 'Error starting audio recording: ' + e.message
-            };
+          }
+
+          return {
+            success: false,
+            message: 'No audio tracks found',
+            debugInfo: {
+              videoElements: videos.length,
+              hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
+              hasAudioContext: !!(window.AudioContext || window.webkitAudioContext)
+            }
+          };
+        });
+
+        if (result.success) {
+          if (result.alreadyWorking) {
+            console.log('✅ [Zoom] Audio capture already working');
+          } else {
+            console.log('✅ [Zoom] Audio capture reinjected successfully');
+            if (result.trackInfo) {
+              console.log(`   Track: ${result.trackInfo.label || result.trackInfo.id} (${result.trackInfo.source})`);
+            }
+          }
+          return true;
+        } else {
+          console.log(`⚠️ [Zoom] Attempt ${attempt} failed: ${result.message}`);
+          if (result.debugInfo) {
+            console.log(`   Debug: ${result.debugInfo.videoElements} video elements, getUserMedia: ${result.debugInfo.hasGetUserMedia}, AudioContext: ${result.debugInfo.hasAudioContext}`);
+          }
+          
+          // If this is not the last attempt, wait before retrying
+          if (attempt < maxAttempts) {
+            console.log(`   ⏳ Waiting ${delayBetweenAttempts}ms before next attempt...`);
+            await new Promise(resolve => setTimeout(resolve, delayBetweenAttempts));
           }
         }
-
-        return {
-          success: false,
-          message: 'No audio tracks found'
-        };
-      });
-
-      if (result.success) {
-        if (result.alreadyWorking) {
-          console.log('✅ [Zoom] Audio capture already working');
-        } else {
-          console.log('✅ [Zoom] Audio capture reinjected successfully');
-        }
-        return true;
-      } else {
-        console.log(`⚠️ [Zoom] Failed to reinject audio capture: ${result.message}`);
-        return false;
       }
+
+      console.log(`❌ [Zoom] All ${maxAttempts} attempts failed`);
+      return false;
     } catch (error) {
       console.error('❌ [Zoom] Error reinjecting audio capture:', error.message);
       return false;
