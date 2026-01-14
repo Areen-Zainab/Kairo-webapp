@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail, ChevronLeft, ChevronRight, Building2, Check, X, Bell } from 'lucide-react';
+import { Plus, Users, Calendar, BarChart3, CheckSquare, TrendingUp, Clock, Mail, ChevronLeft, ChevronRight, Building2, Check, X, Bell, Archive } from 'lucide-react';
 import Layout from '../../components/Layout';
 import CreateWorkspaceModal from '../../modals/workspace/CreateWorkspace';
 import JoinWorkspaceModal from '../../modals/workspace/JoinWorkspace';
@@ -19,7 +19,7 @@ const Dashboard = () => {
   const [meetingsLoading, setMeetingsLoading] = useState(true);
   const [workspaceMeetingCounts, setWorkspaceMeetingCounts] = useState<{[key: number]: number}>({});
   
-  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite, setCurrentWorkspace, isAuthenticated, loading } = useUser();
+  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite, setCurrentWorkspace, isAuthenticated, loading, showArchivedWorkspaces, setShowArchivedWorkspaces } = useUser();
   const { success: toastSuccess, error: toastError } = useToastContext();
   
   // Redirect to login if not authenticated
@@ -185,6 +185,7 @@ const Dashboard = () => {
     colorTheme: ws.colorTheme || fallbackColors[index % fallbackColors.length],
     lastActive: new Date(ws.createdAt).toLocaleDateString(),
     isPending: false,
+    isArchived: ws.isArchived,
   }));
 
   // Add pending invites as workspace cards
@@ -447,12 +448,28 @@ const Dashboard = () => {
 
           {/* Workspaces Section */}
           <div className="mb-6">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
-              <span>Your Workspaces</span>
-              <span className="px-2 py-0.5 bg-gray-100 rounded text-sm text-gray-600 dark:bg-slate-800 dark:text-slate-400">
-                {allWorkspaces.length}
-              </span>
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+                <span>Your Workspaces</span>
+                <span className="px-2 py-0.5 bg-gray-100 rounded text-sm text-gray-600 dark:bg-slate-800 dark:text-slate-400">
+                  {allWorkspaces.length}
+                </span>
+              </h2>
+              {!shouldShowDummyData && (
+                <button
+                  onClick={() => setShowArchivedWorkspaces(!showArchivedWorkspaces)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    showArchivedWorkspaces
+                      ? 'bg-purple-100 text-purple-700 border border-purple-300 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-700'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                  }`}
+                  title={showArchivedWorkspaces ? "Hide archived workspaces" : "Show archived workspaces"}
+                >
+                  <Archive className="w-4 h-4" />
+                  <span>{showArchivedWorkspaces ? 'Hide Archived' : 'Show Archived'}</span>
+                </button>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 gap-3">
               {allWorkspaces.length === 0 ? (
@@ -516,6 +533,9 @@ const Dashboard = () => {
                             <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-600">
                               Invitation
                             </span>
+                          )}
+                          {'isArchived' in workspace && workspace.isArchived && (
+                            <Archive className="w-4 h-4 text-orange-600 dark:text-orange-400" title="Archived" />
                           )}
                         </h3>
                         <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">

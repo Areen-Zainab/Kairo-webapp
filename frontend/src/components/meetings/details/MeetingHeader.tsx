@@ -1,4 +1,5 @@
 import React from 'react';
+import { Video } from 'lucide-react';
 import ExportDropdown from './ExportDropdown';
 import type { MeetingDetailsData } from './types';
 
@@ -28,6 +29,34 @@ const MeetingHeader: React.FC<MeetingHeaderProps> = ({
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
     }
+  };
+
+  const getPlatformInfo = (platform?: string) => {
+    if (!platform) return null;
+    
+    const platformMap: Record<string, { name: string; color: string; icon?: string }> = {
+      'google-meet': { 
+        name: 'Google Meet', 
+        color: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800',
+      },
+      'zoom': { 
+        name: 'Zoom', 
+        color: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800',
+      },
+      'teams': { 
+        name: 'Microsoft Teams', 
+        color: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800',
+      },
+      'other': { 
+        name: 'Other Platform', 
+        color: 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/20 dark:text-slate-400 dark:border-slate-800',
+      },
+    };
+    
+    return platformMap[platform.toLowerCase()] || { 
+      name: platform, 
+      color: 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/20 dark:text-slate-400 dark:border-slate-800',
+    };
   };
 
   // Format duration for display (exact time, not rounded)
@@ -88,6 +117,15 @@ const MeetingHeader: React.FC<MeetingHeaderProps> = ({
                 </svg>
                 <span>{meeting.stats.participantsCount} participants</span>
               </div>
+              
+              {meeting.platform && getPlatformInfo(meeting.platform) && (
+                <div className="flex items-center gap-1">
+                  <Video className="w-4 h-4" />
+                  <span className={`px-2 py-0.5 rounded-md text-xs font-medium border ${getPlatformInfo(meeting.platform)!.color}`}>
+                    {getPlatformInfo(meeting.platform)!.name}
+                  </span>
+                </div>
+              )}
             </div>
             
             {meeting.description && (

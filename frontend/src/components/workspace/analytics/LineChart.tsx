@@ -1,294 +1,207 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React from 'react';
 import type { LineChartProps } from './types';
 
 const LineChart: React.FC<LineChartProps> = ({
   data,
   title,
-  xAxisLabel = 'Time',
+  xAxisLabel = 'Date',
   yAxisLabel = 'Value',
   height = 300,
   className = ''
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || data.length === 0) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Set canvas size
-    canvas.width = canvas.offsetWidth * 2;
-    canvas.height = height * 2;
-    ctx.scale(2, 2);
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.offsetWidth, height);
-
-    const padding = 40;
-    const chartWidth = canvas.offsetWidth - padding * 2;
-    const chartHeight = height - padding * 2;
-
-    // Find min and max values
-    const values = data.map(d => d.value);
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
-    const valueRange = maxValue - minValue;
-
-    // Draw axes
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, height - padding);
-    ctx.lineTo(canvas.offsetWidth - padding, height - padding);
-    ctx.stroke();
-
-    // Draw grid lines
-    ctx.strokeStyle = '#f1f5f9';
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i <= 5; i++) {
-      const y = padding + (chartHeight / 5) * i;
-      ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(canvas.offsetWidth - padding, y);
-      ctx.stroke();
-    }
-
-    // Draw line
-    if (data.length > 1) {
-      ctx.strokeStyle = '#3b82f6';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-
-      data.forEach((point, index) => {
-        const x = padding + (chartWidth / (data.length - 1)) * index;
-        const y = height - padding - ((point.value - minValue) / valueRange) * chartHeight;
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
-
-      ctx.stroke();
-
-      // Draw points
-      ctx.fillStyle = '#3b82f6';
-      data.forEach((point, index) => {
-        const x = padding + (chartWidth / (data.length - 1)) * index;
-        const y = height - padding - ((point.value - minValue) / valueRange) * chartHeight;
-
-        ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-
-    // Draw labels
-    ctx.fillStyle = '#64748b';
-    ctx.font = '12px Inter, sans-serif';
-    ctx.textAlign = 'center';
-
-    // X-axis labels
-    data.forEach((point, index) => {
-      const x = padding + (chartWidth / (data.length - 1)) * index;
-      ctx.fillText(point.label || point.date, x, height - padding + 15);
-    });
-
-    // Y-axis labels
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= 5; i++) {
-      const value = minValue + (valueRange / 5) * i;
-      const y = height - padding - (chartHeight / 5) * i;
-      ctx.fillText(value.toLocaleString(), padding - 10, y + 4);
-    }
-
-    // Axis labels
-    ctx.fillStyle = '#475569';
-    ctx.font = '14px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(xAxisLabel, canvas.offsetWidth / 2, height - 5);
-    
-    ctx.save();
-    ctx.translate(15, height / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText(yAxisLabel, 0, 0);
-    ctx.restore();
-
-  }, [data, title, xAxisLabel, yAxisLabel, height]);
+  // Safety checks for data
+  const validData = data.filter(d => typeof d.value === 'number' && isFinite(d.value) && d.value >= 0);
+  const hasData = validData.length > 0;
+  const maxValue = hasData ? Math.max(...validData.map(d => d.value)) : 1;
+  const minValue = hasData ? Math.min(...validData.map(d => d.value)) : 0;
+  const valueRange = maxValue - minValue || 1;
 
   return (
-    <>
-      <div className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6 ${className}`}>
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-            {title}
-          </h3>
-          <div className="w-2 h-2 bg-blue-500"></div>
-        </div>
-        <div className="relative">
-          <canvas
-            ref={canvasRef}
-            className="w-full cursor-pointer hover:opacity-90 transition-opacity"
-            style={{ height: `${height}px` }}
-            onClick={() => setIsModalOpen(true)}
-            title="Click to expand chart"
-          />
-        </div>
+    <div className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden ${className}`}>
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
+        {yAxisLabel && (
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{yAxisLabel}</p>
+        )}
       </div>
 
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 max-w-6xl max-h-[90vh] w-full mx-4">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-semibold text-slate-900 dark:text-white">
-                {title}
-              </h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-              >
-                <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="relative">
-              <canvas
-                ref={(ref) => {
-                  if (ref && isModalOpen) {
-                    // Re-render canvas for modal with larger size
-                    const ctx = ref.getContext('2d');
-                    if (ctx) {
-                      const modalHeight = 600;
-                      const modalWidth = ref.offsetWidth;
-                      ref.width = modalWidth * 2;
-                      ref.height = modalHeight * 2;
-                      ctx.scale(2, 2);
-                      
-                      // Re-draw the chart for modal with better spacing
-                      const leftPadding = 80;
-                      const rightPadding = 40;
-                      const topPadding = 60;
-                      const bottomPadding = 80;
-                      const chartWidth = modalWidth - leftPadding - rightPadding;
-                      const chartHeight = modalHeight - topPadding - bottomPadding;
-                      
-                      // Clear canvas
-                      ctx.clearRect(0, 0, modalWidth, modalHeight);
-                      
-                      // Find min and max values
-                      const values = data.map(d => d.value);
-                      const minValue = Math.min(...values);
-                      const maxValue = Math.max(...values);
-                      const valueRange = maxValue - minValue;
-                      
-                      // Draw axes
-                      ctx.strokeStyle = '#e2e8f0';
-                      ctx.lineWidth = 2;
-                      ctx.beginPath();
-                      ctx.moveTo(leftPadding, topPadding);
-                      ctx.lineTo(leftPadding, modalHeight - bottomPadding);
-                      ctx.lineTo(modalWidth - rightPadding, modalHeight - bottomPadding);
-                      ctx.stroke();
-                      
-                      // Draw grid lines
-                      ctx.strokeStyle = '#f1f5f9';
-                      ctx.lineWidth = 1;
-                      for (let i = 0; i <= 5; i++) {
-                        const y = topPadding + (chartHeight / 5) * i;
-                        ctx.beginPath();
-                        ctx.moveTo(leftPadding, y);
-                        ctx.lineTo(modalWidth - rightPadding, y);
-                        ctx.stroke();
-                      }
-                      
-                      // Draw line
-                      if (data.length > 1) {
-                        ctx.strokeStyle = '#3b82f6';
-                        ctx.lineWidth = 4;
-                        ctx.beginPath();
-                        
-                        data.forEach((point, index) => {
-                          const x = leftPadding + (chartWidth / (data.length - 1)) * index;
-                          const y = modalHeight - bottomPadding - ((point.value - minValue) / valueRange) * chartHeight;
-                          
-                          if (index === 0) {
-                            ctx.moveTo(x, y);
-                          } else {
-                            ctx.lineTo(x, y);
-                          }
-                        });
-                        
-                        ctx.stroke();
-                        
-                        // Draw points
-                        ctx.fillStyle = '#3b82f6';
-                        data.forEach((point, index) => {
-                          const x = leftPadding + (chartWidth / (data.length - 1)) * index;
-                          const y = modalHeight - bottomPadding - ((point.value - minValue) / valueRange) * chartHeight;
-                          
-                          ctx.beginPath();
-                          ctx.arc(x, y, 8, 0, Math.PI * 2);
-                          ctx.fill();
-                          
-                          // White border around points
-                          ctx.strokeStyle = '#ffffff';
-                          ctx.lineWidth = 3;
-                          ctx.stroke();
-                        });
-                      }
-                      
-                      // Draw labels with better positioning
-                      ctx.fillStyle = '#374151';
-                      ctx.font = 'bold 14px Inter, sans-serif';
-                      ctx.textAlign = 'center';
-                      
-                      // X-axis labels
-                      data.forEach((point, index) => {
-                        const x = leftPadding + (chartWidth / (data.length - 1)) * index;
-                        const label = point.label || point.date;
-                        // Truncate long labels
-                        const truncatedLabel = label.length > 12 ? label.substring(0, 12) + '...' : label;
-                        ctx.fillText(truncatedLabel, x, modalHeight - bottomPadding + 25);
-                      });
-                      
-                      // Y-axis labels
-                      ctx.textAlign = 'right';
-                      ctx.font = 'bold 14px Inter, sans-serif';
-                      for (let i = 0; i <= 5; i++) {
-                        const value = minValue + (valueRange / 5) * i;
-                        const y = modalHeight - bottomPadding - (chartHeight / 5) * i;
-                        ctx.fillText(value.toLocaleString(), leftPadding - 15, y + 5);
-                      }
-                      
-                      // Axis labels with better positioning
-                      ctx.fillStyle = '#1f2937';
-                      ctx.font = 'bold 16px Inter, sans-serif';
-                      ctx.textAlign = 'center';
-                      ctx.fillText(xAxisLabel, modalWidth / 2, modalHeight - 20);
-                      
-                      ctx.save();
-                      ctx.translate(30, modalHeight / 2);
-                      ctx.rotate(-Math.PI / 2);
-                      ctx.fillText(yAxisLabel, 0, 0);
-                      ctx.restore();
-                    }
-                  }
-                }}
-                className="w-full"
-                style={{ height: '600px' }}
-              />
+      {/* Chart Container */}
+      <div className="p-6" style={{ height: `${height}px` }}>
+        {!hasData ? (
+          <div className="flex items-center justify-center h-full text-slate-400 dark:text-slate-500">
+            <div className="text-center">
+              <svg className="mx-auto h-12 w-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              <p className="text-sm font-medium">No data available</p>
             </div>
           </div>
+        ) : (
+          <div className="h-full flex flex-col">
+            {/* Chart Area */}
+            <div className="flex-1 relative">
+              {/* Grid lines */}
+              <div className="absolute inset-0 flex flex-col justify-between py-2">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="flex items-center">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 w-12 text-right pr-2">
+                      {Math.round(maxValue - (i * (maxValue / 4)))}
+                    </span>
+                    <div className="flex-1 border-t border-slate-200 dark:border-slate-700 border-dashed"></div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Line and Area Chart */}
+              <svg className="absolute inset-0 w-full h-full" style={{ paddingLeft: '50px', paddingTop: '8px', paddingBottom: '8px' }}>
+                <defs>
+                  <linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style={{ stopColor: '#8b5cf6', stopOpacity: 0.3 }} />
+                    <stop offset="100%" style={{ stopColor: '#8b5cf6', stopOpacity: 0.05 }} />
+                  </linearGradient>
+                  <filter id="glow">
+                    <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                    <feMerge>
+                      <feMergeNode in="coloredBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+
+                {/* Calculate points */}
+                {(() => {
+                  const chartHeight = height - 50;
+                  const chartWidth = window.innerWidth > 768 ? 600 : 300; // Approximate width
+                  const stepX = chartWidth / (validData.length - 1 || 1);
+                  
+                  const points = validData.map((d, i) => {
+                    const x = i * stepX;
+                    const normalizedValue = valueRange > 0 ? (d.value - minValue) / valueRange : 0.5;
+                    const y = chartHeight - (normalizedValue * (chartHeight - 20)) - 10;
+                    return { x, y, value: d.value };
+                  });
+
+                  const linePathD = points.map((p, i) => 
+                    `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`
+                  ).join(' ');
+
+                  const areaPathD = `${linePathD} L ${points[points.length - 1].x} ${chartHeight} L 0 ${chartHeight} Z`;
+
+                  return (
+                    <>
+                      {/* Area under the line */}
+                      <path
+                        d={areaPathD}
+                        fill="url(#lineGradient)"
+                        className="transition-all duration-500"
+                      />
+                      
+                      {/* Line */}
+                      <path
+                        d={linePathD}
+                        fill="none"
+                        stroke="#8b5cf6"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        filter="url(#glow)"
+                        className="transition-all duration-500"
+                      />
+
+                      {/* Data points */}
+                      {points.map((p, i) => (
+                        <g key={i}>
+                          <circle
+                            cx={p.x}
+                            cy={p.y}
+                            r="5"
+                            fill="#8b5cf6"
+                            stroke="#fff"
+                            strokeWidth="2"
+                            className="transition-all duration-300 hover:r-7 cursor-pointer"
+                          />
+                          {/* Tooltip on hover */}
+                          <g className="opacity-0 hover:opacity-100 transition-opacity pointer-events-none">
+                            <rect
+                              x={p.x - 25}
+                              y={p.y - 40}
+                              width="50"
+                              height="25"
+                              rx="4"
+                              fill="#1e293b"
+                              className="dark:fill-slate-700"
+                            />
+                            <text
+                              x={p.x}
+                              y={p.y - 22}
+                              textAnchor="middle"
+                              fill="#fff"
+                              fontSize="12"
+                              fontWeight="600"
+                            >
+                              {p.value}
+                            </text>
+                          </g>
+                        </g>
+                      ))}
+                    </>
+                  );
+                })()}
+              </svg>
+            </div>
+
+            {/* X-Axis Labels */}
+            <div className="flex justify-between mt-4 px-12">
+              {validData.length <= 10 ? (
+                // Show all labels if <= 10 points
+                validData.map((item, index) => (
+                  <div key={index} className="text-center">
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400 transform -rotate-0">
+                      {item.label || item.date || index}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                // Show only first, middle, and last for more points
+                <>
+                  <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                    {validData[0].label || validData[0].date}
+                  </p>
+                  <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                    {validData[Math.floor(validData.length / 2)].label || validData[Math.floor(validData.length / 2)].date}
+                  </p>
+                  <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                    {validData[validData.length - 1].label || validData[validData.length - 1].date}
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* X-Axis Label */}
+            {xAxisLabel && (
+              <div className="text-center mt-3">
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{xAxisLabel}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Summary Stats */}
+      {hasData && (
+        <div className="px-6 pb-4 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-700 pt-3">
+          <div className="flex gap-4">
+            <span>Min: <strong className="text-slate-700 dark:text-slate-300">{minValue}</strong></span>
+            <span>Max: <strong className="text-slate-700 dark:text-slate-300">{maxValue}</strong></span>
+            <span>Avg: <strong className="text-slate-700 dark:text-slate-300">
+              {Math.round(validData.reduce((sum, d) => sum + d.value, 0) / validData.length)}
+            </strong></span>
+          </div>
+          <span className="text-slate-400">{validData.length} data points</span>
         </div>
       )}
-    </>
+    </div>
   );
 };
 

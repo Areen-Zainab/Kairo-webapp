@@ -3,6 +3,7 @@ const prisma = require("../lib/prisma");
 const Notification = require("../models/Notification");
 const WorkspaceInvite = require("../models/WorkspaceInvite");
 const WorkspaceLog = require("../models/WorkspaceLog");
+const NotificationService = require("../services/NotificationService");
 const { authenticateToken } = require("../middleware/auth");
 
 const router = express.Router();
@@ -119,12 +120,16 @@ router.post("/", authenticateToken, async (req, res) => {
 // Get user's workspaces
 router.get("/", authenticateToken, async (req, res) => {
   try {
+    const { includeArchived } = req.query;
+    const showArchived = includeArchived === 'true';
+
     const workspaces = await prisma.workspaceMember.findMany({
       where: {
         userId: req.user.id,
         isActive: true,
         workspace: {
-          isActive: true  // Only return active workspaces
+          isActive: true,  // Only return active (not deleted) workspaces
+          ...(showArchived ? {} : { isArchived: false })  // Filter out archived unless requested
         }
       },
       include: {
@@ -170,6 +175,8 @@ router.get("/", authenticateToken, async (req, res) => {
       memberCount: wm.workspace.members.length,
       createdAt: wm.workspace.createdAt,
       joinedAt: wm.joinedAt,
+      isArchived: wm.workspace.isArchived,
+      archivedAt: wm.workspace.archivedAt,
     }));
 
     res.json({ workspaces: formattedWorkspaces });
@@ -324,6 +331,545 @@ router.post("/invites/:inviteId/reject", authenticateToken, async (req, res) => 
 });
 
 // ============ WORKSPACE-SPECIFIC ROUTES ============
+
+// Get workspace analytics
+router.get("/:id/analytics", authenticateToken, async (req, res) => {
+  try {
+    const workspaceId = parseInt(req.params.id);
+    const { timeRange = 'month' } = req.query;
+    
+    if (isNaN(workspaceId)) {
+      return res.status(400).json({ error: "Invalid workspace ID" });
+    }
+
+    // Check if user is a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You are not a member of this workspace" });
+    }
+
+    // Calculate date range based on timeRange parameter
+    const now = new Date();
+    let startDate = null;
+    
+    switch (timeRange) {
+      case 'week':
+        startDate = new Date();
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate = new Date();
+        startDate.setMonth(now.getMonth() - 1);
+        break;
+      case 'quarter':
+        startDate = new Date();
+        startDate.setMonth(now.getMonth() - 3);
+        break;
+      case 'year':
+        startDate = new Date();
+        startDate.setFullYear(now.getFullYear() - 1);
+        break;
+      case 'all':
+        startDate = null; // No date filter for "all time"
+        break;
+      default:
+        startDate = null; // Default to all time to show all data
+    }
+
+    // Build the where clause
+    const whereClause = {
+      workspaceId,
+      ...(startDate ? { createdAt: { gte: startDate } } : {})
+    };
+
+    // Debug logging
+    console.log(`📊 [Analytics] Fetching analytics for workspace ${workspaceId}`);
+    console.log(`📊 [Analytics] Time range: ${timeRange}`);
+    console.log(`📊 [Analytics] Start date: ${startDate}`);
+    console.log(`📊 [Analytics] Where clause:`, whereClause);
+
+    // Get all meetings in the time range with full details
+    const meetings = await prisma.meeting.findMany({
+      where: whereClause,
+      include: {
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                profilePictureUrl: true
+              }
+            }
+          }
+        },
+        actionItems: true
+      }
+    });
+
+    console.log(`📊 [Analytics] Found ${meetings.length} meetings`);
+
+    // ===== BASIC STATS =====
+    const totalMeetings = meetings.length;
+    const completedMeetings = meetings.filter(m => m.status === 'completed').length;
+    const totalActionItems = meetings.reduce((sum, m) => sum + (m.actionItems?.length || 0), 0);
+    const completedActionItems = meetings.reduce((sum, m) => 
+      sum + (m.actionItems?.filter(ai => ai.status === 'completed').length || 0), 0
+    );
+
+    // Get member count
+    const memberCount = await prisma.workspaceMember.count({
+      where: { workspaceId, isActive: true }
+    });
+
+    // ===== TRANSCRIPT COVERAGE =====
+    const meetingsWithTranscripts = meetings.filter(m => m.transcriptUrl !== null && m.transcriptUrl !== '').length;
+    const transcriptCoverage = totalMeetings > 0 ? (meetingsWithTranscripts / totalMeetings) * 100 : 0;
+
+    // ===== MEETING DURATION ANALYSIS =====
+    const completedMeetingsWithDuration = meetings.filter(m => m.status === 'completed' && m.endTime);
+    const durations = completedMeetingsWithDuration.map(m => 
+      (new Date(m.endTime).getTime() - new Date(m.startTime).getTime()) / 60000
+    );
+    const averageDuration = durations.length > 0
+      ? durations.reduce((sum, d) => sum + d, 0) / durations.length
+      : 0;
+    
+    // Duration trend over time (comparing first half vs second half of time range)
+    let durationTrend = 0;
+    let avgDurationFirstHalf = 0;
+    let avgDurationSecondHalf = 0;
+    
+    if (startDate && completedMeetingsWithDuration.length > 0) {
+      const midPoint = new Date(startDate.getTime() + (now.getTime() - startDate.getTime()) / 2);
+      const firstHalfMeetings = completedMeetingsWithDuration.filter(m => new Date(m.createdAt) < midPoint);
+      const secondHalfMeetings = completedMeetingsWithDuration.filter(m => new Date(m.createdAt) >= midPoint);
+      
+      avgDurationFirstHalf = firstHalfMeetings.length > 0
+        ? firstHalfMeetings.reduce((sum, m) => sum + (new Date(m.endTime).getTime() - new Date(m.startTime).getTime()) / 60000, 0) / firstHalfMeetings.length
+        : 0;
+      avgDurationSecondHalf = secondHalfMeetings.length > 0
+        ? secondHalfMeetings.reduce((sum, m) => sum + (new Date(m.endTime).getTime() - new Date(m.startTime).getTime()) / 60000, 0) / secondHalfMeetings.length
+        : 0;
+      
+      durationTrend = avgDurationFirstHalf > 0 
+        ? ((avgDurationSecondHalf - avgDurationFirstHalf) / avgDurationFirstHalf) * 100
+        : 0;
+    }
+
+    // ===== PARTICIPANT ANALYTICS =====
+    const participantStats = {};
+    meetings.forEach(meeting => {
+      meeting.participants?.forEach(participant => {
+        const userId = participant.userId;
+        if (!participantStats[userId]) {
+          participantStats[userId] = {
+            userId,
+            name: participant.user?.name || 'Unknown',
+            email: participant.user?.email,
+            profilePictureUrl: participant.user?.profilePictureUrl,
+            meetingsAttended: 0,
+            totalMeetings: 0
+          };
+        }
+        participantStats[userId].totalMeetings++;
+        if (participant.status === 'attended') {
+          participantStats[userId].meetingsAttended++;
+        }
+      });
+    });
+
+    const topParticipants = Object.values(participantStats)
+      .map(p => ({
+        ...p,
+        attendanceRate: p.totalMeetings > 0 ? (p.meetingsAttended / p.totalMeetings) * 100 : 0
+      }))
+      .sort((a, b) => b.meetingsAttended - a.meetingsAttended)
+      .slice(0, 10);
+
+    // ===== TIME PATTERNS =====
+    const hourDistribution = Array(24).fill(0);
+    const dayDistribution = Array(7).fill(0); // 0 = Sunday, 6 = Saturday
+    
+    meetings.forEach(m => {
+      const meetingDate = new Date(m.startTime);
+      hourDistribution[meetingDate.getHours()]++;
+      dayDistribution[meetingDate.getDay()]++;
+    });
+
+    const peakHour = hourDistribution.indexOf(Math.max(...hourDistribution));
+    const peakDay = dayDistribution.indexOf(Math.max(...dayDistribution));
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    const timePatternData = {
+      hourly: hourDistribution.map((count, hour) => ({
+        hour: `${hour}:00`,
+        value: count
+      })),
+      daily: dayDistribution.map((count, day) => ({
+        day: dayNames[day],
+        value: count
+      })),
+      peakHour: `${peakHour}:00`,
+      peakDay: dayNames[peakDay]
+    };
+
+    // ===== ACTION ITEM TRENDS & TIME SERIES DATA =====
+    // For "all time", use last 30 days for trends; for specific ranges, use the range
+    const daysCount = timeRange === 'all' ? 30 : 
+                     timeRange === 'week' ? 7 : 
+                     timeRange === 'month' ? 30 : 
+                     timeRange === 'quarter' ? 90 :
+                     timeRange === 'year' ? 365 : 30;
+    
+    const actionItemTrends = [];
+    const timeSeriesData = [];
+    
+    for (let i = daysCount - 1; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      
+      const nextDate = new Date(date);
+      nextDate.setDate(nextDate.getDate() + 1);
+      
+      const dayMeetings = meetings.filter(m => {
+        const meetingDate = new Date(m.createdAt);
+        return meetingDate >= date && meetingDate < nextDate;
+      });
+      
+      // Action item trends
+      const created = dayMeetings.reduce((sum, m) => sum + (m.actionItems?.length || 0), 0);
+      const completed = dayMeetings.reduce((sum, m) => 
+        sum + (m.actionItems?.filter(ai => ai.status === 'completed' && new Date(ai.updatedAt) >= date && new Date(ai.updatedAt) < nextDate).length || 0), 0
+      );
+      
+      actionItemTrends.push({
+        date: date.toISOString().split('T')[0],
+        created,
+        completed,
+        label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      });
+      
+      // Time series data (meetings per day)
+      timeSeriesData.push({
+        date: date.toISOString().split('T')[0],
+        value: dayMeetings.length,
+        label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      });
+    }
+
+    // ===== MEETINGS BY PLATFORM =====
+    const platformDistribution = {};
+    meetings.forEach(m => {
+      const platform = m.platform || 'other';
+      platformDistribution[platform] = (platformDistribution[platform] || 0) + 1;
+    });
+
+    const meetingTypesData = Object.entries(platformDistribution).map(([platform, count], index) => {
+      const colors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+      return {
+        label: platform.charAt(0).toUpperCase() + platform.slice(1),
+        value: count,
+        color: colors[index % colors.length]
+      };
+    });
+
+    // ===== RESPONSE =====
+    res.json({
+      analytics: {
+        // Basic stats
+        totalMembers: memberCount,
+        totalMeetings,
+        completedMeetings,
+        totalActionItems,
+        completedActionItems,
+        averageDuration: Math.round(averageDuration),
+        engagementRate: Math.round(((completedMeetings / (totalMeetings || 1)) * 100) * 10) / 10,
+        
+        // Transcript coverage
+        transcriptCoverage: Math.round(transcriptCoverage * 10) / 10,
+        meetingsWithTranscripts,
+        
+        // Duration analysis
+        durationTrend: Math.round(durationTrend * 10) / 10,
+        avgDurationFirstHalf: Math.round(avgDurationFirstHalf),
+        avgDurationSecondHalf: Math.round(avgDurationSecondHalf),
+        
+        // Participant analytics
+        topParticipants,
+        totalParticipants: Object.keys(participantStats).length,
+        
+        // Time patterns
+        timePatterns: timePatternData,
+        
+        // Trends
+        actionItemTrends,
+        timeSeriesData,
+        meetingTypesData
+      }
+    });
+  } catch (error) {
+    console.error("Get workspace analytics error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get workspace dashboard stats
+router.get("/:id/dashboard", authenticateToken, async (req, res) => {
+  try {
+    const workspaceId = parseInt(req.params.id);
+    
+    if (isNaN(workspaceId)) {
+      return res.status(400).json({ error: "Invalid workspace ID" });
+    }
+
+    // Check if user is a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You are not a member of this workspace" });
+    }
+
+    // Get workspace with members count
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        _count: {
+          select: {
+            members: true,
+            meetings: true
+          }
+        }
+      }
+    });
+
+    // Get meetings stats
+    const totalMeetings = workspace._count.meetings;
+    
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const meetingsThisWeek = await prisma.meeting.count({
+      where: {
+        workspaceId,
+        createdAt: {
+          gte: startOfWeek
+        }
+      }
+    });
+
+    // Get completed meetings count
+    const completedMeetings = await prisma.meeting.count({
+      where: {
+        workspaceId,
+        status: 'completed'
+      }
+    });
+
+    // Get total action items
+    const totalActionItems = await prisma.actionItem.count({
+      where: {
+        meeting: {
+          workspaceId
+        }
+      }
+    });
+
+    // Get confirmed action items
+    const confirmedActionItems = await prisma.actionItem.count({
+      where: {
+        meeting: {
+          workspaceId
+        },
+        status: 'confirmed'
+      }
+    });
+
+    res.json({
+      stats: {
+        totalMeetings,
+        meetingsThisWeek,
+        completedMeetings,
+        totalMembers: workspace._count.members,
+        totalActionItems,
+        confirmedActionItems,
+        completionRate: totalActionItems > 0 
+          ? Math.round((confirmedActionItems / totalActionItems) * 100) 
+          : 0
+      }
+    });
+  } catch (error) {
+    console.error("Get workspace dashboard error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get workspace analytics
+router.get("/:id/analytics", authenticateToken, async (req, res) => {
+  try {
+    const workspaceId = parseInt(req.params.id);
+    const { timeRange = 'month' } = req.query;
+    
+    if (isNaN(workspaceId)) {
+      return res.status(400).json({ error: "Invalid workspace ID" });
+    }
+
+    // Check if user is a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You are not a member of this workspace" });
+    }
+
+    // Calculate date range based on timeRange
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (timeRange) {
+      case 'week':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate.setMonth(now.getMonth() - 1);
+        break;
+      case 'quarter':
+        startDate.setMonth(now.getMonth() - 3);
+        break;
+      case 'year':
+        startDate.setFullYear(now.getFullYear() - 1);
+        break;
+      default:
+        startDate.setMonth(now.getMonth() - 1);
+    }
+
+    // Get workspace with members count
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        _count: {
+          select: {
+            members: true,
+            meetings: true
+          }
+        }
+      }
+    });
+
+    // Get all meetings in time range
+    const meetings = await prisma.meeting.findMany({
+      where: {
+        workspaceId,
+        createdAt: {
+          gte: startDate
+        }
+      },
+      include: {
+        actionItems: true
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    });
+
+    // Calculate stats
+    const totalMeetings = meetings.length;
+    const completedMeetings = meetings.filter(m => m.status === 'completed').length;
+    const pastMeetings = meetings.filter(m => new Date(m.endTime) < now);
+    const totalActionItems = meetings.reduce((sum, m) => sum + (m.actionItems?.length || 0), 0);
+    const completedActionItems = meetings.reduce((sum, m) => 
+      sum + (m.actionItems?.filter(ai => ai.status === 'confirmed')?.length || 0), 0
+    );
+
+    // Calculate average duration
+    const meetingsWithDuration = pastMeetings.filter(m => m.startTime && m.endTime);
+    const avgDuration = meetingsWithDuration.length > 0
+      ? Math.round(
+          meetingsWithDuration.reduce((sum, m) => {
+            const duration = (new Date(m.endTime).getTime() - new Date(m.startTime).getTime()) / 60000;
+            return sum + duration;
+          }, 0) / meetingsWithDuration.length
+        )
+      : 0;
+
+    // Calculate engagement rate (% of meetings attended/completed)
+    const engagementRate = totalMeetings > 0 
+      ? (completedMeetings / totalMeetings) * 100 
+      : 0;
+
+    // Group meetings by platform for charts
+    const meetingsByPlatform = meetings.reduce((acc, m) => {
+      const platform = m.platform || 'other';
+      acc[platform] = (acc[platform] || 0) + 1;
+      return acc;
+    }, {});
+
+    const meetingTypesData = Object.entries(meetingsByPlatform).map(([platform, count], index) => {
+      const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+      return {
+        label: platform.charAt(0).toUpperCase() + platform.slice(1),
+        value: count,
+        color: colors[index % colors.length]
+      };
+    });
+
+    // Create time series data (meetings created over time)
+    const timeSeriesData = [];
+    const groupedByDate = meetings.reduce((acc, m) => {
+      const date = new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      acc[date] = (acc[date] || 0) + 1;
+      return acc;
+    }, {});
+
+    Object.entries(groupedByDate).forEach(([date, count]) => {
+      timeSeriesData.push({ date, value: count });
+    });
+
+    res.json({
+      analytics: {
+        totalMembers: workspace._count.members,
+        totalMeetings,
+        completedMeetings,
+        totalActionItems,
+        completedActionItems,
+        averageDuration: avgDuration,
+        engagementRate: parseFloat(engagementRate.toFixed(1)),
+        meetingTypesData: meetingTypesData.length > 0 ? meetingTypesData : [
+          { label: 'No data', value: 1, color: '#94a3b8' }
+        ],
+        timeSeriesData
+      }
+    });
+  } catch (error) {
+    console.error("Get workspace analytics error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // Get workspace activity logs (must be before /:id route)
 router.get("/:id/logs", authenticateToken, async (req, res) => {
@@ -501,6 +1047,132 @@ router.put("/:id", authenticateToken, async (req, res) => {
   }
 });
 
+// Archive workspace
+router.patch("/:id/archive", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const workspaceId = parseInt(id);
+
+    if (!workspaceId || isNaN(workspaceId)) {
+      return res.status(400).json({ error: "Invalid workspace ID" });
+    }
+
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId }
+    });
+
+    if (!workspace) {
+      return res.status(404).json({ error: "Workspace not found" });
+    }
+
+    if (workspace.ownerId !== req.user.id) {
+      return res.status(403).json({ error: "Only owner can archive workspace" });
+    }
+
+    if (workspace.isArchived) {
+      return res.status(400).json({ error: "Workspace is already archived" });
+    }
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { 
+        isArchived: true,
+        archivedAt: new Date(),
+        archivedBy: req.user.id
+      }
+    });
+
+    // Log workspace archiving
+    try {
+      await WorkspaceLog.create({
+        workspaceId: workspaceId,
+        userId: req.user.id,
+        action: 'workspace_archived',
+        title: 'Workspace Archived',
+        description: `${workspace.name} workspace was archived`,
+        metadata: { workspaceName: workspace.name }
+      });
+    } catch (logError) {
+      console.error("Error creating workspace log:", logError);
+    }
+
+    // Notify workspace members
+    try {
+      await NotificationService.notifyWorkspaceArchived(workspace);
+    } catch (notifError) {
+      console.error("Error sending archive notification:", notifError);
+    }
+
+    res.json({ message: "Workspace archived successfully" });
+  } catch (error) {
+    console.error("Archive workspace error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Unarchive workspace
+router.patch("/:id/unarchive", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const workspaceId = parseInt(id);
+
+    if (!workspaceId || isNaN(workspaceId)) {
+      return res.status(400).json({ error: "Invalid workspace ID" });
+    }
+
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId }
+    });
+
+    if (!workspace) {
+      return res.status(404).json({ error: "Workspace not found" });
+    }
+
+    if (workspace.ownerId !== req.user.id) {
+      return res.status(403).json({ error: "Only owner can unarchive workspace" });
+    }
+
+    if (!workspace.isArchived) {
+      return res.status(400).json({ error: "Workspace is not archived" });
+    }
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { 
+        isArchived: false,
+        archivedAt: null,
+        archivedBy: null
+      }
+    });
+
+    // Log workspace unarchiving
+    try {
+      await WorkspaceLog.create({
+        workspaceId: workspaceId,
+        userId: req.user.id,
+        action: 'workspace_unarchived',
+        title: 'Workspace Restored',
+        description: `${workspace.name} workspace was restored from archive`,
+        metadata: { workspaceName: workspace.name }
+      });
+    } catch (logError) {
+      console.error("Error creating workspace log:", logError);
+    }
+
+    // Notify workspace members
+    try {
+      await NotificationService.notifyWorkspaceUnarchived(workspace);
+    } catch (notifError) {
+      console.error("Error sending unarchive notification:", notifError);
+    }
+
+    res.json({ message: "Workspace restored successfully" });
+  } catch (error) {
+    console.error("Unarchive workspace error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Delete workspace
 router.delete("/:id", authenticateToken, async (req, res) => {
   try {
@@ -521,6 +1193,13 @@ router.delete("/:id", authenticateToken, async (req, res) => {
 
     if (workspace.ownerId !== req.user.id) {
       return res.status(403).json({ error: "Only owner can delete workspace" });
+    }
+
+    // Notify workspace members BEFORE deletion
+    try {
+      await NotificationService.notifyWorkspaceDeleted(workspace);
+    } catch (notifError) {
+      console.error("Error sending deletion notification:", notifError);
     }
 
     await prisma.workspace.update({

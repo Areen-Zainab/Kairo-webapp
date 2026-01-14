@@ -24,6 +24,8 @@ const MeetingDetails: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [, setHoveredMinute] = useState<MeetingMinute | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [actionItems, setActionItems] = useState<any[]>([]);
+  const [aiInsights, setAIInsights] = useState<any>(null);
 
   // Load files when files tab is opened
   const loadFiles = async (meetingId: number) => {
@@ -95,6 +97,7 @@ const MeetingDetails: React.FC = () => {
           time: new Date(m.startTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           duration: actualDurationMinutes, // This will be used for display, but we'll format it exactly
           status: (m.status === 'completed' ? 'completed' : m.status === 'scheduled' ? 'scheduled' : 'recorded') as any,
+          platform: m.platform,
           organizer: {
             id: String(m.createdBy?.id ?? m.createdById),
             name: m.createdBy?.name || m.createdBy?.email || 'Organizer',
@@ -210,6 +213,28 @@ const MeetingDetails: React.FC = () => {
           files,
           transcript,
         });
+
+        // Fetch action items
+        try {
+          const actionItemsResp = await apiService.getActionItems(numericId);
+          if (actionItemsResp.data?.actionItems) {
+            setActionItems(actionItemsResp.data.actionItems);
+          }
+        } catch (error: any) {
+          console.error('Error loading action items:', error);
+          // Don't show error toast, just log it
+        }
+
+        // Fetch AI insights for decisions and key moments
+        try {
+          const insightsResp = await apiService.getAIInsights(numericId);
+          if (insightsResp.data) {
+            setAIInsights(insightsResp.data);
+          }
+        } catch (error: any) {
+          console.error('Error loading AI insights:', error);
+          // Don't show error toast, just log it
+        }
       } catch (e: any) {
         console.error('Failed to load meeting details', e);
         toastError(e?.message || 'Failed to load meeting', 'Error');
@@ -726,6 +751,8 @@ const MeetingDetails: React.FC = () => {
             onFileUpload={handleFileUpload}
             onFileDelete={handleFileDelete}
             currentTime={currentTime}
+            actionItems={actionItems}
+            aiInsights={aiInsights}
           />
 
         {/* Floating Action Buttons */}

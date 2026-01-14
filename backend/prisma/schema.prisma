@@ -100,6 +100,9 @@ model Workspace {
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
   isActive    Boolean            @default(true) @map("is_active")
+  isArchived  Boolean            @default(false) @map("is_archived")
+  archivedAt  DateTime?          @map("archived_at")
+  archivedBy  Int?               @map("archived_by")
   settings    Json?
   members     WorkspaceMember[]
   invites     WorkspaceInvite[]

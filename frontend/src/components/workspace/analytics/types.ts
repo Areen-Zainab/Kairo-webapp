@@ -68,7 +68,7 @@ export interface AnalyticsInsight {
 }
 
 export interface FilterOptions {
-  timeRange: 'today' | 'week' | 'month' | 'quarter' | 'year' | 'custom';
+  timeRange: 'all' | 'week' | 'month' | 'quarter' | 'year' | 'custom';
   customStartDate?: string;
   customEndDate?: string;
   team?: string;

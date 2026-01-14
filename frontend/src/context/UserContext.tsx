@@ -50,6 +50,8 @@ export interface Workspace {
   memberCount: number;
   createdAt: string;
   joinedAt?: string;
+  isArchived?: boolean;
+  archivedAt?: string;
 }
 
 export interface WorkspaceInvite {
@@ -89,6 +91,8 @@ interface UserContextType {
   currentWorkspace: CurrentWorkspace | null;
   loading: boolean;
   isAuthenticated: boolean;
+  showArchivedWorkspaces: boolean;
+  setShowArchivedWorkspaces: (show: boolean) => void;
   setCurrentWorkspace: (workspace: CurrentWorkspace | null) => void;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   updatePreferences: (preferences: any) => Promise<void>;
@@ -109,6 +113,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [pendingInvites, setPendingInvites] = useState<WorkspaceInvite[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<CurrentWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showArchivedWorkspaces, setShowArchivedWorkspaces] = useState(false);
 
   // Load current workspace from localStorage on mount
   useEffect(() => {
@@ -128,13 +133,13 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     checkAuth();
   }, []);
 
-  // Load workspaces and invites when user is authenticated
+  // Load workspaces and invites when user is authenticated or archived toggle changes
   useEffect(() => {
     if (user) {
       loadWorkspaces();
       loadPendingInvites();
     }
-  }, [user]);
+  }, [user, showArchivedWorkspaces]);
 
   const checkAuth = async () => {
     try {
@@ -258,7 +263,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     if (!token) return;
 
     try {
-      const response = await apiService.getUserWorkspaces();
+      const response = await apiService.getUserWorkspaces(showArchivedWorkspaces);
       if (response.data?.workspaces) {
         setWorkspaces(response.data.workspaces);
       }
@@ -280,7 +285,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      const response = await apiService.getUserWorkspaces();
+      const response = await apiService.getUserWorkspaces(showArchivedWorkspaces);
       if (response.data?.workspaces) {
         setWorkspaces(response.data.workspaces);
       }
@@ -367,6 +372,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       setCurrentWorkspace,
       loading, 
       isAuthenticated: !!user,
+      showArchivedWorkspaces,
+      setShowArchivedWorkspaces,
       updateProfile, 
       updatePreferences,
       updateNotificationSettings,

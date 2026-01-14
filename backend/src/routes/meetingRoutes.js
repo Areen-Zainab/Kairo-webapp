@@ -12,6 +12,7 @@ const multer = require('multer');
 const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findCompleteAudioFile, getLiveTranscriptEntries, getDiarizedTranscript, findMeetingDirectory } = require("../utils/meetingFileStorage");
 const { getMeetingStats } = require("../utils/meetingStats");
 const AIInsightsService = require("../services/AIInsightsService");
+const NotificationService = require("../services/NotificationService");
 
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -125,6 +126,24 @@ router.post("/", authenticateToken, async (req, res) => {
       });
     } catch (logError) {
       console.error("Error creating workspace log:", logError);
+    }
+
+    // Send notifications
+    try {
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: parseInt(workspaceId) },
+        select: { name: true }
+      });
+
+      // Notify workspace members about new meeting
+      await NotificationService.notifyMeetingCreated(meeting, req.user.id, workspace?.name);
+
+      // Notify invited participants
+      if (participantIds && participantIds.length > 0) {
+        await NotificationService.notifyMeetingInvite(meeting, participantIds, workspace?.name);
+      }
+    } catch (notifError) {
+      console.error("Error sending meeting notifications:", notifError);
     }
 
     // Fetch full meeting details
@@ -301,7 +320,32 @@ router.get("/:meetingId/audio", authenticateToken, async (req, res) => {
     // Find audio file
     const audioPath = findCompleteAudioFile(meetingId);
     if (!audioPath || !fs.existsSync(audioPath)) {
+      console.log(`[Audio Endpoint] No audio file found for meeting ${meetingId}`);
       return res.status(404).json({ error: "Audio file not found" });
+    }
+
+    // Check if file is valid (has content and is not corrupted)
+    const stats = fs.statSync(audioPath);
+    const fileSize = stats.size;
+
+    if (fileSize === 0) {
+      console.error(`[Audio Endpoint] Audio file is empty for meeting ${meetingId}: ${audioPath}`);
+      return res.status(404).json({ error: "Audio file is empty" });
+    }
+
+    // Validate file is readable and not corrupted by trying to open it
+    try {
+      const testStream = fs.createReadStream(audioPath, { start: 0, end: 100 });
+      await new Promise((resolve, reject) => {
+        testStream.on('data', () => {
+          testStream.close();
+          resolve();
+        });
+        testStream.on('error', reject);
+      });
+    } catch (readError) {
+      console.error(`[Audio Endpoint] Audio file is corrupted or unreadable for meeting ${meetingId}:`, readError);
+      return res.status(404).json({ error: "Audio file is corrupted" });
     }
 
     // Determine content type based on file extension
@@ -317,9 +361,7 @@ router.get("/:meetingId/audio", authenticateToken, async (req, res) => {
       contentType = 'audio/ogg';
     }
 
-    // Get file stats for Content-Length header
-    const stats = fs.statSync(audioPath);
-    const fileSize = stats.size;
+    console.log(`[Audio Endpoint] Serving audio for meeting ${meetingId}: ${audioPath} (${fileSize} bytes, ${contentType})`);
 
     // Set headers for audio streaming
     res.setHeader('Content-Type', contentType);
@@ -332,10 +374,18 @@ router.get("/:meetingId/audio", authenticateToken, async (req, res) => {
 
     // Stream the file
     const fileStream = fs.createReadStream(audioPath);
+    fileStream.on('error', (streamError) => {
+      console.error(`[Audio Endpoint] Error streaming audio for meeting ${meetingId}:`, streamError);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Error streaming audio file" });
+      }
+    });
     fileStream.pipe(res);
   } catch (error) {
     console.error("Get meeting audio error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
   }
 });
 
@@ -748,6 +798,20 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
       });
     } catch (logError) {
       console.error("Error creating workspace log:", logError);
+    }
+
+    // Send notification when meeting ends
+    if (status === 'completed') {
+      try {
+        const workspace = await prisma.workspace.findUnique({
+          where: { id: meeting.workspaceId },
+          select: { name: true }
+        });
+        
+        await NotificationService.notifyMeetingEnded(updatedMeeting, workspace?.name);
+      } catch (notifError) {
+        console.error("Error sending meeting ended notification:", notifError);
+      }
     }
 
     // Respond immediately to frontend
@@ -1830,11 +1894,15 @@ router.get("/:id/ai-insights", authenticateToken, async (req, res) => {
         // Use insightType (camelCase from Prisma) instead of insight_type
         switch (row.insightType) {
           case 'summary':
-            // Transform agent format to frontend format
+            // Transform agent format to frontend format (including layered summaries)
             insights.summary = {
               paragraph: content.paragraph_summary || content.overview || '',
               bullets: content.key_points || [],
-              confidence: content.confidence
+              confidence: content.confidence,
+              // Layered summaries from Mistral (new format)
+              executive_summary: content.executive_summary || null,
+              detailed_summary: content.detailed_summary || null,
+              bullet_summary: content.bullet_summary || null
             };
             break;
           case 'decisions':

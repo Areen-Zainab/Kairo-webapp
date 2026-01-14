@@ -6,6 +6,10 @@ export interface AIInsightsData {
     paragraph: string;
     bullets: string[];
     confidence?: number;
+    // Layered summaries from Mistral
+    executive_summary?: string;
+    detailed_summary?: string;
+    bullet_summary?: string[];
   } | null;
   keyDecisions: Array<{
     decision: string;

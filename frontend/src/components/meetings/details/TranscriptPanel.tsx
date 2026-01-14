@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Clock, Captions } from 'lucide-react';
+import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Captions, Filter, Users, CheckSquare, AlertCircle, HelpCircle, ArrowDownToLine, StickyNote } from 'lucide-react';
 import type { MeetingDetailsData, TranscriptEntry, Slide, MeetingNote } from './types';
 
 interface TranscriptPanelProps {
@@ -11,6 +11,8 @@ interface TranscriptPanelProps {
   onSlideClick: (slide: Slide) => void;
   onAddNote: (note: Omit<MeetingNote, 'id'>) => void;
   onDeleteNote: (id: string) => void;
+  actionItems?: any[];
+  aiInsights?: any;
 }
 
 const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
@@ -21,7 +23,9 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   onTranscriptHover,
   onSlideClick,
   onAddNote,
-  onDeleteNote
+  onDeleteNote,
+  actionItems = [],
+  aiInsights
 }) => {
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,9 +47,18 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [mediaCurrentTime, setMediaCurrentTime] = useState(0); // Local state for current playback time
   const [isHoveringPlayer, setIsHoveringPlayer] = useState(false); // Track hover state for controls visibility
   const [scrollProgress, setScrollProgress] = useState(0);
-  const [hoveredEntryIndex, setHoveredEntryIndex] = useState<number | null>(null);
+  
+  // NEW: Filtering states
+  const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
+  const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'action-items' | 'decisions' | 'questions'>('all');
+  
+  // Audio error state
+  const [audioError, setAudioError] = useState<string | null>(null);
+  
+  // Auto-scroll control
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
-  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(true); // Collapsed by default
   const hideControlsTimeoutRef = useRef<number | null>(null);
   const audioObjectUrlRef = useRef<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -61,33 +74,98 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const seekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSyncedTimeRef = useRef<number>(0); // Track last synced time for better accuracy
 
-  // Filter transcript based on search query and ensure it's sorted by start time (or timestamp for backwards compatibility)
+  // Helper function to check if transcript entry contains action item or decision
+  const getEntryContentType = (entry: TranscriptEntry): 'action-item' | 'decision' | 'question' | 'normal' => {
+    const text = entry.text.toLowerCase();
+    
+    // Check for action items
+    if (text.includes('need to') || text.includes('should') || text.includes('will') || 
+        text.includes('action item') || text.includes('todo') || text.includes('task')) {
+      return 'action-item';
+    }
+    
+    // Check for decisions
+    if (text.includes('decided') || text.includes('agree') || text.includes('decision') || 
+        text.includes('let\'s go with') || text.includes('we\'ll') || text.includes('approved')) {
+      return 'decision';
+    }
+    
+    // Check for questions
+    if (text.includes('?') || text.match(/\b(what|why|how|when|where|who|can|could|should|would)\b/)) {
+      return 'question';
+    }
+    
+    return 'normal';
+  };
+
+  // Helper function to find notes that match a transcript entry timestamp
+  const getNotesForEntry = (entry: TranscriptEntry): MeetingNote[] => {
+    if (!meeting.notes || meeting.notes.length === 0) return [];
+    
+    // Find notes within +/- 2 seconds of this entry's timestamp
+    const tolerance = 2; // seconds
+    const entryTime = entry.startTime !== undefined ? entry.startTime : entry.timestamp;
+    
+    return meeting.notes.filter(note => {
+      const timeDiff = Math.abs(note.timestamp - entryTime);
+      return timeDiff <= tolerance;
+    });
+  };
+
+  // Filter transcript based on search query, speaker, and content type
   const filteredTranscript = meeting.transcript
-    .filter(entry =>
+    .filter(entry => {
+      // Search filter
+      const matchesSearch = 
       entry.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      entry.speaker.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+        entry.speaker.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      if (!matchesSearch) return false;
+      
+      // Speaker filter
+      const matchesSpeaker = selectedSpeakers.length === 0 || selectedSpeakers.includes(entry.speaker);
+      
+      if (!matchesSpeaker) return false;
+      
+      // Content type filter
+      if (contentTypeFilter !== 'all') {
+        const entryType = getEntryContentType(entry);
+        // Map filter values (plural) to entry types (singular)
+        const filterMap: Record<string, string> = {
+          'action-items': 'action-item',
+          'decisions': 'decision',
+          'questions': 'question'
+        };
+        return entryType === (filterMap[contentTypeFilter] || contentTypeFilter);
+      }
+      
+      return true;
+    })
     .sort((a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)); // Always sort by start time
 
   // Find the active entry based on current time using timestamp field
   // Timestamps are now normalized to start from 0 to match audio/video playback
   // Improved with better time synchronization and tolerance
+  // CRITICAL: Uses mediaCurrentTime (local state) for instant sync with audio element
   const getActiveEntryIndex = useCallback(() => {
     // If no transcript entries, return -1
     if (filteredTranscript.length === 0) {
       return -1;
     }
 
-    // If currentTime is negative, don't highlight anything
+    // Use mediaCurrentTime (actual audio position) instead of currentTime prop for instant sync
+    const timeToCheck = mediaCurrentTime;
+    
+    // If time is negative, don't highlight anything
     // Allow 0 to match first entry if it starts at 0
-    if (currentTime < 0) {
+    if (timeToCheck < 0) {
       return -1;
     }
 
     // Use a small tolerance for better synchronization (0.2 seconds)
     const tolerance = 0.2;
 
-    // Find the entry where currentTime falls within its range
+    // Find the entry where timeToCheck falls within its range
     // Iterate backwards to find the most recent matching entry
     for (let i = filteredTranscript.length - 1; i >= 0; i--) {
       const entry = filteredTranscript[i];
@@ -104,16 +182,16 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           ? (nextEntry.startTime !== undefined ? nextEntry.startTime : nextEntry.timestamp)
           : entryStartTime + (entry.text.length / 10)); // Estimate based on text length if no endTime
       
-      // Match if currentTime is within the entry's time range (with tolerance)
+      // Match if timeToCheck is within the entry's time range (with tolerance)
       // Use >= for start (inclusive) and < for end (exclusive) to avoid double-matching
-      if (currentTime >= (entryStartTime - tolerance) && currentTime < (entryEndTime + tolerance)) {
+      if (timeToCheck >= (entryStartTime - tolerance) && timeToCheck < (entryEndTime + tolerance)) {
         return i;
       }
     }
     
     // If no match found, return -1 (don't highlight anything)
     return -1;
-  }, [filteredTranscript, currentTime]);
+  }, [filteredTranscript, mediaCurrentTime]);
 
   const activeEntryIndex = getActiveEntryIndex();
   
@@ -158,22 +236,6 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       'bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700',
       'bg-gradient-to-br from-rose-500 via-rose-600 to-rose-700',
       'bg-gradient-to-br from-indigo-500 via-indigo-600 to-indigo-700',
-    ];
-    return colors[parseInt(speakerNum || '0') % colors.length] || colors[0];
-  };
-
-  const getSpeakerBorderColor = (speaker: string) => {
-    if (speaker === 'UNKNOWN') {
-      return 'border-slate-400';
-    }
-    const speakerNum = speaker.match(/\d+/)?.[0];
-    const colors = [
-      'border-blue-500',
-      'border-purple-500',
-      'border-emerald-500',
-      'border-amber-500',
-      'border-rose-500',
-      'border-indigo-500',
     ];
     return colors[parseInt(speakerNum || '0') % colors.length] || colors[0];
   };
@@ -621,28 +683,43 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     };
   }, [isPlaying, isHoveringPlayer]);
 
-  // Scroll to current time in transcript as audio plays (only if user isn't manually scrolling)
+  // Scroll to current time in transcript as audio plays (only if auto-scroll is enabled and user isn't manually scrolling)
+  // Uses mediaCurrentTime indirectly through activeEntryIndex for accurate sync
   useEffect(() => {
-    if (transcriptRef.current && activeEntryIndex >= 0 && !isUserScrollingRef.current) {
+    if (transcriptRef.current && activeEntryIndex >= 0 && !isUserScrollingRef.current && autoScrollEnabled) {
       const activeEntry = filteredTranscript[activeEntryIndex];
       if (activeEntry) {
         scrollToEntry(activeEntry);
       }
     }
-  }, [currentTime, activeEntryIndex, filteredTranscript]);
+  }, [activeEntryIndex, filteredTranscript, autoScrollEnabled]);
 
-  // Handle manual scrolling - disable auto-scroll temporarily when user scrolls
+  // Handle manual scrolling - disable auto-scroll when user scrolls
   const handleTranscriptScroll = () => {
     isUserScrollingRef.current = true;
+    setAutoScrollEnabled(false); // Disable auto-scroll when user manually scrolls
     handleScrollProgress();
     // Clear existing timeout
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
     }
-    // Re-enable auto-scroll after 3 seconds of no scrolling
+    // Re-enable auto-scroll after 5 seconds of no scrolling
     scrollTimeoutRef.current = setTimeout(() => {
       isUserScrollingRef.current = false;
-    }, 3000);
+    }, 5000);
+  };
+
+  // Re-enable auto-scroll manually
+  const enableAutoScroll = () => {
+    setAutoScrollEnabled(true);
+    isUserScrollingRef.current = false;
+    // Immediately scroll to active entry
+    if (transcriptRef.current && activeEntryIndex >= 0) {
+      const activeEntry = filteredTranscript[activeEntryIndex];
+      if (activeEntry) {
+        scrollToEntry(activeEntry);
+      }
+    }
   };
 
   // Cleanup scroll timeout on unmount
@@ -797,7 +874,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
             onError={(e) => {
               console.error('Audio playback error:', meeting.audioUrl || meeting.recordingUrl, e);
               const audio = audioRef.current;
-              if (audio) {
+              if (audio && audio.error) {
                 console.error('Audio error details:', {
                   error: audio.error,
                   code: audio.error?.code,
@@ -805,7 +882,22 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                   networkState: audio.networkState,
                   readyState: audio.readyState
                 });
+                
+                // Set user-friendly error message
+                if (audio.error.code === 4) {
+                  setAudioError('Audio file is corrupted or not supported. Please contact support.');
+                } else if (audio.error.code === 3) {
+                  setAudioError('Audio file format is not supported by your browser.');
+                } else if (audio.error.code === 2) {
+                  setAudioError('Network error while loading audio. Please check your connection.');
+                } else {
+                  setAudioError('Unable to load audio file. It may be corrupted or unavailable.');
+                }
               }
+            }}
+            onLoadStart={() => {
+              // Clear error when starting to load
+              setAudioError(null);
             }}
             preload="metadata"
             crossOrigin="anonymous"
@@ -814,16 +906,44 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           </audio>
         )}
         
+        {/* Audio Error Banner */}
+        {audioError && (
+          <div className="w-full bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 p-4">
+            <div className="flex items-center gap-3 max-w-6xl mx-auto">
+              <div className="flex-shrink-0 w-10 h-10 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center">
+                <X className="w-5 h-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                  Audio Playback Error
+                </p>
+                <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                  {audioError}
+                </p>
+              </div>
+              <button
+                onClick={() => setAudioError(null)}
+                className="flex-shrink-0 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
+        
         {useAudio ? (
-          // Professional Audio Player UI - More compact and refined
-          <div className="w-full h-48 flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-            <div className="text-center space-y-4">
-              <div className="w-24 h-24 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-                <Volume2 className="w-12 h-12 text-white" />
+          // Clean, Modern Audio Player
+          <div className="w-full bg-slate-900 py-6">
+            <div className="max-w-4xl mx-auto px-8">
+              {/* Audio Icon and Title */}
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+                  <Volume2 className="w-7 h-7 text-white" />
               </div>
               <div>
-                <p className="text-white text-lg font-medium">Audio Recording</p>
-                <p className="text-slate-400 text-xs mt-1">Meeting audio playback</p>
+                  <h3 className="text-white font-semibold text-base">Meeting Audio</h3>
+                  <p className="text-slate-400 text-sm">High-quality recording</p>
+                </div>
               </div>
             </div>
           </div>
@@ -899,205 +1019,132 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           </div>
         )}
         
-        {/* Media Overlay Controls - More compact, YouTube-style */}
+        {/* Integrated Media Controls - Clean, modern design */}
+        <div className={`${useAudio ? 'bg-slate-900' : 'absolute bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-xl border-t border-white/10'}`}>
+          <div className={useAudio ? 'max-w-4xl mx-auto px-8 pb-6' : 'w-full'}>
+            {/* Progress Bar Section */}
+            <div className={useAudio ? 'mb-4' : 'px-4 pt-3 pb-2'}>
+              <div className="relative">
+                {/* Time labels above progress bar (for audio only) */}
         {useAudio && (
-          <div 
-            className={`absolute inset-0 bg-black bg-opacity-10 flex items-center justify-center pointer-events-none transition-opacity duration-200 ${
-              isHoveringPlayer || !isPlaying ? 'opacity-100' : 'opacity-0'
-            }`}
-          >
-            <button
-              onClick={handlePlayPause}
-              className="bg-white bg-opacity-10 hover:bg-opacity-20 rounded-full p-4 transition-all backdrop-blur-sm pointer-events-auto"
-            >
-              {isPlaying ? (
-                <Pause className="w-8 h-8 text-white drop-shadow-lg" />
-              ) : (
-                <Play className="w-8 h-8 text-white drop-shadow-lg ml-0.5" />
-              )}
-            </button>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-mono font-semibold text-white">
+                      {formatTime(mediaCurrentTime)}
+                    </span>
+                    <span className="text-sm font-mono text-slate-400">
+                      {formatTime(getCurrentDuration())}
+                    </span>
           </div>
         )}
 
-        {/* Enhanced Media Controls Bar - YouTube-style hide/show on hover */}
-        <div 
-          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/90 to-transparent p-4 transition-all duration-200 ${
-            isHoveringPlayer || !isPlaying ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
-          }`}
-          onMouseEnter={(e) => {
-            e.stopPropagation();
-            setIsHoveringPlayer(true);
-          }}
-        >
-          {/* Enhanced Progress Bar with Better Seeking */}
-          <div className="mb-4 relative group">
+                {/* Progress bar */}
             <div
               ref={progressBarRef}
               onClick={handleSeek}
               onMouseMove={handleProgressHover}
               onMouseLeave={() => setProgressHoverPosition(null)}
-              className={`bg-white/20 rounded-full cursor-pointer transition-all relative ${
-                isHoveringPlayer ? 'h-3' : 'h-1.5'
-              } ${isSeeking ? 'ring-2 ring-blue-400' : ''}`}
+                  className="group cursor-pointer relative"
             >
-              {/* Progress */}
+                  <div className={`bg-slate-700 rounded-full overflow-hidden relative ${useAudio ? 'h-2 hover:h-2.5' : 'h-1.5 hover:h-2'} transition-all`}>
               <div
-                className={`h-full bg-blue-500 rounded-full transition-all group-hover:bg-blue-400 relative ${
-                  isSeeking ? 'bg-blue-400' : ''
-                }`}
+                      className="h-full bg-gradient-to-r from-blue-500 to-blue-400 relative transition-all"
                 style={{
                   width: `${(mediaCurrentTime / getCurrentDuration()) * 100}%`
                 }}
               >
-                {/* Progress indicator dot - always visible when hovering */}
-                <div className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-4 h-4 bg-blue-500 rounded-full transition-all shadow-lg ${
-                  isHoveringPlayer || isSeeking ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
-                }`} />
+                      <div className={`absolute right-0 top-1/2 -translate-y-1/2 ${useAudio ? 'w-4 h-4' : 'w-3 h-3'} bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity`} />
               </div>
-              
-              {/* Hover indicator - thicker and more visible */}
-              {progressHoverPosition !== null && (
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 w-1.5 h-6 bg-white rounded-full pointer-events-none shadow-lg"
-                  style={{
-                    left: `${(progressHoverPosition / getCurrentDuration()) * 100}%`,
-                    transform: 'translate(-50%, -50%)'
-                  }}
-                />
-              )}
-              
-              {/* Transcript markers on progress bar (speaker changes) */}
-              {filteredTranscript.length > 0 && (
-                <div className="absolute inset-0 pointer-events-none">
-                  {filteredTranscript.map((entry, index) => {
-                    if (index === 0 || entry.speaker !== filteredTranscript[index - 1]?.speaker) {
-                      const duration = getCurrentDuration();
-                      const position = duration > 0 ? (entry.timestamp / duration) * 100 : 0;
-                      return (
-                        <div
-                          key={`marker-${index}`}
-                          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/40 rounded-full"
-                          style={{
-                            left: `${position}%`,
-                            transform: 'translate(-50%, -50%)'
-                          }}
-                        />
-                      );
-                    }
-                    return null;
-                  })}
-                </div>
-              )}
             </div>
             
-            {/* Hover time tooltip with transcript preview */}
+                  {/* Hover tooltip */}
             {progressHoverPosition !== null && progressBarRef.current && (
               <div
-                className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-3 py-2 rounded-lg pointer-events-none whitespace-nowrap shadow-xl border border-white/10"
+                      className="absolute -top-10 bg-slate-800 text-white text-sm font-semibold px-3 py-1.5 rounded-lg pointer-events-none shadow-xl border border-slate-700 z-50"
                 style={{
                   left: `${(progressHoverPosition / getCurrentDuration()) * 100}%`,
                   transform: 'translate(-50%, 0)'
                 }}
               >
-                <div className="font-mono font-semibold mb-1">
                   {formatTime(progressHoverPosition)}
                 </div>
-                {(() => {
-                  // Find transcript entry at hover position
-                  const hoverEntry = filteredTranscript.find((entry, index) => {
-                    const nextEntry = filteredTranscript[index + 1];
-                    const entryEnd = nextEntry ? nextEntry.timestamp : entry.timestamp + 10;
-                    return progressHoverPosition >= entry.timestamp && progressHoverPosition < entryEnd;
-                  });
-                  
-                  if (hoverEntry) {
-                    return (
-                      <div className="text-white/70 text-[10px] max-w-[200px] truncate">
-                        {hoverEntry.speaker.replace(/_/g, ' ')}: {hoverEntry.text.substring(0, 50)}
-                        {hoverEntry.text.length > 50 ? '...' : ''}
+                  )}
                       </div>
-                    );
-                  }
-                  return null;
-                })()}
               </div>
-            )}
           </div>
 
           {/* Controls Row */}
-          <div className="flex items-center justify-between text-white">
-            {/* Left Controls */}
-            <div className="flex items-center space-x-1">
+            <div className="flex items-center justify-between px-4 py-3">
+              {/* Left: Playback Controls */}
+              <div className="flex items-center gap-3">
               {/* Skip Backward */}
               <button
                 onClick={handleSkipBackward}
-                className="hover:bg-white hover:bg-opacity-10 rounded p-1.5 transition-all"
-                title="Rewind 10 seconds"
+                  className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
+                  title="Rewind 10s (←)"
               >
-                <SkipBack className="w-4 h-4" />
+                  <SkipBack className="w-11 h-11 text-white" />
               </button>
               
-              {/* Play/Pause */}
+                {/* Play/Pause - Extra Large */}
               <button
                 onClick={handlePlayPause}
-                className="hover:bg-white hover:bg-opacity-10 rounded-full p-2 transition-all bg-white/5"
-                title={isPlaying ? "Pause" : "Play"}
+                  className="w-14 h-14 flex items-center justify-center bg-white/15 hover:bg-white/25 rounded-xl transition-all active:scale-95 shadow-lg"
+                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
               >
                 {isPlaying ? (
-                  <Pause className="w-5 h-5" />
+                    <Pause className="w-8 h-8 text-white" />
                 ) : (
-                  <Play className="w-5 h-5 ml-0.5" />
+                    <Play className="w-8 h-8 text-white ml-0.5" />
                 )}
               </button>
               
               {/* Skip Forward */}
               <button
                 onClick={handleSkipForward}
-                className="hover:bg-white hover:bg-opacity-10 rounded p-1.5 transition-all"
-                title="Forward 10 seconds"
+                  className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
+                  title="Forward 10s (→)"
               >
-                <SkipForward className="w-4 h-4" />
+                  <SkipForward className="w-11 h-11 text-white" />
               </button>
 
-              {/* Time Display - Clean and simple with seeking indicator */}
-              <div className="ml-4 flex items-center space-x-2">
-                <span className={`text-sm font-mono font-medium transition-all ${
-                  isSeeking ? 'text-blue-400 scale-110' : 'text-white'
-                }`}>
+                {/* Time Display (only for video) */}
+                {!useAudio && (
+                  <div className="ml-2 flex items-center gap-1.5 text-white">
+                    <span className="text-sm font-mono font-semibold">
                   {formatTime(mediaCurrentTime)}
                 </span>
-                <span className="text-white/50">/</span>
-                <span className="text-sm font-mono font-medium text-white/70">
+                    <span className="text-white/40">/</span>
+                    <span className="text-sm font-mono text-white/60">
                   {formatTime(getCurrentDuration())}
                 </span>
-                {isSeeking && (
-                  <span className="text-xs text-blue-400 animate-pulse">Seeking...</span>
+                  </div>
                 )}
-              </div>
             </div>
 
-            {/* Right Controls */}
-            <div className="flex items-center space-x-2">
+              {/* Right: Settings & Controls */}
+              <div className="flex items-center gap-2">
               {/* Playback Speed */}
               <div className="relative" ref={speedMenuRef}>
                 <button
                   onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                  className="hover:bg-white hover:bg-opacity-10 rounded-lg px-3 py-2 transition-all text-sm font-medium"
+                    className="h-11 px-4 hover:bg-white/10 rounded-lg transition-all text-base font-semibold text-white min-w-[4rem] active:scale-95"
                   title="Playback speed"
                 >
-                  {playbackRate}x
+                    {playbackRate}×
                 </button>
                 {showSpeedMenu && (
-                  <div className="absolute bottom-full right-0 mb-2 bg-slate-800 rounded-lg shadow-xl border border-slate-700 overflow-hidden min-w-[6rem]">
+                    <div className="absolute bottom-full right-0 mb-2 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 overflow-hidden min-w-[5rem] py-1">
                     {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
                       <button
                         key={rate}
                         onClick={() => handlePlaybackRateChange(rate)}
-                        className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-700 transition-colors ${
-                          playbackRate === rate ? 'bg-slate-700 text-blue-400' : 'text-white'
+                          className={`w-full px-4 py-2.5 text-sm font-semibold transition-colors ${
+                            playbackRate === rate 
+                              ? 'bg-blue-500 text-white' 
+                              : 'text-slate-300 hover:bg-slate-700'
                         }`}
                       >
-                        {rate}x
+                          {rate}×
                       </button>
                     ))}
                   </div>
@@ -1105,24 +1152,24 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               </div>
 
               {/* Volume Control */}
-              <div className="relative flex items-center" ref={volumeSliderRef}>
+                <div className="relative" ref={volumeSliderRef}>
                 <button
                   onClick={handleMuteToggle}
                   onMouseEnter={() => setShowVolumeSlider(true)}
-                  className="hover:bg-white hover:bg-opacity-10 rounded-lg p-2 transition-all"
-                  title={isMuted ? "Unmute" : "Mute"}
+                    className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
+                    title={isMuted ? "Unmute (M)" : "Mute (M)"}
                 >
                   {isMuted || volume === 0 ? (
-                    <VolumeX className="w-5 h-5" />
+                      <VolumeX className="w-11 h-11 text-white" />
                   ) : volume < 0.5 ? (
-                    <Volume1 className="w-5 h-5" />
+                      <Volume1 className="w-11 h-11 text-white" />
                   ) : (
-                    <Volume2 className="w-5 h-5" />
+                      <Volume2 className="w-11 h-11 text-white" />
                   )}
                 </button>
-                {(showVolumeSlider || volumeSliderRef.current?.matches(':hover')) && (
+                  {showVolumeSlider && (
                   <div
-                    className="absolute bottom-full right-0 mb-2 bg-slate-800 rounded-lg p-3 shadow-xl border border-slate-700"
+                      className="absolute bottom-full right-0 mb-2 bg-slate-800 rounded-xl p-4 shadow-2xl border border-slate-700"
                     onMouseLeave={() => setShowVolumeSlider(false)}
                   >
                     <input
@@ -1132,12 +1179,9 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                       step="0.01"
                       value={isMuted ? 0 : volume}
                       onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                      className="w-24 h-1 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                      style={{
-                        background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(isMuted ? 0 : volume) * 100}%, #475569 ${(isMuted ? 0 : volume) * 100}%, #475569 100%)`
-                      }}
+                        className="w-28 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                     />
-                    <div className="text-xs text-white/70 text-center mt-1">
+                      <div className="text-xs font-semibold text-white text-center mt-2">
                       {Math.round((isMuted ? 0 : volume) * 100)}%
                     </div>
                   </div>
@@ -1148,12 +1192,12 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               {!useAudio && (
                 <button
                   onClick={() => setShowCaptions(!showCaptions)}
-                  className={`hover:bg-white hover:bg-opacity-10 rounded-lg p-2 transition-all ${
-                    showCaptions ? 'bg-white/10' : ''
+                    className={`w-11 h-11 flex items-center justify-center rounded-lg transition-all active:scale-95 ${
+                      showCaptions ? 'bg-white/20 text-blue-400' : 'hover:bg-white/10 text-white'
                   }`}
                   title={`${showCaptions ? 'Hide' : 'Show'} captions (C)`}
                 >
-                  <Captions className={`w-5 h-5 ${showCaptions ? 'text-blue-400' : ''}`} />
+                    <Captions className="w-6 h-6" />
                 </button>
               )}
 
@@ -1183,12 +1227,13 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                     }
                     setIsFullscreen(!isFullscreen);
                   }}
-                  className="hover:bg-white hover:bg-opacity-10 rounded-lg p-2 transition-all"
+                    className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
                   title="Fullscreen (F)"
                 >
-                  <Maximize2 className="w-5 h-5" />
+                    <Maximize2 className="w-6 h-6 text-white" />
                 </button>
               )}
+              </div>
             </div>
           </div>
         </div>
@@ -1216,6 +1261,17 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 </p>
               </div>
               <div className="flex items-center space-x-3">
+                {/* Auto-scroll Toggle */}
+                {!autoScrollEnabled && (
+                  <button
+                    onClick={enableAutoScroll}
+                    className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-all text-xs font-medium border border-blue-200 dark:border-blue-800"
+                    title="Enable auto-scroll to follow playback"
+                  >
+                    <ArrowDownToLine className="w-4 h-4" />
+                    <span>Auto-scroll Off</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setIsSearchExpanded(!isSearchExpanded)}
                   className="p-3 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all"
@@ -1226,7 +1282,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 <button
                   onClick={() => setIsControlsExpanded(!isControlsExpanded)}
                   className="p-3 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all"
-                  title="Toggle controls"
+                  title="Toggle filters"
                 >
                   {isControlsExpanded ? (
                     <ChevronUp className="w-5 h-5 text-slate-600 dark:text-slate-400" />
@@ -1234,12 +1290,6 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                     <ChevronDown className="w-5 h-5 text-slate-600 dark:text-slate-400" />
                   )}
                 </button>
-                {/* Keyboard Shortcuts Hint */}
-                {isControlsExpanded && (
-                  <div className="text-xs text-slate-500 dark:text-slate-400 px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                    <span className="font-semibold">Shortcuts:</span> Space (play/pause), ←→ (seek), ↑↓ (volume), M (mute), C (captions), F (fullscreen)
-                  </div>
-                )}
               </div>
             </div>
 
@@ -1261,6 +1311,119 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                   >
                     <X className="w-5 h-5" />
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* Filter Controls */}
+            {isControlsExpanded && (
+              <div className="mt-6 space-y-4">
+                {/* Content Type Filter */}
+                <div className="flex items-center space-x-3">
+                  <Filter className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Show:</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setContentTypeFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        contentTypeFilter === 'all'
+                          ? 'bg-blue-500 text-white shadow-md'
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setContentTypeFilter('action-items')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        contentTypeFilter === 'action-items'
+                          ? 'bg-yellow-500 text-white shadow-md'
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      }`}
+                    >
+                      <CheckSquare className="w-3 h-3" />
+                      Action Items
+                    </button>
+                    <button
+                      onClick={() => setContentTypeFilter('decisions')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        contentTypeFilter === 'decisions'
+                          ? 'bg-green-500 text-white shadow-md'
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      }`}
+                    >
+                      <AlertCircle className="w-3 h-3" />
+                      Decisions
+                    </button>
+                    <button
+                      onClick={() => setContentTypeFilter('questions')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        contentTypeFilter === 'questions'
+                          ? 'bg-purple-500 text-white shadow-md'
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      }`}
+                    >
+                      <HelpCircle className="w-3 h-3" />
+                      Questions
+                    </button>
+                  </div>
+                </div>
+
+                {/* Speaker Filter */}
+                <div className="flex items-center space-x-3">
+                  <Users className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Speakers:</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSelectedSpeakers([])}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        selectedSpeakers.length === 0
+                          ? 'bg-blue-500 text-white shadow-md'
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      }`}
+                    >
+                      All Speakers
+                    </button>
+                    {uniqueSpeakers.map(({ name, color }) => {
+                      const isSelected = selectedSpeakers.includes(name);
+                      return (
+                        <button
+                          key={name}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedSpeakers(prev => prev.filter(s => s !== name));
+                            } else {
+                              setSelectedSpeakers(prev => [...prev, name]);
+                            }
+                          }}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            isSelected
+                              ? `${color} text-white shadow-md`
+                              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                          }`}
+                        >
+                          <div className={`w-2 h-2 rounded-full ${isSelected ? 'bg-white' : color}`} />
+                          {name.replace(/_/g, ' ')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Active Filters Summary */}
+                {(selectedSpeakers.length > 0 || contentTypeFilter !== 'all') && (
+                  <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                    <span>Showing {filteredTranscript.length} of {meeting.transcript.length} entries</span>
+                    <button
+                      onClick={() => {
+                        setSelectedSpeakers([]);
+                        setContentTypeFilter('all');
+                      }}
+                      className="ml-2 text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Clear filters
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -1315,186 +1478,173 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 }}
               />
 
-              {/* Enhanced Vertical timeline with markers and timestamps */}
-              <div className="absolute left-16 top-8 bottom-8 w-1 bg-gradient-to-b from-blue-200/30 via-blue-400/50 to-blue-200/30 dark:from-blue-800/30 dark:via-blue-600/50 dark:to-blue-800/30 transition-all duration-300">
-                {/* Timeline markers for speaker changes */}
-                {filteredTranscript.map((entry, index) => {
-                  if (index === 0 || entry.speaker !== filteredTranscript[index - 1].speaker) {
+              {/* Minimal timeline indicator */}
+              <div className="absolute left-6 top-8 bottom-8 w-px bg-slate-200 dark:bg-slate-700">
+                {/* Active position indicator */}
+                {activeEntryIndex >= 0 && filteredTranscript[activeEntryIndex] && (
+                  (() => {
                     const totalDuration = filteredTranscript[filteredTranscript.length - 1]?.timestamp || 0;
-                    const position = totalDuration > 0 ? (entry.timestamp / totalDuration) * 100 : 0;
+                    const currentEntry = filteredTranscript[activeEntryIndex];
+                    const position = totalDuration > 0 ? (currentEntry.timestamp / totalDuration) * 100 : 0;
                     return (
                       <div
-                        key={`marker-${index}`}
-                        className="absolute w-3 h-3 rounded-full -left-1 border-2 border-white dark:border-slate-800"
-                        style={{ 
-                          top: `${position}%`,
-                          backgroundColor: getSpeakerBorderColor(entry.speaker).replace('border-', ''),
-                        }}
+                        className="absolute w-2 h-2 rounded-full bg-blue-500 -left-[3px] shadow-lg shadow-blue-500/50 ring-2 ring-blue-200 dark:ring-blue-900"
+                        style={{ top: `${position}%` }}
                       />
                     );
-                  }
-                  return null;
-                })}
-
-                {/* Timeline timestamps every 5 minutes */}
-                {(() => {
-                  const totalDuration = filteredTranscript[filteredTranscript.length - 1]?.timestamp || 0;
-                  const timestamps = [];
-                  for (let i = 0; i <= totalDuration; i += 300) { // Every 5 minutes (300 seconds)
-                    const position = totalDuration > 0 ? (i / totalDuration) * 100 : 0;
-                    timestamps.push(
-                      <div
-                        key={`time-${i}`}
-                        className="absolute -left-12 text-xs text-slate-400 dark:text-slate-500 font-light whitespace-nowrap"
-                        style={{ top: `${position}%` }}
-                      >
-                        {formatTime(i)}
-                      </div>
-                    );
-                  }
-                  return timestamps;
-                })()}
+                  })()
+                )}
               </div>
 
-              {/* Speaker Legend */}
+              {/* Clean speaker legend */}
               {uniqueSpeakers.length > 0 && (
-                <div className="mb-6 pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
-                  <div className="flex flex-wrap gap-3 items-center">
-                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Speakers:</span>
+                <div className="mb-8 flex flex-wrap gap-2 items-center">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Speakers:</span>
                     {uniqueSpeakers.map(({ name, color, count }) => (
-                      <div key={name} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/60 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50">
-                        <div className={`w-3 h-3 rounded-full bg-gradient-to-br ${color}`} />
+                    <div key={name} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                      <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${color}`} />
                         <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
                           {name.replace(/_/g, ' ')}
                         </span>
-                        <span className="text-xs text-slate-400 dark:text-slate-500">({count})</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500">·{count}</span>
                       </div>
                     ))}
-                  </div>
                 </div>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {filteredTranscript.map((entry, index) => {
-                  // Only highlight if activeEntryIndex is valid (>= 0) and matches this entry
+                  // CRITICAL: Only highlight the CURRENT entry that's playing
                   const isActive = activeEntryIndex >= 0 && index === activeEntryIndex;
-                  const isHovered = hoveredEntryIndex === index;
                   const speakerInitials = entry.speaker.replace(/[^A-Z0-9]/g, '').substring(0, 2) || entry.speaker.substring(0, 2).toUpperCase();
-                  const isAlternate = index % 2 === 0;
+                  
+                  // Get content type for subtle badges only
+                  const contentType = getEntryContentType(entry);
+                  const contentTypeConfig = {
+                    'action-item': {
+                      badge: '📋',
+                      color: 'text-yellow-600 dark:text-yellow-400',
+                      label: 'Action'
+                    },
+                    'decision': {
+                      badge: '✓',
+                      color: 'text-green-600 dark:text-green-400',
+                      label: 'Decision'
+                    },
+                    'question': {
+                      badge: '?',
+                      color: 'text-purple-600 dark:text-purple-400',
+                      label: 'Question'
+                    },
+                    'normal': null
+                  };
+                  const badge = contentTypeConfig[contentType];
+                  
+                  // Get notes for this entry
+                  const entryNotes = getNotesForEntry(entry);
                   
                   return (
                     <div
                       key={entry.id}
                       data-timestamp={entry.timestamp}
-                      className={`relative flex items-start gap-5 group transition-all duration-300 ${
-                        isActive ? 'scale-[1.005]' : ''
+                      className={`group cursor-pointer transition-all duration-200 ${
+                        isActive ? '' : 'opacity-60 hover:opacity-100'
                       }`}
-                      onClick={() => {
-                        handleTimestampClick(entry.timestamp, entry);
-                      }}
-                      onMouseEnter={() => {
-                        handleTranscriptHover(entry);
-                        setHoveredEntryIndex(index);
-                      }}
-                      onMouseLeave={() => setHoveredEntryIndex(null)}
+                      onClick={() => handleTimestampClick(entry.timestamp, entry)}
+                      onMouseEnter={() => handleTranscriptHover(entry)}
+                      onMouseLeave={() => {}}
                     >
-                      {/* Speaker-colored left border */}
-                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${getSpeakerBorderColor(entry.speaker)} opacity-30 group-hover:opacity-60 transition-opacity rounded-l-lg`} />
-
-                      {/* Timeline dot with enhanced styling */}
-                      <div className="relative flex-shrink-0 z-10 mt-1">
-                        <div className={`w-6 h-6 rounded-full border-2 transition-all duration-300 ${
+                      <div className={`flex items-start gap-4 p-4 rounded-xl transition-all duration-200 ${
                           isActive 
-                            ? `bg-blue-500 border-blue-50 dark:border-blue-950 shadow-lg shadow-blue-500/40 scale-110 ring-2 ring-blue-300/50 dark:ring-blue-700/50` 
-                            : `bg-white dark:bg-slate-800 ${getSpeakerBorderColor(entry.speaker)} group-hover:scale-105 group-hover:shadow-md`
-                        }`}></div>
-                        {/* Subtle glow for active entry */}
-                        {isActive && (
-                          <div className="absolute inset-0 rounded-full bg-blue-400/20 animate-pulse blur-sm"></div>
-                        )}
-                      </div>
-
-                      {/* Enhanced content card */}
-                      <div className={`flex-1 min-w-0 rounded-lg transition-all duration-300 ${
-                        isActive
-                          ? 'bg-gradient-to-br from-blue-50/80 via-white to-white dark:from-blue-950/30 dark:via-slate-800/50 dark:to-slate-800/60 border border-blue-400/40 dark:border-blue-600/40 shadow-lg shadow-blue-500/10 ring-1 ring-blue-200/30 dark:ring-blue-800/30'
-                          : `bg-white/70 dark:bg-slate-800/40 border border-slate-200/40 dark:border-slate-700/40 group-hover:border-slate-300/60 dark:group-hover:border-slate-600/60 group-hover:shadow-md group-hover:bg-white/90 dark:group-hover:bg-slate-800/60 ${isAlternate ? 'bg-slate-50/30 dark:bg-slate-900/20' : ''}`
+                          ? 'bg-gradient-to-r from-blue-50 to-white dark:from-blue-950/40 dark:to-slate-800/60 shadow-lg border-2 border-blue-400 dark:border-blue-600'
+                          : 'bg-white/50 dark:bg-slate-800/30 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800/50'
                       }`}>
-                        <div className="p-4">
-                          {/* Header: Speaker and Timestamp */}
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              {/* Enhanced speaker avatar */}
-                              <div className={`w-10 h-10 rounded-lg ${getSpeakerColor(entry.speaker)} flex items-center justify-center text-white font-bold text-xs shadow-md ring-1 ring-white/20 dark:ring-slate-700/30 flex-shrink-0 transition-transform duration-300 ${
-                                isActive ? 'scale-105 ring-2 ring-blue-200/50 dark:ring-blue-800/50' : 'group-hover:scale-105'
+                        {/* Speaker Avatar - Cleaner design */}
+                        <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${getSpeakerColor(entry.speaker)} flex items-center justify-center text-white font-bold text-sm shadow-sm transition-transform ${
+                          isActive ? 'scale-110 ring-2 ring-blue-400/50' : 'group-hover:scale-105'
                               }`}>
                                 {speakerInitials}
                               </div>
-                              <div>
-                                {/* Speaker name badge */}
-                                <div className={`font-bold text-slate-900 dark:text-white text-sm tracking-tight ${
-                                  isActive ? 'text-blue-700 dark:text-blue-300' : ''
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          {/* Header: Speaker name, badge, timestamp */}
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                              <h4 className={`font-semibold text-sm truncate ${
+                                isActive 
+                                  ? 'text-blue-700 dark:text-blue-300' 
+                                  : 'text-slate-900 dark:text-white'
                                 }`}>
                                   {entry.speaker.replace(/_/g, ' ')}
-                                </div>
-                                {/* Confidence as progress bar */}
-                                {entry.confidence < 1.0 && (
-                                  <div className="mt-1.5 flex items-center gap-2">
-                                    <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                      <div 
-                                        className="h-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all duration-300"
-                                        style={{ width: `${entry.confidence * 100}%` }}
-                                      />
-                                    </div>
-                                    <span className="text-xs text-slate-500 dark:text-slate-400 font-light">
-                                      {Math.round(entry.confidence * 100)}%
+                              </h4>
+                              {badge && (
+                                <span className={`text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 ${badge.color} font-medium flex-shrink-0`}>
+                                  {badge.badge} {badge.label}
+                                </span>
+                              )}
+                              {/* Note tags */}
+                              {entryNotes.map((note) => (
+                                <div
+                                  key={note.id}
+                                  className="group/note relative flex-shrink-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <span 
+                                    className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700 font-medium cursor-help"
+                                    style={{ backgroundColor: `${note.color}15`, borderColor: `${note.color}40` }}
+                                  >
+                                    <StickyNote className="w-3 h-3" />
+                                    Note
                                     </span>
+                                  {/* Hover tooltip */}
+                                  <div className="absolute left-0 top-full mt-2 z-50 opacity-0 invisible group-hover/note:opacity-100 group-hover/note:visible transition-all duration-200 pointer-events-none">
+                                    <div className="bg-slate-900 dark:bg-slate-800 text-white rounded-lg shadow-2xl border border-slate-700 p-3 min-w-[200px] max-w-[300px]">
+                                      <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-700">
+                                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center flex-shrink-0">
+                                          <span className="text-white text-xs font-bold">{note.author.avatar}</span>
                                   </div>
-                                )}
+                                        <div className="min-w-0">
+                                          <p className="text-xs font-semibold text-white">{note.author.name}</p>
+                                          <p className="text-xs text-slate-400">
+                                            {formatTime(note.timestamp)}
+                                          </p>
                               </div>
+                                      </div>
+                                      <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
+                                        {note.content}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                             
-                            {/* Enhanced timestamp button with jump icon on hover */}
-                            <div className="flex items-center gap-2">
-                              {isHovered && (
+                            {/* Timestamp */}
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleTimestampClick(entry.timestamp, entry);
                                   }}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                                  title="Jump to time"
-                                >
-                                  <Clock className="w-4 h-4" />
-                                </button>
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleTimestampClick(entry.timestamp, entry);
-                                }}
-                                className={`flex-shrink-0 px-3 py-1.5 rounded-lg font-mono text-xs font-medium transition-all duration-300 ${
+                              className={`flex-shrink-0 px-2.5 py-1 rounded-md font-mono text-xs font-semibold transition-colors ${
                                   isActive
-                                    ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30 hover:bg-blue-600'
-                                    : 'bg-slate-100/80 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                                  ? 'bg-blue-500 text-white'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
                                 }`}
                               >
                                 {formatTime(entry.timestamp)}
                               </button>
-                            </div>
                           </div>
 
-                          {/* Enhanced transcript text with serif font */}
-                          <p className={`font-serif leading-[1.75] text-sm ${
+                          {/* Transcript text - Clean and readable */}
+                          <p className={`text-sm leading-relaxed ${
                             isActive 
-                              ? 'text-blue-900 dark:text-blue-100 font-medium' 
-                              : 'text-slate-700 dark:text-slate-300 font-normal'
-                          } ${isActive ? 'drop-shadow-sm' : ''}`}>
+                              ? 'text-slate-900 dark:text-white font-medium' 
+                              : 'text-slate-700 dark:text-slate-300'
+                          }`}>
                             {searchQuery ? (
-                              // Highlight search keywords
                               entry.text.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) => 
                                 part.toLowerCase() === searchQuery.toLowerCase() ? (
-                                  <mark key={i} className="bg-yellow-200 dark:bg-yellow-900/40 px-0.5 rounded">
+                                  <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/40 px-1 rounded">
                                     {part}
                                   </mark>
                                 ) : (
@@ -1505,6 +1655,21 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                               entry.text
                             )}
                           </p>
+
+                          {/* Confidence indicator - subtle */}
+                          {entry.confidence < 0.9 && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <div className="flex-1 max-w-[120px] h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-amber-400 dark:bg-amber-500 transition-all"
+                                  style={{ width: `${entry.confidence * 100}%` }}
+                                />
+                        </div>
+                              <span className="text-xs text-slate-400 dark:text-slate-500">
+                                {Math.round(entry.confidence * 100)}%
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1519,43 +1684,43 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         </div>
 
         {/* Right Panel - Slides, Media, and Notes */}
-        <div className={`${isRightPanelCollapsed ? 'w-12' : 'w-96'} border-l border-slate-200 dark:border-slate-700 flex flex-col bg-white dark:bg-slate-800 transition-all duration-300 overflow-hidden`}>
+        <div className={`${isRightPanelCollapsed ? 'w-12' : 'w-80'} border-l border-slate-200 dark:border-slate-700 flex flex-col bg-slate-50 dark:bg-slate-900 transition-all duration-300 overflow-hidden`}>
           {/* Collapse/Expand Button */}
-          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm p-2">
+          <div className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 p-2">
             <button
               onClick={() => setIsRightPanelCollapsed(!isRightPanelCollapsed)}
-              className="w-full p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center"
-              title={isRightPanelCollapsed ? 'Expand panel' : 'Collapse panel'}
+              className="w-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center group"
+              title={isRightPanelCollapsed ? 'Open sidebar' : 'Close sidebar'}
             >
               {isRightPanelCollapsed ? (
-                <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                <ChevronLeft className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200" />
               ) : (
-                <ChevronRight className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                <ChevronRight className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200" />
               )}
             </button>
           </div>
 
           {!isRightPanelCollapsed && (
             <>
-              {/* Tabs for Right Panel */}
-              <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
-                <div className="flex">
+              {/* Tabs for Right Panel - Compact Design */}
+              <div className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-3 pt-3">
+                <div className="flex gap-2 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
                   <button 
                     onClick={() => setActiveRightTab('slides')}
-                    className={`flex-1 px-6 py-4 text-sm font-semibold transition-all ${
+                    className={`flex-1 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
                       activeRightTab === 'slides'
-                        ? 'text-slate-900 dark:text-white border-b-2 border-blue-500 bg-slate-50 dark:bg-slate-700/50'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     Slides
                   </button>
                   <button 
                     onClick={() => setActiveRightTab('notes')}
-                    className={`flex-1 px-6 py-4 text-sm font-semibold transition-all ${
+                    className={`flex-1 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
                       activeRightTab === 'notes'
-                        ? 'text-slate-900 dark:text-white border-b-2 border-blue-500 bg-slate-50 dark:bg-slate-700/50'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                        ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     Notes
@@ -1566,8 +1731,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               {/* Content Panel */}
               <div className="flex-1 overflow-y-auto scrollbar-hide bg-white dark:bg-slate-800">
             {activeRightTab === 'slides' ? (
-              <div className="p-6">
-                <h4 className="font-bold text-slate-900 dark:text-white mb-6 text-lg">
+              <div className="p-4 overflow-y-auto">
+                <h4 className="font-semibold text-slate-900 dark:text-white mb-4 text-sm">
                   Slides & Media
                 </h4>
                 <div className="space-y-4">
@@ -1607,8 +1772,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="p-6">
-                <h4 className="font-bold text-slate-900 dark:text-white mb-6 text-lg">
+              <div className="p-4 overflow-y-auto">
+                <h4 className="font-semibold text-slate-900 dark:text-white mb-4 text-sm">
                   Meeting Notes
                 </h4>
                 

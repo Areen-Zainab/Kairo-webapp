@@ -27,22 +27,23 @@ if _agents_dir not in sys.path:
 
 # Local imports (this file lives alongside the agent modules)
 # Try relative imports first (for module execution), fallback to absolute (for direct execution)
+# NOTE: SummaryAgent is imported lazily only when needed to avoid unnecessary initialization
 try:
     # Relative imports (when run as: python -m agents.run_agents)
     from .topic_segmentation_agent import TopicSegmentationAgent
     from .decision_extraction_agent import DecisionExtractionAgent
     from .action_item_agent import ActionItemAgent
     from .sentiment_analysis_agent import SentimentAnalysisAgent
-    from .summary_agent import SummaryAgent
     from .participant_analysis_agent import ParticipantAnalysisAgent
+    USING_RELATIVE_IMPORTS = True
 except ImportError:
     # Absolute imports (when run directly: python run_agents.py)
     from topic_segmentation_agent import TopicSegmentationAgent
     from decision_extraction_agent import DecisionExtractionAgent
     from action_item_agent import ActionItemAgent
     from sentiment_analysis_agent import SentimentAnalysisAgent
-    from summary_agent import SummaryAgent
     from participant_analysis_agent import ParticipantAnalysisAgent
+    USING_RELATIVE_IMPORTS = False
 
 
 def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -51,7 +52,6 @@ def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> D
     decision_agent = DecisionExtractionAgent()
     action_agent = ActionItemAgent()
     sentiment_agent = SentimentAnalysisAgent()
-    summary_agent = SummaryAgent()
 
     topics = topic_agent.run(transcript)
     decisions = decision_agent.run(transcript)
@@ -64,7 +64,13 @@ def run_all(transcript: str, transcript_json: Dict[str, Any] | None = None) -> D
         participant_agent = ParticipantAnalysisAgent()
         participants = participant_agent.run(transcript_json)
     
-    # Generate summary with all context including participants
+    # Import and generate summary ONLY when needed (lazy import to avoid initialization overhead)
+    if USING_RELATIVE_IMPORTS:
+        from .summary_agent import SummaryAgent
+    else:
+        from summary_agent import SummaryAgent
+    
+    summary_agent = SummaryAgent()
     summary = summary_agent.run(
         transcript,
         topic_segments=topics,
@@ -129,24 +135,64 @@ def main() -> None:
         data = sys.stdin.read()
         transcript = data.strip() if data.strip() else ""
 
-    # If only participant agent requested and JSON provided
-    if agent_key == "participants" and transcript_json:
+    # If specific agent requested, run only that agent (not all)
+    if agent_key == "topics":
+        topic_agent = TopicSegmentationAgent()
+        result = topic_agent.run(transcript)
+    elif agent_key == "decisions":
+        decision_agent = DecisionExtractionAgent()
+        result = decision_agent.run(transcript)
+    elif agent_key == "action_items":
+        action_agent = ActionItemAgent()
+        result = action_agent.run(transcript)
+    elif agent_key == "sentiment":
+        sentiment_agent = SentimentAnalysisAgent()
+        result = sentiment_agent.run(transcript)
+    elif agent_key == "summary":
+        # Summary agent should be called with context from already-executed agents
+        # Backend passes context via AGENT_CONTEXT environment variable
+        # Import SummaryAgent lazily
+        if USING_RELATIVE_IMPORTS:
+            from .summary_agent import SummaryAgent
+        else:
+            from summary_agent import SummaryAgent
+        
+        summary_agent = SummaryAgent()
+        
+        # Read context from environment variable
+        context_json = os.getenv('AGENT_CONTEXT', '{}')
+        try:
+            context = json.loads(context_json) if context_json else {}
+        except json.JSONDecodeError:
+            context = {}
+        
+        # Extract context components
+        topics = context.get('topics')
+        decisions = context.get('decisions')
+        action_items = context.get('actionItems')
+        sentiment = context.get('sentiment')
+        participants = context.get('participants')
+        
+        # Call summary agent with context
+        result = summary_agent.run(
+            transcript,
+            topic_segments=topics,
+            decisions=decisions,
+            action_items=action_items,
+            sentiment=sentiment,
+            participants=participants
+        )
+    elif agent_key == "participants" and transcript_json:
         participant_agent = ParticipantAnalysisAgent()
         result = participant_agent.run(transcript_json)
     elif transcript_json:
-        # Run all agents including participant
+        # Run all agents including participant (no specific agent requested)
         full_result = run_all(transcript, transcript_json)
-        if agent_key:
-            result = full_result.get(agent_key)
-        else:
-            result = full_result
+        result = full_result
     else:
-        # Run text-based agents only
+        # Run all text-based agents (no specific agent requested)
         full_result = run_all(transcript, None)
-        if agent_key:
-            result = full_result.get(agent_key)
-        else:
-            result = full_result
+        result = full_result
 
     json_output = json.dumps(result, ensure_ascii=False)
     sys.stdout.write(json_output + "\n")

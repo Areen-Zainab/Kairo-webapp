@@ -5,6 +5,7 @@ export interface MeetingDetailsData {
   time: string;
   duration: number; // in minutes
   status: 'recorded' | 'completed' | 'scheduled';
+  platform?: 'zoom' | 'google-meet' | 'teams' | 'other' | string;
   organizer: {
     id: string;
     name: string;

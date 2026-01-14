@@ -39,6 +39,10 @@ class SummaryResult:
     action_items: List[Dict[str, str]]
     next_steps: str
     confidence: float
+    # Layered summaries
+    executive_summary: Optional[str] = None  # 2-3 sentences for executives
+    detailed_summary: Optional[str] = None   # Full narrative for participants
+    bullet_summary: Optional[List[str]] = None  # Quick bullet points
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -48,10 +52,13 @@ class SummaryAgent:
     """Produces professional meeting minutes using Groq Cloud API with Llama."""
 
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-    GROQ_MODEL = "openai/gpt-oss-120b"  # Updated per Groq API
+    GROQ_MODEL = "llama-3.3-70b-versatile"  # Best free model for long-context summarization
     GROQ_API_KEY_ENV = "GROQ_API_KEY"
-    SUMMARY_PROVIDER_ENV = "SUMMARY_PROVIDER"  # groq | hf
-    HF_SUMMARY_MODEL = "philschmid/bart-large-cnn-samsum"
+    SUMMARY_PROVIDER_ENV = "SUMMARY_PROVIDER"  # groq | hf | mistral
+    # Note: Most HF Inference API models are deprecated (Mistral-7B, flan-t5, etc return 410 Gone)
+    # HuggingFace has moved to paid inference endpoints. Falling back to Groq.
+    HF_SUMMARY_MODEL = "HuggingFaceH4/zephyr-7b-beta"  # Trying zephyr as alternative
+    HF_API_TOKEN_ENV = "MISTRAL_API_KEY"  # Environment variable for Mistral/HF token
     
     # Chunking configuration for long transcripts
     CHUNK_THRESHOLD_WORDS = 2500
@@ -59,10 +66,12 @@ class SummaryAgent:
     CHUNK_OVERLAP_WORDS = 300
 
     def __init__(self):
-        # Provider selection
-        self.provider = os.getenv(self.SUMMARY_PROVIDER_ENV, "groq").lower()
+        # Initialization (logging minimized)
+        
+        # Provider selection - DEFAULT to Hugging Face to avoid Groq rate limits
+        self.provider = os.getenv(self.SUMMARY_PROVIDER_ENV, "hf").lower()
 
-        # Support multiple API keys for rate limit distribution
+        # Support multiple API keys for rate limit distribution (Groq)
         self.api_keys = []
         key1 = os.getenv(self.GROQ_API_KEY_ENV)
         key2 = os.getenv('GROQ_API_KEY_2')
@@ -74,12 +83,13 @@ class SummaryAgent:
         
         self.current_key_index = 0
         self.use_api = len(self.api_keys) > 0
-        self.use_hf = self.provider == "hf"
+        self.use_hf = self.provider in ["hf", "mistral"]
         
-        if not self.use_api and self.provider == "groq":
-            print("Error: No GROQ_API_KEY found; summary agent will use fallback mode.", file=sys.stderr)
-        elif len(self.api_keys) > 1:
-            print(f"Info: {len(self.api_keys)} Groq API keys configured for rotation.", file=sys.stderr)
+        # Check for HF token if using HF
+        self.hf_token = os.getenv(self.HF_API_TOKEN_ENV)
+        
+        if self.use_hf and not self.hf_token:
+            self.use_hf = False
     
     def _get_next_api_key(self) -> str:
         """Get next API key in rotation."""
@@ -213,48 +223,29 @@ class SummaryAgent:
         action_items: Optional[List[Dict[str, Any]]] = None,
         sentiment: Optional[Dict[str, Any]] = None,
         participants: Optional[List[Dict[str, Any]]] = None,
+        generate_layered: bool = True,  # NEW: Enable layered summaries by default
     ) -> Dict[str, Any]:
-        """Generate professional meeting minutes."""
+        """Generate professional meeting minutes with optional layered summaries."""
         
         if not transcript or not transcript.strip():
             return self._generate_empty_summary()
-
-        print("\n=== Summary Agent Input ===", file=sys.stderr)
-        print(f"Transcript length: {len(transcript)} characters", file=sys.stderr)
-        print(f"Topic segments: {len(topic_segments) if topic_segments else 0}", file=sys.stderr)
-        print(f"Decisions: {len(decisions) if decisions else 0}", file=sys.stderr)
-        print(f"Action items: {len(action_items) if action_items else 0}", file=sys.stderr)
-        print(f"Participants: {len(participants) if participants else 0}", file=sys.stderr)
         
-        # Try HF first if selected
-        if self.use_hf:
+        # PRIMARY: Try Mistral Direct API (official SDK, best quality)
+        if self.hf_token:
             try:
-                print("\n[INFO] Attempting HF summary generation...", file=sys.stderr)
-                result = self._generate_with_hf(transcript, topic_segments, decisions, action_items, sentiment, participants)
-                print("[OK] HF summary generated successfully", file=sys.stderr)
+                result = self._generate_with_mistral_direct(transcript, topic_segments, decisions, action_items, sentiment, participants)
                 return result
             except Exception as e:
-                print(f"\n[ERROR] HF summary generation failed: {type(e).__name__}: {str(e)}", file=sys.stderr)
-                # Continue to Groq or extractive fallback
+                pass  # Fall back to extractive
 
-        if self.use_api and self.provider != "hf":
-            try:
-                print("\n[INFO] Attempting Groq API summary generation...", file=sys.stderr)
-                result = self._generate_with_groq(transcript, topic_segments, decisions, action_items, sentiment, participants)
-                print("[OK] Groq API summary generated successfully", file=sys.stderr)
-                return result
-            except Exception as e:
-                print(f"\n[ERROR] Groq API summary generation failed: {type(e).__name__}: {str(e)}", file=sys.stderr)
-                print("  Falling back to extractive summary...", file=sys.stderr)
-        elif not self.use_api and not self.use_hf:
-            print("\n-> No API key available, using extractive summary...", file=sys.stderr)
-
-        return self._generate_extractive(
+        # FALLBACK: Extractive summary (rule-based, always works)
+        result = self._generate_extractive(
             transcript, topic_segments, decisions,
             action_items, sentiment, participants
         )
+        return result
 
-    def _generate_with_hf(
+    def _generate_with_mistral_direct(
         self,
         transcript: str,
         topic_segments: Optional[List[Dict[str, Any]]] = None,
@@ -264,95 +255,137 @@ class SummaryAgent:
         participants: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
-        Generate summary using Hugging Face hosted model.
-        Strategy: chunk if long, summarize each chunk to bullets, then combine.
+        Generate summary using Mistral API directly (not HuggingFace).
+        Uses official mistralai SDK for better reliability.
         """
+        
+        try:
+            from mistralai import Mistral
+        except ImportError:
+            print("[MISTRAL] ❌ mistralai package not installed, falling back", file=sys.stderr)
+            raise ImportError("mistralai package required")
+        
         clean_transcript = self._preprocess_text(transcript)
         word_count = len(clean_transcript.split())
 
         if word_count == 0:
             return self._generate_empty_summary()
 
-        # Chunk for long transcripts (smaller for HF limits)
-        if word_count > self.CHUNK_THRESHOLD_WORDS:
-            chunks = self._chunk_text(clean_transcript, max_words=800, overlap=80)
-        else:
-            chunks = [clean_transcript]
+        # Build context from other agents
+        context = self._build_context(
+            topic_segments, decisions, action_items,
+            sentiment, participants
+        )
+        context_str = self._format_context(context)
 
-        all_bullets: List[str] = []
+        # Mistral can handle longer context (~32k tokens for mistral-small)
+        # Truncate if very long
+        max_chars = 20000
+        if len(clean_transcript) > max_chars:
+            clean_transcript = clean_transcript[:max_chars] + "..."
 
-        for chunk in chunks:
-            prompt = (
-                "Summarize the meeting dialogue below into 3-6 concise bullet points.\n"
-                'Return JSON ONLY in this exact format: {"bullets": ["...","..."]}\n\n'
-                f"Dialogue:\n{chunk}\n\nJSON:"
+        # Build Mistral prompt for LAYERED SUMMARIES
+        system_prompt = "You are an expert meeting summarizer. Analyze meeting transcripts and create professional, structured meeting minutes with multiple summary formats for different audiences."
+        
+        user_prompt = f"""Analyze this meeting transcript and create comprehensive meeting minutes with LAYERED SUMMARIES.
+
+{context_str}
+
+TRANSCRIPT:
+{clean_transcript}
+
+Generate meeting minutes with THREE TYPES of summaries:
+
+1. **Executive Summary** (2-3 sentences): High-level overview for executives who need quick insights
+2. **Detailed Summary** (3-5 paragraphs): Full narrative for meeting participants with context and discussion flow
+3. **Bullet Summary** (8-12 bullets): Scannable key points for quick reference
+
+Also include:
+- Meeting title
+- Key decisions
+- Action items
+
+Respond ONLY with valid JSON in this exact format:
+{{
+  "meeting_title": "Brief descriptive title",
+  "executive_summary": "2-3 concise sentences for executives covering main outcomes and decisions",
+  "detailed_summary": "3-5 paragraphs providing full context: what was discussed, why it matters, key themes, participant contributions, and outcomes. This should be comprehensive and narrative.",
+  "bullet_summary": ["Key point 1", "Key point 2", "Key point 3", "Key point 4", "Key point 5", "Key point 6", "Key point 7", "Key point 8"],
+  "decisions": ["Decision 1", "Decision 2"],
+  "action_items": [{{"task": "Task description", "owner": "Person name", "deadline": "Date or timeframe"}}],
+  "confidence": 0.85
+}}
+
+IMPORTANT: Make the detailed_summary substantive (at least 500 characters). Include context, discussion themes, and narrative flow."""
+
+        try:
+            # Initialize Mistral client
+            client = Mistral(api_key=self.hf_token)
+            
+            # Build messages
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            
+            # Call Mistral API
+            response = client.chat.complete(
+                model="mistral-small-latest",
+                messages=messages,
+                temperature=0.3,
+                max_tokens=1500
             )
-
-            payload = {
-                "inputs": prompt,
-                "parameters": {
-                    "max_new_tokens": 256,
-                    "temperature": 0.3,
-                    "return_full_text": False,
-                }
-            }
-
-            result = hf_infer(self.HF_SUMMARY_MODEL, payload, timeout=60, retries=2, backoff_seconds=3)
-
+            
+            # Extract generated text
             generated_text = None
-            if isinstance(result, list) and result and isinstance(result[0], dict):
-                generated_text = result[0].get("generated_text") or result[0].get("summary_text")
-            elif isinstance(result, dict):
-                generated_text = result.get("generated_text") or result.get("summary_text")
+            if response and response.choices:
+                generated_text = response.choices[0].message.content
 
             if not generated_text:
-                continue
+                raise ValueError("No generated text from Mistral API")
 
-            parsed_ok = False
-            try:
-                parsed = json.loads(generated_text)
-                bullets = parsed.get("bullets", [])
-                if isinstance(bullets, list):
-                    for b in bullets:
-                        if isinstance(b, str) and b.strip():
-                            all_bullets.append(b.strip())
-                    parsed_ok = True
-            except Exception:
-                parsed_ok = False
+            # Clean markdown if present
+            content = generated_text.strip()
+            
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
 
-            if not parsed_ok:
-                for line in generated_text.splitlines():
-                    line = line.strip(" -*•\t")
-                    if line:
-                        all_bullets.append(line)
+            # Parse JSON
+            parsed = json.loads(content)
 
-        # Deduplicate and limit bullets
-        dedup_bullets = []
-        seen = set()
-        for b in all_bullets:
-            if b not in seen:
-                dedup_bullets.append(b)
-                seen.add(b)
-        if not dedup_bullets:
-            dedup_bullets = ["Summary unavailable."]
-        dedup_bullets = dedup_bullets[:12]
+            # Build result with LAYERED SUMMARIES
+            # Extract layered summaries
+            executive = parsed.get("executive_summary", "")
+            detailed = parsed.get("detailed_summary", "")
+            bullets = parsed.get("bullet_summary", [])
+            
+            result_obj = SummaryResult(
+                meeting_title=parsed.get("meeting_title", "Meeting Summary"),
+                date=datetime.now().strftime('%Y-%m-%d'),
+                attendees=parsed.get("attendees", []),
+                agenda=parsed.get("agenda", []),
+                overview=executive or detailed[:200],  # Use executive or first 200 chars of detailed
+                paragraph_summary=detailed or executive,  # Use detailed as main paragraph
+                key_points=bullets if bullets else parsed.get("key_points", []),
+                discussion_points=[],
+                decisions=parsed.get("decisions", []),
+                action_items=parsed.get("action_items", []),
+                next_steps=parsed.get("next_steps", "Follow up on action items."),
+                confidence=float(parsed.get("confidence", 0.85)),
+                # LAYERED SUMMARIES (new format)
+                executive_summary=executive,
+                detailed_summary=detailed,
+                bullet_summary=bullets
+            )
+            return result_obj.to_dict()
 
-        paragraph_summary = " ".join(dedup_bullets[:6])
-
-        return SummaryResult(
-            meeting_title="Meeting Summary",
-            date=datetime.now().strftime('%Y-%m-%d'),
-            attendees=[],
-            agenda=[],
-            overview=paragraph_summary,
-            paragraph_summary=paragraph_summary,
-            key_points=dedup_bullets,
-            discussion_points=[],
-            decisions=[],
-            action_items=[],
-            next_steps="",
-            confidence=0.6
-        ).to_dict()
+        except Exception as e:
+            raise  # Re-raise to trigger fallback to extractive
 
     def _generate_with_groq(
         self, 
@@ -362,8 +395,9 @@ class SummaryAgent:
         action_items: Optional[List[Dict[str, Any]]] = None,
         sentiment: Optional[Dict[str, Any]] = None,
         participants: Optional[List[Dict[str, Any]]] = None,
+        generate_layered: bool = True,
     ) -> Dict[str, Any]:
-        """Generate meeting minutes using Groq API."""
+        """Generate meeting minutes using Groq API with optional layered summaries."""
         
         clean_transcript = self._preprocess_text(transcript)
         word_count = len(clean_transcript.split())
@@ -376,12 +410,24 @@ class SummaryAgent:
         
         # Handle long transcripts with chunking
         if word_count > self.CHUNK_THRESHOLD_WORDS:
-            return self._generate_chunked(
+            base_result = self._generate_chunked(
                 clean_transcript, context, word_count
             )
+        else:
+            # Single-pass generation for shorter transcripts
+            base_result = self._generate_single_pass(clean_transcript, context, word_count)
         
-        # Single-pass generation for shorter transcripts
-        return self._generate_single_pass(clean_transcript, context, word_count)
+        # Generate layered summaries if requested
+        if generate_layered and self.use_api:
+            try:
+                print("\n[INFO] Generating layered summaries...", file=sys.stderr)
+                layered = self._generate_layered_summaries(base_result, clean_transcript, context)
+                base_result.update(layered)
+                print("[OK] Layered summaries generated", file=sys.stderr)
+            except Exception as e:
+                print(f"[WARN] Layered summary generation failed: {e}. Continuing with base summary.", file=sys.stderr)
+        
+        return base_result
 
     def _build_context(
         self,
@@ -705,6 +751,185 @@ JSON Response:"""
         
         return "CONTEXT FROM ANALYSIS:\n" + "\n".join(parts) if parts else ""
 
+    def _generate_layered_summaries(
+        self,
+        base_summary: Dict[str, Any],
+        transcript: str,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Generate multiple summary layers for different audiences.
+        Returns dict with executive_summary, detailed_summary, and bullet_summary.
+        """
+        layered = {}
+        
+        # Extract key information from base summary
+        key_points = base_summary.get("key_points", [])
+        decisions = base_summary.get("decisions", [])
+        action_items = base_summary.get("action_items", [])
+        overview = base_summary.get("overview", "")
+        
+        # 1. Executive Summary (2-3 sentences for busy executives)
+        try:
+            exec_prompt = f"""Create a 2-3 sentence executive summary of this meeting.
+
+FOCUS ON:
+- The ONE most important outcome or decision
+- Critical next steps or blockers
+- Business impact in one sentence
+
+MEETING OVERVIEW:
+{overview}
+
+KEY DECISIONS:
+{json.dumps(decisions[:3]) if decisions else 'None'}
+
+KEY ACTION ITEMS:
+{json.dumps([a.get('task', '') for a in action_items[:3]]) if action_items else 'None'}
+
+Write ONLY 2-3 concise sentences. No bullet points. Use plain text only."""
+
+            exec_payload = {
+                "model": self.GROQ_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You create ultra-concise executive summaries. Respond with 2-3 sentences only, no formatting."
+                    },
+                    {"role": "user", "content": exec_prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 200
+            }
+            
+            exec_result = self._call_groq_api(exec_payload, timeout=30)
+            executive_summary = exec_result["choices"][0]["message"]["content"].strip()
+            # Clean up any markdown or formatting
+            executive_summary = executive_summary.replace("**", "").replace("*", "").strip()
+            layered["executive_summary"] = executive_summary
+            print(f"  ✓ Executive summary: {len(executive_summary)} chars", file=sys.stderr)
+            
+        except Exception as e:
+            print(f"  ✗ Executive summary failed: {e}", file=sys.stderr)
+            # Fallback: use overview
+            layered["executive_summary"] = overview[:300] + "..." if len(overview) > 300 else overview
+        
+        # 2. Detailed Summary (comprehensive narrative for participants)
+        try:
+            # Use the existing paragraph_summary as the detailed version
+            detailed = base_summary.get("paragraph_summary", "")
+            
+            # If it's too short, enhance it
+            if len(detailed) < 500:
+                detail_prompt = f"""Expand this meeting summary into a comprehensive 4-5 paragraph narrative.
+
+CURRENT SUMMARY:
+{detailed}
+
+KEY POINTS TO INCLUDE:
+{json.dumps(key_points)}
+
+DISCUSSION POINTS:
+{json.dumps(base_summary.get('discussion_points', []))}
+
+Write a detailed narrative covering:
+1. Meeting context and participants
+2. Each major topic with specific details
+3. Decisions made and their rationale
+4. Action items and ownership
+5. Next steps and timeline
+
+Use professional prose. Be specific with names, numbers, and details."""
+
+                detail_payload = {
+                    "model": self.GROQ_MODEL,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You create comprehensive meeting narratives for participants. Write in clear, professional prose."
+                        },
+                        {"role": "user", "content": detail_prompt}
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 1500
+                }
+                
+                detail_result = self._call_groq_api(detail_payload, timeout=45)
+                detailed = detail_result["choices"][0]["message"]["content"].strip()
+            
+            layered["detailed_summary"] = detailed
+            print(f"  ✓ Detailed summary: {len(detailed)} chars", file=sys.stderr)
+            
+        except Exception as e:
+            print(f"  ✗ Detailed summary failed: {e}", file=sys.stderr)
+            # Fallback: use paragraph_summary
+            layered["detailed_summary"] = base_summary.get("paragraph_summary", overview)
+        
+        # 3. Bullet Summary (quick scannable points)
+        try:
+            bullet_prompt = f"""Create 5-8 concise bullet points summarizing this meeting.
+
+MEETING OVERVIEW:
+{overview}
+
+KEY POINTS:
+{json.dumps(key_points)}
+
+DECISIONS:
+{json.dumps(decisions)}
+
+ACTION ITEMS:
+{json.dumps([a.get('task', '') for a in action_items])}
+
+Return ONLY a JSON array of strings:
+["Bullet point 1", "Bullet point 2", ...]
+
+Each bullet should be:
+- One clear sentence
+- Action-oriented when possible
+- Include specific names/numbers
+- 10-15 words maximum"""
+
+            bullet_payload = {
+                "model": self.GROQ_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You create concise bullet-point summaries. Respond with valid JSON array only."
+                    },
+                    {"role": "user", "content": bullet_prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 500
+            }
+            
+            bullet_result = self._call_groq_api(bullet_payload, timeout=30)
+            bullet_content = bullet_result["choices"][0]["message"]["content"].strip()
+            
+            # Clean markdown if present
+            if bullet_content.startswith("```json"):
+                bullet_content = bullet_content[7:]
+            if bullet_content.startswith("```"):
+                bullet_content = bullet_content[3:]
+            if bullet_content.endswith("```"):
+                bullet_content = bullet_content[:-3]
+            bullet_content = bullet_content.strip()
+            
+            # Parse JSON
+            bullet_summary = json.loads(bullet_content)
+            if isinstance(bullet_summary, list):
+                layered["bullet_summary"] = bullet_summary[:8]  # Cap at 8
+                print(f"  ✓ Bullet summary: {len(bullet_summary)} bullets", file=sys.stderr)
+            else:
+                raise ValueError("Bullet summary not a list")
+                
+        except Exception as e:
+            print(f"  ✗ Bullet summary failed: {e}", file=sys.stderr)
+            # Fallback: use key_points
+            layered["bullet_summary"] = key_points[:8] if key_points else [overview]
+        
+        return layered
+
     def _parse_api_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
         """Parse and validate API response."""
         
@@ -745,7 +970,10 @@ JSON Response:"""
             decisions=parsed.get("decisions", []),
             action_items=parsed.get("action_items", []),
             next_steps=parsed.get("next_steps", "No next steps specified"),
-            confidence=float(parsed.get("confidence", 0.8))
+            confidence=float(parsed.get("confidence", 0.8)),
+            executive_summary=parsed.get("executive_summary"),
+            detailed_summary=parsed.get("detailed_summary"),
+            bullet_summary=parsed.get("bullet_summary")
         ).to_dict()
 
     def _generate_extractive(
@@ -759,7 +987,8 @@ JSON Response:"""
     ) -> Dict[str, Any]:
         """Fallback: Generate structured minutes from transcript."""
         
-        print("Using extractive summary fallback...", file=sys.stderr)
+        print("\n--- _generate_extractive() called ---", file=sys.stderr)
+        print("[EXTRACTIVE] ⚠️ Using extractive summary fallback (simple template-based)", file=sys.stderr)
         
         clean_transcript = self._preprocess_text(transcript)
         attendees = self._extract_speakers(clean_transcript)
@@ -835,7 +1064,10 @@ JSON Response:"""
             decisions=decision_list,
             action_items=action_list,
             next_steps="Follow up on action items and decisions.",
-            confidence=0.6
+            confidence=0.6,
+            executive_summary=None,
+            detailed_summary=None,
+            bullet_summary=None
         ).to_dict()
 
     def _generate_empty_summary(self) -> Dict[str, Any]:
@@ -852,7 +1084,10 @@ JSON Response:"""
             decisions=[],
             action_items=[],
             next_steps="N/A",
-            confidence=0.0
+            confidence=0.0,
+            executive_summary=None,
+            detailed_summary=None,
+            bullet_summary=None
         ).to_dict()
 
     def write_summary_to_file(

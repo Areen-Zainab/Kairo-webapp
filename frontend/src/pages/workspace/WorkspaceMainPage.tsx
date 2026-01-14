@@ -23,8 +23,13 @@ const WorkspaceOverview = () => {
   const [liveMeeting, setLiveMeeting] = useState<any>(null);
   const [dismissedLiveBanner, setDismissedLiveBanner] = useState(false);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [recentCompletedMeetings, setRecentCompletedMeetings] = useState<any[]>([]);
   
   const { error: toastError, success: toastSuccess } = useToastContext();
+  
+  // Store meetings locally
+  const meetingsDataRef = useRef<any[]>([]);
   
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -93,9 +98,24 @@ const WorkspaceOverview = () => {
     fetchActivityLogs();
   }, [workspaceId, shouldShowDummyData]);
 
-  // Store meetings locally
-  const meetingsDataRef = useRef<any[]>([]);
-  
+  // Fetch dashboard stats
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      if (!workspaceId || shouldShowDummyData) return;
+      
+      try {
+        const response = await apiService.getWorkspaceDashboard(parseInt(workspaceId));
+        if (response.data?.stats) {
+          setDashboardStats(response.data.stats);
+        }
+      } catch (error) {
+        console.error('Failed to fetch dashboard stats:', error);
+      }
+    };
+
+    fetchDashboardStats();
+  }, [workspaceId, shouldShowDummyData]);
+
   // Fetch meetings once on mount or workspace change
   useEffect(() => {
     const fetchMeetings = async () => {
@@ -120,9 +140,19 @@ const WorkspaceOverview = () => {
           
           // Get upcoming meetings
           const upcoming = response.data.meetings
-            .filter((m: any) => new Date(m.startTime) > new Date())
+            .filter((m: any) => new Date(m.startTime) > now)
             .slice(0, 5);
           setUpcomingMeetingsData(upcoming);
+          
+          // Get recent past meetings (ended meetings, regardless of status)
+          const pastMeetings = response.data.meetings
+            .filter((m: any) => {
+              const endTime = new Date(m.endTime);
+              return endTime < now; // Only past meetings
+            })
+            .sort((a: any, b: any) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime())
+            .slice(0, 3);
+          setRecentCompletedMeetings(pastMeetings);
         }
       } catch (error) {
         console.error('Failed to fetch meetings:', error);
@@ -174,14 +204,15 @@ const WorkspaceOverview = () => {
       if (response.data?.meetings) {
         meetingsDataRef.current = response.data.meetings;
         
+        // Check for live meetings
+        const now = new Date();
+        
         // Update upcoming meetings
         const upcoming = response.data.meetings
-          .filter((m: any) => new Date(m.startTime) > new Date())
+          .filter((m: any) => new Date(m.startTime) > now)
           .slice(0, 5);
         setUpcomingMeetingsData(upcoming);
         
-        // Check for live meetings
-        const now = new Date();
         const live = response.data.meetings.find((m: any) => {
           const start = new Date(m.startTime);
           const end = new Date(m.endTime);
@@ -192,6 +223,16 @@ const WorkspaceOverview = () => {
           setLiveMeeting(live);
           setDismissedLiveBanner(false);
         }
+        
+        // Get recent past meetings (ended meetings, regardless of status)
+        const pastMeetings = response.data.meetings
+          .filter((m: any) => {
+            const endTime = new Date(m.endTime);
+            return endTime < now; // Only past meetings
+          })
+          .sort((a: any, b: any) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime())
+          .slice(0, 3);
+        setRecentCompletedMeetings(pastMeetings);
       }
     } catch (error) {
       console.error('Failed to refresh meetings:', error);
@@ -218,19 +259,44 @@ const WorkspaceOverview = () => {
   };
 
   // Stats data - show dummy for demo account, real data for others
-  // Calculate real meeting stats
-  const totalMeetings = shouldShowDummyData ? 24 : meetingsDataRef.current.length;
-  
   const stats = shouldShowDummyData ? [
     { id: 1, label: 'Total Meetings', value: '24', change: '+12%', icon: Video, color: 'from-blue-500 to-cyan-500' },
     { id: 2, label: 'Active Tasks', value: '18', change: '+8%', icon: CheckSquare, color: 'from-purple-500 to-pink-500' },
     { id: 3, label: 'Completion Rate', value: '87%', change: '+5%', icon: TrendingUp, color: 'from-green-500 to-emerald-500' },
     { id: 4, label: 'Memory Items', value: '156', change: '+23', icon: Brain, color: 'from-orange-500 to-red-500' },
-  ] : (workspaceDetails ? [
-    { id: 1, label: 'Total Meetings', value: String(totalMeetings), change: '', icon: Video, color: 'from-blue-500 to-cyan-500' },
-    { id: 2, label: 'Active Tasks', value: '0', change: '', icon: CheckSquare, color: 'from-purple-500 to-pink-500' },
-    { id: 3, label: 'Team Members', value: String(workspaceDetails.members?.length || 0), change: '', icon: Users, color: 'from-green-500 to-emerald-500' },
-    { id: 4, label: 'Memory Items', value: '0', change: '', icon: Brain, color: 'from-orange-500 to-red-500' },
+  ] : (dashboardStats ? [
+    { 
+      id: 1, 
+      label: 'Total Meetings', 
+      value: String(dashboardStats.totalMeetings), 
+      change: dashboardStats.meetingsThisWeek > 0 ? `+${dashboardStats.meetingsThisWeek} this week` : '', 
+      icon: Video, 
+      color: 'from-blue-500 to-cyan-500' 
+    },
+    { 
+      id: 2, 
+      label: 'Action Items', 
+      value: String(dashboardStats.totalActionItems), 
+      change: dashboardStats.confirmedActionItems > 0 ? `${dashboardStats.confirmedActionItems} confirmed` : '', 
+      icon: CheckSquare, 
+      color: 'from-purple-500 to-pink-500' 
+    },
+    { 
+      id: 3, 
+      label: 'Completion Rate', 
+      value: `${dashboardStats.completionRate}%`, 
+      change: '', 
+      icon: TrendingUp, 
+      color: 'from-green-500 to-emerald-500' 
+    },
+    { 
+      id: 4, 
+      label: 'Team Members', 
+      value: String(dashboardStats.totalMembers), 
+      change: '', 
+      icon: Users, 
+      color: 'from-orange-500 to-red-500' 
+    },
   ] : []);
 
   // Format upcoming meetings for display
@@ -286,7 +352,31 @@ const WorkspaceOverview = () => {
     { id: 1, title: 'Product Review Q4', date: 'Oct 10, 2025', tasks: 8, transcriptReady: true, memoryLinks: 3, duration: '1h 20m' },
     { id: 2, title: 'Design Sprint Retro', date: 'Oct 9, 2025', tasks: 5, transcriptReady: true, memoryLinks: 2, duration: '45m' },
     { id: 3, title: 'API Integration Sync', date: 'Oct 8, 2025', tasks: 12, transcriptReady: true, memoryLinks: 5, duration: '1h 05m' },
-  ] : [];
+  ] : recentCompletedMeetings.map(meeting => {
+      const endTime = new Date(meeting.endTime);
+      const startTime = new Date(meeting.startTime);
+      const durationMs = endTime.getTime() - startTime.getTime();
+      const durationMins = Math.floor(durationMs / 60000);
+      const hours = Math.floor(durationMins / 60);
+      const mins = durationMins % 60;
+      
+      let durationDisplay = '';
+      if (hours > 0) {
+        durationDisplay = `${hours}h ${mins}m`;
+      } else {
+        durationDisplay = `${mins}m`;
+      }
+      
+      return {
+        id: meeting.id,
+        title: meeting.title,
+        date: endTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        tasks: meeting.actionItems?.length || 0,
+        transcriptReady: !!meeting.transcriptUrl,
+        memoryLinks: 0, // TODO: Add memory links count when available
+        duration: durationDisplay
+      };
+    });
 
   const memoryInsights = shouldShowDummyData ? [
     { id: 1, topic: 'API v2 Migration', linkedMeetings: 5, lastDiscussed: '2 days ago' },
@@ -789,6 +879,7 @@ const WorkspaceOverview = () => {
                     return (
                     <div
                       key={meeting.id}
+                      onClick={() => navigate(`/workspace/${workspaceId || currentWorkspace?.id}/meetings/${meeting.id}`)}
                       className="rounded-lg p-3 sm:p-4 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
                     >
                   <div className="flex items-start sm:items-center justify-between gap-2">
@@ -819,13 +910,22 @@ const WorkspaceOverview = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50" title="View Transcript">
-                        <FileText className="w-3.5 h-3.5 text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors" />
-                      </button>
-                      <button className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50" title="Download">
-                        <Download className="w-3.5 h-3.5 text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors" />
-                      </button>
-                      <button className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50">
+                      {meeting.transcriptReady && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/workspace/${workspaceId || currentWorkspace?.id}/meetings/${meeting.id}`);
+                          }}
+                          className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50" 
+                          title="View Meeting Details"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors" />
+                        </button>
+                      )}
+                      <button 
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-2 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/50 opacity-0 group-hover:opacity-100"
+                      >
                         <MoreVertical className="w-3.5 h-3.5 text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors" />
                       </button>
                     </div>

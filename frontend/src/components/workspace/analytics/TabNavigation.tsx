@@ -13,9 +13,8 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
 }) => {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: '📊' },
-    { id: 'meetings', label: 'Meetings', icon: '📅' },
-    { id: 'teams', label: 'Teams', icon: '👥' },
-    { id: 'performance', label: 'Performance', icon: '📈' },
+    { id: 'participants', label: 'Participants', icon: '👥' },
+    { id: 'action-items', label: 'Action Items', icon: '✅' },
     { id: 'insights', label: 'Insights', icon: '💡' }
   ];
 

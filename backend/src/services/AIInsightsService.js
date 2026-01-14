@@ -5,6 +5,7 @@ const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../lib/prisma');
 const { findMeetingDirectory } = require('../utils/meetingFileStorage');
+const NotificationService = require('./NotificationService');
 
 // In-memory storage for generation status (not persisted to DB)
 // If backend restarts, these are cleared, preventing false "generating" states
@@ -180,7 +181,7 @@ class AIInsightsService {
    */
   getGenerationStatus(meetingId) {
     const meetingIdInt = parseInt(meetingId);
-    
+
     // Check in-memory first (active generations)
     if (activeGenerations.has(meetingIdInt)) {
       const status = activeGenerations.get(meetingIdInt);
@@ -192,7 +193,7 @@ class AIInsightsService {
         isActive: true // Indicates this is actively generating
       };
     }
-    
+
     // Not in memory, return idle (will check DB for persisted insights separately)
     return {
       status: 'idle',
@@ -337,12 +338,18 @@ print(result)
       const proc = spawn(pythonExe, ['-c', pythonScript], {
         shell: false, // Don't use shell to avoid path splitting
         cwd: absoluteScriptDir,
-        env: { 
-          ...process.env, 
+        env: {
+          ...process.env,
           PYTHONUNBUFFERED: '1',
-          PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+          PYTHONIOENCODING: 'utf-8',  // Fix Windows encoding issues
+          MISTRAL_API_KEY: process.env.MISTRAL_API_KEY  // Explicitly pass for agents
         }
       });
+
+      // Register for cleanup on server shutdown
+      if (global.registerChildProcess) {
+        global.registerChildProcess(proc, 'Transcript Converter');
+      }
 
       let stdout = '';
       let stderr = '';
@@ -372,7 +379,7 @@ print(result)
   /**
    * Run a single Python agent with text input
    */
-  async runTextAgent(agentKey, transcriptText) {
+  async runTextAgent(agentKey, transcriptText, context = null) {
     return new Promise((resolve, reject) => {
       const pythonExe = this.getPythonExecutable();
       const scriptPath = AGENT_SCRIPT_PATH;
@@ -382,9 +389,17 @@ print(result)
         cwd: path.dirname(scriptPath),
         env: {
           ...process.env,
-          PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+          PYTHONIOENCODING: 'utf-8',  // Fix Windows encoding issues
+          MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,  // Explicitly pass for summary agent
+          // Pass context as JSON string in environment variable
+          AGENT_CONTEXT: context ? JSON.stringify(context) : ''
         }
       });
+
+      // Register for cleanup on server shutdown
+      if (global.registerChildProcess) {
+        global.registerChildProcess(proc, `AI Agent: ${agentKey}`);
+      }
 
       let stdout = '';
       let stderr = '';
@@ -394,7 +409,12 @@ print(result)
       });
 
       proc.stderr.on('data', (data) => {
-        stderr += data.toString();
+        const stderrChunk = data.toString();
+        stderr += stderrChunk;
+        // Log stderr output immediately for debugging (especially for summary agent)
+        if (stderrChunk.trim()) {
+          console.error(`[${agentKey}] ${stderrChunk.trim()}`);
+        }
       });
 
       proc.on('close', (code) => {
@@ -452,12 +472,18 @@ print(result)
       const proc = spawn(pythonExe, ['-c', pythonScript], {
         shell: false, // Don't use shell to avoid path splitting
         cwd: absoluteScriptDir,
-        env: { 
-          ...process.env, 
+        env: {
+          ...process.env,
           PYTHONUNBUFFERED: '1',
-          PYTHONIOENCODING: 'utf-8'  // Fix Windows encoding issues
+          PYTHONIOENCODING: 'utf-8',  // Fix Windows encoding issues
+          MISTRAL_API_KEY: process.env.MISTRAL_API_KEY  // Explicitly pass for agents
         }
       });
+
+      // Register for cleanup on server shutdown
+      if (global.registerChildProcess) {
+        global.registerChildProcess(proc, 'Participant Analysis Agent');
+      }
 
       let stdout = '';
       let stderr = '';
@@ -557,22 +583,22 @@ print(result)
     const withTimeout = (promise, timeoutMs, agentName) => {
       return Promise.race([
         promise,
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error(`${agentName} agent timed out after ${timeoutMs}ms`)), timeoutMs)
         )
       ]);
     };
 
     // Text-based agents that use Groq API - run sequentially to avoid rate limits
+    // IMPORTANT: Run summary LAST to avoid Groq rate limits
     const textAgents = [
-      { key: 'summary', name: 'Summary' },
       { key: 'decisions', name: 'Decisions' },
       { key: 'sentiment', name: 'Sentiment' },
       { key: 'topics', name: 'Topics' },
       { key: 'action_items', name: 'Action Items' }
     ];
 
-    // Run text agents sequentially to prevent rate limit exhaustion
+    // Run text agents sequentially and save each as it completes
     const textResults = [];
     for (const { key, name } of textAgents) {
       try {
@@ -586,7 +612,15 @@ print(result)
         console.log(`  ✅ ${name} agent completed`);
         await incrementProgress();
         textResults.push({ key, result, success: true });
-        
+
+        // Save this insight immediately to database (progressive loading)
+        try {
+          await this.saveIndividualInsight(meetingId, key, result);
+          console.log(`  💾 Saved ${name} to database`);
+        } catch (saveErr) {
+          console.warn(`  ⚠️ Failed to save ${name}: ${saveErr.message}`);
+        }
+
         // Small delay between agents to help avoid rate limits
         await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
       } catch (error) {
@@ -613,6 +647,15 @@ print(result)
         );
         console.log('  ✅ Participant Analysis agent completed');
         await incrementProgress();
+        
+        // Save participant insight immediately
+        try {
+          await this.saveIndividualInsight(meetingId, 'participants', result);
+          console.log('  💾 Saved Participant Analysis to database');
+        } catch (saveErr) {
+          console.warn(`  ⚠️ Failed to save Participant Analysis: ${saveErr.message}`);
+        }
+        
         return { key: 'participants', result, success: true };
       } catch (error) {
         console.error('  ❌ Participant Analysis agent failed:', error.message);
@@ -624,9 +667,40 @@ print(result)
     // Wait for participant agent to complete (text agents already done)
     const participantResult = await participantPromise;
 
+    // NOW run summary agent LAST with all context from other agents
+    console.log('  Running Summary agent (using Hugging Face Mistral)...');
+    let summaryResult = null;
+    try {
+      // Prepare context for summary from completed agents
+      const contextForSummary = {
+        topics: textResults.find(r => r.key === 'topics')?.result || null,
+        decisions: textResults.find(r => r.key === 'decisions')?.result || null,
+        actionItems: textResults.find(r => r.key === 'action_items')?.result || null,
+        sentiment: textResults.find(r => r.key === 'sentiment')?.result || null,
+        participants: participantResult.result || null
+      };
+
+      const summaryAgent = await this.runTextAgent('summary', transcriptText, contextForSummary);
+      console.log('  ✅ Summary agent completed');
+      await incrementProgress();
+      summaryResult = { key: 'summary', result: summaryAgent, success: true };
+      
+      // Save summary immediately
+      try {
+        await this.saveIndividualInsight(meetingId, 'summary', summaryAgent);
+        console.log('  💾 Saved Summary to database');
+      } catch (saveErr) {
+        console.warn(`  ⚠️ Failed to save Summary: ${saveErr.message}`);
+      }
+    } catch (error) {
+      console.error(`  ❌ Summary agent failed: ${error.message}`);
+      await incrementProgress();
+      summaryResult = { key: 'summary', result: null, success: false, error: error.message };
+    }
+
     // Aggregate results
     const insights = {
-      summary: null,
+      summary: summaryResult?.success && summaryResult.result ? summaryResult.result : null,
       decisions: null,
       sentiment: null,
       topics: null,
@@ -638,9 +712,6 @@ print(result)
     for (const { key, result, success } of textResults) {
       if (success && result) {
         switch (key) {
-          case 'summary':
-            insights.summary = result;
-            break;
           case 'decisions':
             insights.decisions = result;
             break;
@@ -698,9 +769,9 @@ print(result)
         Array.isArray(list) &&
         list.length === 1 &&
         typeof list[0] === 'object' &&
-        (list[0].title === 'No action items detected' || 
-         list[0].action === 'No action items detected.' ||
-         list[0].title === 'No action items detected.')
+        (list[0].title === 'No action items detected' ||
+          list[0].action === 'No action items detected.' ||
+          list[0].title === 'No action items detected.')
       );
     };
 
@@ -738,6 +809,88 @@ print(result)
 
     console.log(`✅ Regenerated ${actionItems.length} action item(s) for meeting ${meetingId}`);
     return { success: true, count: actionItems.length };
+  }
+
+  /**
+   * Save individual insight to database immediately (for progressive loading)
+   */
+  async saveIndividualInsight(meetingId, insightType, result) {
+    if (!result) return;
+
+    const meetingIdStr = String(meetingId);
+    const { v4: uuidv4 } = require('uuid');
+
+    try {
+      // Delete existing insight of this type
+      await prisma.aiInsight.deleteMany({
+        where: {
+          meetingId: meetingIdStr,
+          insightType: this._mapInsightTypeToEnum(insightType)
+        }
+      });
+
+      // Save new insight
+      const content = JSON.stringify(result);
+      const confidence = this._extractConfidence(insightType, result);
+
+      await prisma.aiInsight.create({
+        data: {
+          id: uuidv4(),
+          meetingId: meetingIdStr,
+          insightType: this._mapInsightTypeToEnum(insightType),
+          content: content,
+          confidenceScore: Number(confidence)
+        }
+      });
+    } catch (error) {
+      console.error(`Failed to save ${insightType} insight:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Map insight type to database enum value
+   */
+  _mapInsightTypeToEnum(insightType) {
+    const mapping = {
+      'summary': 'summary',
+      'decisions': 'decisions',
+      'sentiment': 'sentiment',
+      'topics': 'topics',
+      'action_items': 'action_items',
+      'participants': 'other' // participants use 'other' type
+    };
+    return mapping[insightType] || 'other';
+  }
+
+  /**
+   * Extract confidence score from result
+   */
+  _extractConfidence(insightType, result) {
+    if (!result) return 0.8;
+
+    switch (insightType) {
+      case 'summary':
+        return result.confidence || 0.85;
+      case 'decisions':
+        if (Array.isArray(result)) {
+          return result.reduce((sum, d) => sum + (d.confidence || 0.8), 0) / (result.length || 1);
+        }
+        return 0.8;
+      case 'sentiment':
+        return result.confidence || 0.8;
+      case 'topics':
+        return 0.8;
+      case 'action_items':
+        if (Array.isArray(result)) {
+          return result.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / (result.length || 1);
+        }
+        return 0.8;
+      case 'participants':
+        return 0.85;
+      default:
+        return 0.8;
+    }
   }
 
   /**
@@ -880,9 +1033,9 @@ print(result)
           Array.isArray(list) &&
           list.length === 1 &&
           typeof list[0] === 'object' &&
-          (list[0].title === 'No action items detected' || 
-           list[0].action === 'No action items detected.' ||
-           list[0].title === 'No action items detected.')
+          (list[0].title === 'No action items detected' ||
+            list[0].action === 'No action items detected.' ||
+            list[0].title === 'No action items detected.')
         );
       };
 
@@ -902,7 +1055,7 @@ print(result)
             confidenceScore: Number(avgConfidence)
           }
         });
-        
+
         if (isPlaceholder) {
           console.log(`   ℹ️ No action items detected - saved placeholder message`);
         } else {
@@ -913,7 +1066,7 @@ print(result)
         if (!isPlaceholder) {
           try {
             const meetingIdInt = parseInt(meetingIdStr);
-            
+
             // Delete existing live action items (they were from partial transcript)
             const deletedCount = await tx.actionItem.deleteMany({
               where: { meetingId: meetingIdInt }
@@ -1043,7 +1196,7 @@ print(result)
     const updateMetadataStatus = async (status, errorMessage = null, progress = 0) => {
       try {
         const meetingIdInt = parseInt(meetingId);
-        
+
         // Always update in-memory status
         activeGenerations.set(meetingIdInt, {
           status,
@@ -1075,7 +1228,7 @@ print(result)
             });
             console.log(`   💾 Persisted status to DB: ${status}`);
           }
-          
+
           // Clear from in-memory after persisting final state
           if (status === 'completed') {
             activeGenerations.delete(meetingIdInt);
@@ -1094,17 +1247,17 @@ print(result)
       // Only check for existing insights if not forcing regeneration
       if (!forceRegenerate) {
         const existingTypes = await this.getExistingInsightTypes(meetingId);
-        
+
         // Only skip if ALL core insights exist (not including action_items - those should be regenerated post-meeting)
-        const coreInsightsExist = existingTypes.has('summary') && 
-                                  existingTypes.has('decisions') && 
-                                  existingTypes.has('topics') &&
-                                  existingTypes.has('sentiment');
-        
+        const coreInsightsExist = existingTypes.has('summary') &&
+          existingTypes.has('decisions') &&
+          existingTypes.has('topics') &&
+          existingTypes.has('sentiment');
+
         if (coreInsightsExist) {
           console.log(`ℹ️  Core insights already exist for meeting ${meetingId}`);
           console.log(`   Existing types: ${Array.from(existingTypes).join(', ')}`);
-          
+
           // Still regenerate action items if they don't exist (post-meeting with complete transcript)
           if (!existingTypes.has('action_items')) {
             console.log(`   📋 Action items missing, will regenerate with complete transcript...`);
@@ -1170,6 +1323,25 @@ print(result)
       await updateMetadataStatus('completed', null, 100);
 
       console.log(`✅ AI insights generation completed for meeting ${meetingId}`);
+
+      // Send notification that insights are ready
+      try {
+        const meeting = await prisma.meeting.findUnique({
+          where: { id: meetingIdInt },
+          include: {
+            workspace: {
+              select: { name: true }
+            }
+          }
+        });
+        
+        if (meeting) {
+          await NotificationService.notifyInsightsReady(meeting, meeting.workspace?.name);
+        }
+      } catch (notifError) {
+        console.error('  ⚠️ Failed to send insights ready notification:', notifError.message);
+      }
+
       return { success: true, insights };
     } catch (error) {
       console.error(`❌ AI insights generation failed for meeting ${meetingId}:`, error);

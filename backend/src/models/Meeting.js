@@ -251,7 +251,8 @@ class Meeting {
             }
           },
           take: 5 // Limit participants in list view
-        }
+        },
+        actionItems: true // Include action items for displaying task counts
       },
       orderBy: {
         startTime: 'asc'

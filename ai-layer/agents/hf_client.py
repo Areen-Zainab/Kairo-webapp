@@ -12,7 +12,7 @@ import requests
 from typing import Dict, Any
 
 
-HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
+HF_TOKEN = os.getenv("MISTRAL_API_KEY") or os.getenv("HUGGING_FACE_TOKEN") or os.getenv("HUGGINGFACE_API_TOKEN")  # Support multiple names
 HF_BASE_URL = "https://api-inference.huggingface.co/models"
 
 

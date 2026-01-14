@@ -27,6 +27,8 @@ interface MeetingTabsProps {
   onFileUpload?: (file: File) => void;
   onFileDelete?: (fileId: string) => void;
   currentTime: number;
+  actionItems?: any[];
+  aiInsights?: any;
 }
 
 const MeetingTabs: React.FC<MeetingTabsProps> = ({
@@ -46,7 +48,9 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
   onFileDownload,
   onFileUpload,
   onFileDelete,
-  currentTime
+  currentTime,
+  actionItems,
+  aiInsights
 }) => {
   // Get AI insights for generating minutes on-demand (hook must be at top level)
   const { insights } = useAIInsights(meeting.id);
@@ -156,12 +160,14 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
           <TranscriptPanel
             meeting={meeting}
             currentTime={currentTime}
-            onTimeUpdate={(time) => console.log('Time update:', time)}
-            onTimestampClick={(timestamp) => console.log('Timestamp click:', timestamp)}
-            onTranscriptHover={(entry) => console.log('Transcript hover:', entry)}
-            onSlideClick={(slide) => console.log('Slide click:', slide)}
+            onTimeUpdate={() => {}}
+            onTimestampClick={() => {}}
+            onTranscriptHover={() => {}}
+            onSlideClick={() => {}}
             onAddNote={onAddNote}
             onDeleteNote={onDeleteNote}
+            actionItems={actionItems}
+            aiInsights={aiInsights}
           />
         );
         case 'files':

@@ -36,7 +36,7 @@ class ParticipantAnalysisAgent:
 
     # GROQ API configuration
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-    GROQ_MODEL = "openai/gpt-oss-120b"  # Updated per Groq API
+    GROQ_MODEL = "llama-3.3-70b-versatile"  # Best free model for participant analysis
     GROQ_API_KEY_ENV = "GROQ_API_KEY"
 
     def __init__(self):

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { FileText, List, AlignLeft, Copy, RefreshCw, Loader2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { FileText, List, AlignLeft, Copy, RefreshCw, Loader2, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
 import type { MeetingDetailsData } from './types';
 import { useAIInsights } from '../../../hooks/useAIInsights';
 
@@ -10,7 +10,13 @@ interface AIInsightsPanelProps {
 
 const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsights }) => {
   const [format, setFormat] = useState<'paragraph' | 'bullets'>('paragraph');
+  const [summaryView, setSummaryView] = useState<'executive' | 'detailed' | 'bullet'>('detailed');
   const [isExporting, setIsExporting] = useState(false);
+  
+  // Track which insights have appeared to trigger animations
+  const [appearedInsights, setAppearedInsights] = useState<Set<string>>(new Set());
+  const [newInsight, setNewInsight] = useState<string | null>(null);
+  const prevInsightsRef = useRef<any>(null);
 
   const { insights, loading, error, isRegenerating, generationProgress, regenerate } = useAIInsights(meeting.id);
 
@@ -23,6 +29,83 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
     topics: [],
     participants: [],
     generated: false
+  };
+
+  // Calculate progress based on insights received
+  const calculateProgress = () => {
+    if (!aiInsights) return 0;
+    
+    let completedCount = 0;
+    if (aiInsights.keyDecisions?.length) completedCount++;
+    if (aiInsights.sentiment) completedCount++;
+    if (aiInsights.topics?.length) completedCount++;
+    if (aiInsights.actionItems?.length) completedCount++;
+    if (aiInsights.participants?.length) completedCount++;
+    if (aiInsights.summary) completedCount++;
+    
+    return Math.round((completedCount / 6) * 100);
+  };
+
+  const calculatedProgress = calculateProgress();
+
+  // Detect new insights appearing and trigger animations
+  useEffect(() => {
+    if (!insights || !prevInsightsRef.current) {
+      prevInsightsRef.current = insights;
+      return;
+    }
+
+    const prev = prevInsightsRef.current;
+    const current = insights;
+
+    // Check which insights just appeared
+    const newInsights: string[] = [];
+    
+    if (!prev.keyDecisions?.length && current.keyDecisions?.length) {
+      newInsights.push('decisions');
+    }
+    if (!prev.sentiment && current.sentiment) {
+      newInsights.push('sentiment');
+    }
+    if (!prev.topics?.length && current.topics?.length) {
+      newInsights.push('topics');
+    }
+    if (!prev.actionItems?.length && current.actionItems?.length) {
+      newInsights.push('actionItems');
+    }
+    if (!prev.participants?.length && current.participants?.length) {
+      newInsights.push('participants');
+    }
+    if (!prev.summary && current.summary) {
+      newInsights.push('summary');
+    }
+
+    if (newInsights.length > 0) {
+      // Mark as appeared
+      setAppearedInsights(prev => new Set([...prev, ...newInsights]));
+      
+      // Show notification for the newest insight
+      setNewInsight(newInsights[newInsights.length - 1]);
+      setTimeout(() => setNewInsight(null), 3000);
+    }
+
+    prevInsightsRef.current = current;
+  }, [insights]);
+
+  // Helper to check if insight just appeared
+  const isNewInsight = (insightType: string) => {
+    return appearedInsights.has(insightType) && newInsight === insightType;
+  };
+
+  // Helper to check if decisions are placeholder
+  const hasRealDecisions = (decisions: any[]) => {
+    if (!decisions || decisions.length === 0) return false;
+    if (decisions.length === 1) {
+      const firstDecision = decisions[0];
+      const text = firstDecision.decision || '';
+      return !(text === 'No decisions identified.' || text === 'No decisions made' || text.toLowerCase().includes('no decision'));
+    }
+    return true;
   };
 
   // Format speaking time for display
@@ -308,8 +391,6 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
         </p>
         <button
           onClick={() => {
-            console.log('🔵 [AIInsightsPanel] Retry button clicked in error state!');
-            console.log('   Calling regenerate() to trigger generation');
             regenerate();
           }}
           disabled={isRegenerating}
@@ -321,36 +402,65 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
     );
   }
 
-  // Empty or missing insights
+  // Empty or missing insights - show progress banner instead of loading spinner
   const isGeneratingServer = insights?.generating;
   if (!insights?.generated || (!aiInsights.summary && aiInsights.keyDecisions.length === 0)) {
-    // Show progress state only when generating
-    if (isRegenerating || isGeneratingServer) {
-      const currentProgress = generationProgress;
-
+    // Show progress state when generating or when progress < 100%
+    if (isRegenerating || isGeneratingServer || calculatedProgress < 100) {
       return (
-        <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-6">
-          <div className="relative">
-            <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-xs font-bold text-blue-600">{currentProgress}%</span>
+        <div className="p-6 space-y-6">
+          {/* Progress Banner */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-l-4 border-blue-600 p-4 rounded-lg animate-fade-in">
+            <div className="flex items-center space-x-3">
+              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                  AI is analyzing this meeting...
+                </p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  Insights will appear here as they're generated. This usually takes 1-2 minutes.
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-2xl font-bold text-blue-600">{calculatedProgress}%</p>
+                <p className="text-xs text-slate-500">Complete</p>
+              </div>
+            </div>
+            
+            {/* Progress checklist */}
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+              <div className={`flex items-center space-x-2 ${aiInsights.keyDecisions?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+                {aiInsights.keyDecisions?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Decisions</span>
+              </div>
+              <div className={`flex items-center space-x-2 ${aiInsights.sentiment ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+                {aiInsights.sentiment ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Sentiment</span>
+              </div>
+              <div className={`flex items-center space-x-2 ${aiInsights.topics?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+                {aiInsights.topics?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Topics</span>
+              </div>
+              <div className={`flex items-center space-x-2 ${aiInsights.actionItems?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+                {aiInsights.actionItems?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Action Items</span>
+              </div>
+              <div className={`flex items-center space-x-2 ${aiInsights.participants?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+                {aiInsights.participants?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Participants</span>
+              </div>
+              <div className={`flex items-center space-x-2 ${aiInsights.summary ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+                {aiInsights.summary ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Summary</span>
+              </div>
             </div>
           </div>
 
-          <div className="text-center max-w-md space-y-2">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-              Generating AI Insights
-            </h3>
-            <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Analyzing meeting transcript, extracting action items, and summarizing key decisions...
-            </p>
-          </div>
-
-          <div className="w-full max-w-xs bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-            <div
-              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
-              style={{ width: `${currentProgress}%` }}
-            ></div>
+          {/* Placeholder content areas that will be populated */}
+          <div className="space-y-4 opacity-40">
+            <div className="h-32 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse"></div>
+            <div className="h-24 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse"></div>
+            <div className="h-24 bg-slate-100 dark:bg-slate-800 rounded-lg animate-pulse"></div>
           </div>
         </div>
       );
@@ -395,6 +505,73 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
   return (
     <div className="p-6 space-y-6">
+      {/* New Insight Notification */}
+      {newInsight && (
+        <div className="fixed top-20 right-6 z-50 animate-slide-in-right">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-lg shadow-2xl flex items-center space-x-3 animate-bounce-gentle">
+            <Sparkles className="w-5 h-5 animate-pulse" />
+            <span className="font-medium">
+              {newInsight === 'decisions' && '✨ Decisions analyzed!'}
+              {newInsight === 'sentiment' && '✨ Sentiment captured!'}
+              {newInsight === 'topics' && '✨ Topics identified!'}
+              {newInsight === 'actionItems' && '✨ Action items detected!'}
+              {newInsight === 'participants' && '✨ Participants analyzed!'}
+              {newInsight === 'summary' && '✨ Summary complete!'}
+            </span>
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+        </div>
+      )}
+
+      {/* Generation Progress Banner */}
+      {(isRegenerating || insights?.generating || calculatedProgress < 100) && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-l-4 border-blue-600 p-4 rounded-lg animate-fade-in">
+          <div className="flex items-center space-x-3">
+            <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-slate-900 dark:text-white">
+                AI is analyzing this meeting...
+              </p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                Insights will appear here as they're generated. This usually takes 1-2 minutes.
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-blue-600">{calculatedProgress}%</p>
+              <p className="text-xs text-slate-500">Complete</p>
+            </div>
+          </div>
+          
+          {/* Progress checklist */}
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+            <div className={`flex items-center space-x-2 ${aiInsights.keyDecisions?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+              {aiInsights.keyDecisions?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Decisions</span>
+            </div>
+            <div className={`flex items-center space-x-2 ${aiInsights.sentiment ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+              {aiInsights.sentiment ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Sentiment</span>
+            </div>
+            <div className={`flex items-center space-x-2 ${aiInsights.topics?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+              {aiInsights.topics?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Topics</span>
+            </div>
+            <div className={`flex items-center space-x-2 ${aiInsights.actionItems?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+              {aiInsights.actionItems?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Action Items</span>
+            </div>
+            <div className={`flex items-center space-x-2 ${aiInsights.participants?.length ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+              {aiInsights.participants?.length ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Participants</span>
+            </div>
+            <div className={`flex items-center space-x-2 ${aiInsights.summary ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
+              {aiInsights.summary ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Summary</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -407,30 +584,6 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* Format Toggle */}
-          <div className="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
-            <button
-              onClick={() => setFormat('paragraph')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${format === 'paragraph'
-                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-            >
-              <AlignLeft className="w-4 h-4" />
-              <span>Paragraph</span>
-            </button>
-            <button
-              onClick={() => setFormat('bullets')}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${format === 'bullets'
-                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-            >
-              <List className="w-4 h-4" />
-              <span>Bullets</span>
-            </button>
-          </div>
-
           {/* Regenerate Button */}
           <button
             onClick={() => {
@@ -489,11 +642,107 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
       {/* Summary Section */}
       {aiInsights.summary && (
-        <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-6">
-          <h4 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-            Meeting Summary
-          </h4>
-          {format === 'paragraph' ? (
+        <div className={`bg-slate-50 dark:bg-slate-800/50 rounded-lg p-6 ${isNewInsight('summary') ? 'animate-scale-in' : 'animate-fade-in'}`}>
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Meeting Summary
+            </h4>
+            
+            {/* Format Toggles on the Right */}
+            <div className="flex items-center space-x-3">
+              {/* Summary View Selector - Only show if layered summaries exist */}
+              {(aiInsights.summary.executive_summary || aiInsights.summary.detailed_summary || aiInsights.summary.bullet_summary) && (
+                <div className="flex items-center bg-white dark:bg-slate-700 rounded-lg p-1 border border-slate-200 dark:border-slate-600">
+                  <button
+                    onClick={() => setSummaryView('executive')}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      summaryView === 'executive'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    title="2-3 sentence executive summary"
+                  >
+                    Executive
+                  </button>
+                  <button
+                    onClick={() => setSummaryView('detailed')}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      summaryView === 'detailed'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    title="Full narrative summary"
+                  >
+                    Detailed
+                  </button>
+                  <button
+                    onClick={() => setSummaryView('bullet')}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      summaryView === 'bullet'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    title="Quick bullet points"
+                  >
+                    Bullets
+                  </button>
+                </div>
+              )}
+              
+              {/* Paragraph/Bullets Format Toggle */}
+              {!(aiInsights.summary.executive_summary || aiInsights.summary.detailed_summary || aiInsights.summary.bullet_summary) && (
+                <div className="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+                  <button
+                    onClick={() => setFormat('paragraph')}
+                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${format === 'paragraph'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                  >
+                    <AlignLeft className="w-3.5 h-3.5" />
+                    <span>Paragraph</span>
+                  </button>
+                  <button
+                    onClick={() => setFormat('bullets')}
+                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${format === 'bullets'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>Bullets</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Render based on summary view */}
+          {summaryView === 'executive' && aiInsights.summary.executive_summary ? (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-l-4 border-blue-600 p-4 rounded">
+              <p className="text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+                {aiInsights.summary.executive_summary}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                ⚡ Executive Summary
+              </p>
+            </div>
+          ) : summaryView === 'detailed' && aiInsights.summary.detailed_summary ? (
+            <div className="prose dark:prose-invert max-w-none">
+              <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                {aiInsights.summary.detailed_summary}
+              </p>
+            </div>
+          ) : summaryView === 'bullet' && aiInsights.summary.bullet_summary ? (
+            <ul className="space-y-2">
+              {aiInsights.summary.bullet_summary.map((bullet: string, index: number) => (
+                <li key={index} className="flex items-start space-x-2">
+                  <span className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></span>
+                  <span className="text-slate-700 dark:text-slate-300">{bullet}</span>
+                </li>
+              ))}
+            </ul>
+          ) : format === 'paragraph' ? (
             <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
               {aiInsights.summary.paragraph}
             </p>
@@ -512,39 +761,53 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
       {/* Key Decisions */}
       {aiInsights.keyDecisions.length > 0 && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${isNewInsight('decisions') ? 'animate-scale-in' : 'animate-fade-in'}`}>
           <h4 className="text-lg font-semibold text-slate-900 dark:text-white">
             Key Decisions
           </h4>
-          <div className="space-y-4">
-            {aiInsights.keyDecisions.map((decision: typeof aiInsights.keyDecisions[0], index: number) => (
-              <div key={index} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                <h5 className="font-medium text-slate-900 dark:text-white mb-2">
-                  {decision.decision}
-                </h5>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="text-slate-500 dark:text-slate-400">Context:</span>
-                    <p className="text-slate-700 dark:text-slate-300">{decision.context}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 dark:text-slate-400">Impact:</span>
-                    <p className="text-slate-700 dark:text-slate-300">{decision.impact}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 dark:text-slate-400">Participants:</span>
-                    <p className="text-slate-700 dark:text-slate-300">{decision.participants.join(', ')}</p>
+          {hasRealDecisions(aiInsights.keyDecisions) ? (
+            <div className="space-y-4">
+              {aiInsights.keyDecisions.map((decision: typeof aiInsights.keyDecisions[0], index: number) => (
+                <div key={index} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                  <h5 className="font-medium text-slate-900 dark:text-white mb-2">
+                    {decision.decision}
+                  </h5>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400">Context:</span>
+                      <p className="text-slate-700 dark:text-slate-300">{decision.context}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400">Impact:</span>
+                      <p className="text-slate-700 dark:text-slate-300">{decision.impact}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400">Participants:</span>
+                      <p className="text-slate-700 dark:text-slate-300">{decision.participants.join(', ')}</p>
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-slate-50 dark:bg-slate-800/30 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center">
+              <div className="flex flex-col items-center space-y-2">
+                <div className="w-12 h-12 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-slate-400" />
+                </div>
+                <p className="text-slate-600 dark:text-slate-400 font-medium">No Decisions Made</p>
+                <p className="text-sm text-slate-500 dark:text-slate-500">
+                  This meeting did not result in any formal decisions.
+                </p>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Action Items */}
       {aiInsights.actionItems.length > 0 && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${isNewInsight('actionItems') ? 'animate-scale-in' : 'animate-fade-in'}`}>
           <h4 className="text-lg font-semibold text-slate-900 dark:text-white">
             Action Items
           </h4>
@@ -585,7 +848,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
       {/* Sentiment Analysis */}
       {aiInsights.sentiment && (
-        <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg p-6">
+        <div className={`bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg p-6 ${isNewInsight('sentiment') ? 'animate-scale-in' : 'animate-fade-in'}`}>
           <h4 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
             Sentiment Analysis
           </h4>
@@ -636,7 +899,7 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Topics */}
           {aiInsights.topics.length > 0 && (
-            <div>
+            <div className={isNewInsight('topics') ? 'animate-scale-in' : 'animate-fade-in'}>
               <h4 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
                 Key Topics
               </h4>
@@ -663,19 +926,36 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
 
           {/* Participants */}
           {aiInsights.participants.length > 0 && (
-            <div>
+            <div className={isNewInsight('participants') ? 'animate-scale-in' : 'animate-fade-in'}>
               <h4 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
                 Participant Analysis
               </h4>
               <div className="space-y-3">
-                {aiInsights.participants.map((participant: typeof aiInsights.participants[0], index: number) => (
-                  <div key={index} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium text-slate-900 dark:text-white">{participant.name}</p>
-                      <span className="text-sm text-slate-600 dark:text-slate-400">
-                        {formatSpeakingTime(participant.speakingTime)}
-                      </span>
-                    </div>
+                {aiInsights.participants.map((participant: typeof aiInsights.participants[0], index: number) => {
+                  // Handle speaker IDs that might be UNKNOWN or Speaker_N
+                  const displayName = participant.name || `Participant ${index + 1}`;
+                  const isUnknownSpeaker = !participant.name || 
+                    participant.name.toUpperCase() === 'UNKNOWN' || 
+                    participant.name.startsWith('Speaker_') ||
+                    participant.name.startsWith('SPEAKER');
+                  
+                  return (
+                    <div key={index} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center space-x-2">
+                          {isUnknownSpeaker && (
+                            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-medium rounded">
+                              {participant.name}
+                            </span>
+                          )}
+                          <p className="font-medium text-slate-900 dark:text-white">
+                            {isUnknownSpeaker ? `Unidentified Speaker` : displayName}
+                          </p>
+                        </div>
+                        <span className="text-sm text-slate-600 dark:text-slate-400">
+                          {formatSpeakingTime(participant.speakingTime)}
+                        </span>
+                      </div>
                     <div className="flex items-center space-x-2 mb-2">
                       <span className="text-sm text-slate-600 dark:text-slate-400">Engagement:</span>
                       <span className={`px-2 py-1 rounded-full text-xs ${participant.engagement === 'High'
@@ -699,7 +979,8 @@ const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ meeting, onExportInsi
                       </ul>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

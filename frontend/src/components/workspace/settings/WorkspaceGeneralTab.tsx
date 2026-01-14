@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Upload, Save, Trash2, AlertCircle, Copy, Check } from 'lucide-react';
+import { Upload, Save, Trash2, AlertCircle, Copy, Check, Archive, ArchiveRestore } from 'lucide-react';
 import { useUser } from '../../../context/UserContext';
 import { useToastContext } from '../../../context/ToastContext';
 import apiService from '../../../services/api';
@@ -18,7 +18,10 @@ export default function WorkspaceGeneralTab() {
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [isWorkspaceArchived, setIsWorkspaceArchived] = useState(false);
 
   // Get user's role in the workspace
   const workspaceRole = workspaceId 
@@ -35,6 +38,7 @@ export default function WorkspaceGeneralTab() {
         setWorkspaceName(workspace.name || '');
         setDescription(workspace.description || '');
         setWorkspaceCode(workspace.code || '');
+        setIsWorkspaceArchived(workspace.isArchived || false);
       }
     }
   }, [workspaceId, workspaces]);
@@ -89,6 +93,55 @@ export default function WorkspaceGeneralTab() {
       toastError(errorMessage, 'Update Failed');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!workspaceId) return;
+    
+    setIsArchiving(true);
+    try {
+      const response = isWorkspaceArchived 
+        ? await apiService.unarchiveWorkspace(parseInt(workspaceId))
+        : await apiService.archiveWorkspace(parseInt(workspaceId));
+      
+      if (response.error) {
+        throw new Error(response.error);
+      }
+      
+      // Refresh workspaces to update archived status
+      await refreshWorkspaces();
+      
+      // Clear current workspace from context if it was archived
+      if (!isWorkspaceArchived) {
+        const savedWorkspace = localStorage.getItem('currentWorkspace');
+        if (savedWorkspace) {
+          try {
+            const currentWs = JSON.parse(savedWorkspace);
+            if (String(currentWs.id) === workspaceId) {
+              // This is the current workspace, clear it
+              setCurrentWorkspace(null);
+              localStorage.removeItem('currentWorkspace');
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+      
+      const action = isWorkspaceArchived ? 'restored' : 'archived';
+      toastSuccess(`Workspace ${action} successfully!`, isWorkspaceArchived ? 'Restored' : 'Archived');
+      
+      // Navigate to dashboard after a short delay to show the toast
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1000);
+    } catch (error: any) {
+      console.error('Failed to archive/restore workspace:', error);
+      const errorMessage = error.message || error.error || 'Failed to update workspace';
+      toastError(errorMessage, 'Update Failed');
+      setIsArchiving(false);
+      setShowArchiveConfirm(false);
     }
   };
 
@@ -246,7 +299,7 @@ export default function WorkspaceGeneralTab() {
         </div>
       </div>
 
-      {/* Delete Workspace Section - Only show for owners */}
+      {/* Danger Zone - Only show for owners */}
       {workspaceRole === 'owner' && (
         <div className="rounded-lg border p-6 bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800/30">
           <h3 className="text-lg font-semibold text-red-900 dark:text-red-400 mb-4 flex items-center gap-2">
@@ -254,38 +307,82 @@ export default function WorkspaceGeneralTab() {
             Danger Zone
           </h3>
           
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-red-800 dark:text-red-300 mb-1">Delete Workspace</p>
-              <p className="text-xs text-red-700 dark:text-red-400">Permanently delete this workspace and all associated data</p>
+          <div className="space-y-4">
+            {/* Archive/Restore Workspace */}
+            <div className="flex items-center justify-between pb-4 border-b border-red-200 dark:border-red-800/50">
+              <div>
+                <p className="text-sm font-medium text-red-800 dark:text-red-300 mb-1">
+                  {isWorkspaceArchived ? 'Restore Workspace' : 'Archive Workspace'}
+                </p>
+                <p className="text-xs text-red-700 dark:text-red-400">
+                  {isWorkspaceArchived 
+                    ? 'Restore this workspace to active status' 
+                    : 'Hide this workspace from your workspace list without deleting data'}
+                </p>
+              </div>
+              
+              {!showArchiveConfirm ? (
+                <button
+                  onClick={() => setShowArchiveConfirm(true)}
+                  disabled={isArchiving}
+                  className={`px-4 py-2 ${isWorkspaceArchived ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'} text-white rounded-md transition-all font-medium text-sm flex items-center gap-2 disabled:opacity-50`}
+                >
+                  {isWorkspaceArchived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+                  {isWorkspaceArchived ? 'Restore' : 'Archive'}
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleArchive}
+                    disabled={isArchiving}
+                    className={`px-4 py-2 ${isWorkspaceArchived ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'} text-white rounded-md transition-all font-medium text-sm disabled:opacity-50`}
+                  >
+                    {isArchiving ? 'Processing...' : `Confirm ${isWorkspaceArchived ? 'Restore' : 'Archive'}`}
+                  </button>
+                  <button
+                    onClick={() => setShowArchiveConfirm(false)}
+                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-all font-medium text-sm dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
             
-            {!showDeleteConfirm ? (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-all font-medium text-sm flex items-center gap-2 disabled:opacity-50"
-              >
-                <Trash2 size={16} />
-                Delete Workspace
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-all font-medium text-sm disabled:opacity-50"
-                >
-                  {isDeleting ? 'Deleting...' : 'Confirm Delete'}
-                </button>
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-all font-medium text-sm dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-                >
-                  Cancel
-                </button>
+            {/* Delete Workspace */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-red-800 dark:text-red-300 mb-1">Delete Workspace</p>
+                <p className="text-xs text-red-700 dark:text-red-400">Permanently delete this workspace and all associated data</p>
               </div>
-            )}
+              
+              {!showDeleteConfirm ? (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-all font-medium text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Trash2 size={16} />
+                  Delete Workspace
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-all font-medium text-sm disabled:opacity-50"
+                  >
+                    {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-all font-medium text-sm dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

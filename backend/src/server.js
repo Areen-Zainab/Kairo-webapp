@@ -1,11 +1,37 @@
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
+const path = require("path");
+// Load environment variables from root .env file
+require("dotenv").config({ path: path.join(__dirname, '../../.env') });
+
+// Verify critical environment variables are loaded
+console.log('🔑 Environment variables loaded:');
+console.log('   MISTRAL_API_KEY:', process.env.MISTRAL_API_KEY ? `Present (${process.env.MISTRAL_API_KEY.length} chars)` : 'MISSING ⚠️');
+console.log('   GROQ_API_KEY:', process.env.GROQ_API_KEY ? 'Present' : 'MISSING ⚠️');
 
 // Initialize cron jobs
 const { initializeCronJobs, stopCronJobs } = require("./config/cron");
 // Initialize WebSocket server
 const { initializeWebSocketServer } = require("./services/WebSocketServer");
+
+// Global registry for child processes to ensure cleanup on exit
+global.activeChildProcesses = new Set();
+
+// Helper to track child processes
+global.registerChildProcess = (childProcess, description = 'unknown') => {
+  if (childProcess && childProcess.pid) {
+    global.activeChildProcesses.add({ process: childProcess, description, pid: childProcess.pid });
+    
+    // Auto-remove when process exits
+    childProcess.on('exit', () => {
+      global.activeChildProcesses.forEach(item => {
+        if (item.pid === childProcess.pid) {
+          global.activeChildProcesses.delete(item);
+        }
+      });
+    });
+  }
+};
 
 const app = express();
 
@@ -97,33 +123,106 @@ const server = app.listen(PORT, async () => {
     });
 });
 
-// Graceful shutdown
+// Helper function for cleanup
+async function performCleanup() {
+  console.log('\n🧹 Starting cleanup...');
+  
+  // Stop cron jobs
+  console.log('  ⏰ Stopping cron jobs...');
+  stopCronJobs();
+  
+  // Cleanup global transcription model
+  console.log('  🔊 Releasing global transcription model...');
+  const ModelPreloader = require('./services/ModelPreloader');
+  ModelPreloader.releaseGlobalModel();
+  
+  // Kill all tracked child processes
+  if (global.activeChildProcesses && global.activeChildProcesses.size > 0) {
+    console.log(`  🔪 Killing ${global.activeChildProcesses.size} active child processes...`);
+    
+    for (const item of global.activeChildProcesses) {
+      try {
+        if (item.process && !item.process.killed) {
+          console.log(`     - Killing ${item.description} (PID: ${item.pid})`);
+          item.process.kill('SIGTERM');
+          
+          // Force kill after 2 seconds if still alive
+          setTimeout(() => {
+            if (!item.process.killed) {
+              console.log(`     - Force killing ${item.description} (PID: ${item.pid})`);
+              item.process.kill('SIGKILL');
+            }
+          }, 2000);
+        }
+      } catch (err) {
+        console.error(`     ❌ Failed to kill ${item.description}:`, err.message);
+      }
+    }
+    
+    global.activeChildProcesses.clear();
+    console.log('  ✅ All child processes terminated');
+  }
+  
+  // Close database connections
+  console.log('  💾 Closing database connections...');
+  const prisma = require('./lib/prisma');
+  try {
+    await prisma.$disconnect();
+    console.log('  ✅ Database disconnected');
+  } catch (err) {
+    console.error('  ⚠️  Database disconnect error:', err.message);
+  }
+}
+
+// Graceful shutdown for SIGTERM (typically from process managers)
 process.on('SIGTERM', async () => {
   console.log('\n⚠️  SIGTERM signal received: closing HTTP server...');
-  stopCronJobs();
   
-  // Cleanup global model (stops monitoring automatically)
-  const ModelPreloader = require('./services/ModelPreloader');
-  ModelPreloader.releaseGlobalModel();
+  await performCleanup();
   
   server.close(() => {
     console.log('✅ HTTP server closed');
     process.exit(0);
   });
+  
+  // Force exit after 10 seconds if graceful shutdown hangs
+  setTimeout(() => {
+    console.error('⚠️  Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
 });
 
+// Graceful shutdown for SIGINT (Ctrl+C)
 process.on('SIGINT', async () => {
-  console.log('\n⚠️  SIGINT signal received: closing HTTP server...');
-  stopCronJobs();
+  console.log('\n⚠️  SIGINT signal received (Ctrl+C): closing HTTP server...');
   
-  // Cleanup global model (stops monitoring automatically)
-  const ModelPreloader = require('./services/ModelPreloader');
-  ModelPreloader.releaseGlobalModel();
+  await performCleanup();
   
   server.close(() => {
     console.log('✅ HTTP server closed');
+    console.log('👋 Goodbye!\n');
     process.exit(0);
   });
+  
+  // Force exit after 10 seconds if graceful shutdown hangs
+  setTimeout(() => {
+    console.error('⚠️  Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', async (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  await performCleanup();
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', async (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  await performCleanup();
+  process.exit(1);
 });
 
 module.exports = app;

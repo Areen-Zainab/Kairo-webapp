@@ -15,11 +15,11 @@ const FiltersSidebar: React.FC<FiltersSidebarProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const timeRanges = [
-    { value: 'today', label: 'Today' },
-    { value: 'week', label: 'This Week' },
-    { value: 'month', label: 'This Month' },
-    { value: 'quarter', label: 'This Quarter' },
-    { value: 'year', label: 'This Year' },
+    { value: 'all', label: 'All Time' },
+    { value: 'week', label: 'Last 7 Days' },
+    { value: 'month', label: 'Last 30 Days' },
+    { value: 'quarter', label: 'Last 90 Days' },
+    { value: 'year', label: 'Last Year' },
     { value: 'custom', label: 'Custom Range' }
   ];
 
@@ -184,7 +184,7 @@ const FiltersSidebar: React.FC<FiltersSidebarProps> = ({
             <div className="flex items-end">
               <button
                 onClick={() => onFiltersChange({
-                  timeRange: 'month',
+                  timeRange: 'all',
                   team: undefined,
                   meetingType: undefined,
                   customStartDate: undefined,

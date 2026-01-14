@@ -49,6 +49,8 @@ interface Workspace {
   memberCount: number;
   createdAt: string;
   joinedAt?: string;
+  isArchived?: boolean;
+  archivedAt?: string;
   members?: Array<{
     id: number;
     userId: number;
@@ -183,7 +185,7 @@ class ApiService {
 
       // Log for debugging
       if (endpoint.includes('/meetings')) {
-        console.log(`[ApiService] Adding Authorization header for ${endpoint} (token length: ${this.token.length})`);
+        //console.log(`[ApiService] Adding Authorization header for ${endpoint} (token length: ${this.token.length})`);
       }
     } else {
       // Log warning if token is missing for protected endpoints
@@ -194,7 +196,7 @@ class ApiService {
         // Try one more time to get token from localStorage
         const lastChanceToken = localStorage.getItem('authToken');
         if (lastChanceToken && lastChanceToken.trim()) {
-          console.log(`[ApiService] Recovered token from localStorage for ${endpoint}`);
+          // console.log(`[ApiService] Recovered token from localStorage for ${endpoint}`);
           this.token = lastChanceToken.trim();
           headers['Authorization'] = `Bearer ${this.token.trim()}`;
         }
@@ -229,23 +231,23 @@ class ApiService {
         ? (config.headers as any)['Authorization']
         : null;
       if (authHeader) {
-        console.log(`[ApiService] Verified Authorization header in config for ${endpoint} (${authHeader.substring(0, 20)}...)`);
+        // console.log(`[ApiService] Verified Authorization header in config for ${endpoint} (${authHeader.substring(0, 20)}...)`);
       } else {
         console.error(`[ApiService] CRITICAL: Authorization header missing from final config for ${endpoint}!`);
       }
     }
 
     try {
-      console.log(`🌐 [ApiService] Making ${config.method || 'GET'} request to: ${url}`);
+      //console.log(`🌐 [ApiService] Making ${config.method || 'GET'} request to: ${url}`);
       if (endpoint.includes('regenerate')) {
-        console.log(`   Headers:`, Object.keys(config.headers || {}));
-        console.log(`   Has Authorization:`, !!(config.headers && typeof config.headers === 'object' && !(config.headers instanceof Headers) && (config.headers as any)['Authorization']));
+        //console.log(`   Headers:`, Object.keys(config.headers || {}));
+        //console.log(`   Has Authorization:`, !!(config.headers && typeof config.headers === 'object' && !(config.headers instanceof Headers) && (config.headers as any)['Authorization']));
       }
       const response = await fetch(url, config);
-      console.log(`📡 [ApiService] Response status: ${response.status} for ${endpoint}`);
+      //console.log(`📡 [ApiService] Response status: ${response.status} for ${endpoint}`);
       const data = await response.json();
       if (endpoint.includes('regenerate')) {
-        console.log(`📦 [ApiService] Response data:`, data);
+        //console.log(`📦 [ApiService] Response data:`, data);
       }
 
       if (!response.ok) {
@@ -274,7 +276,7 @@ class ApiService {
             // Try to recover token from localStorage one more time
             const recoveredToken = localStorage.getItem('authToken');
             if (recoveredToken && recoveredToken.trim()) {
-              console.log(`[ApiService] Token recovered from localStorage after 401 - this suggests a timing issue`);
+              //console.log(`[ApiService] Token recovered from localStorage after 401 - this suggests a timing issue`);
               this.token = recoveredToken.trim();
             }
           } else {
@@ -345,7 +347,7 @@ class ApiService {
     if (credentials.email.toLowerCase() === 'areeba@kairo.com' && credentials.password === 'Kairo123') {
       const demoToken = 'demo_token_' + Date.now();
       this.setToken(demoToken);
-      console.log('[ApiService] Demo login successful, token set');
+      //console.log('[ApiService] Demo login successful, token set');
 
       return {
         data: {
@@ -483,7 +485,7 @@ class ApiService {
     this.token = token.trim();
     try {
       localStorage.setItem('authToken', this.token);
-      console.log('[ApiService] Token set successfully');
+      // console.log('[ApiService] Token set successfully');
     } catch (error) {
       console.error('[ApiService] Error setting token in localStorage:', error);
       // Still keep token in memory even if localStorage fails
@@ -522,7 +524,7 @@ class ApiService {
       const storedToken = localStorage.getItem('authToken');
       if (storedToken && storedToken.trim()) {
         this.token = storedToken.trim();
-        console.log('[ApiService] Token refreshed from localStorage');
+        // console.log('[ApiService] Token refreshed from localStorage');
       } else if (!storedToken) {
         // Token missing from localStorage
         // Only clear from memory if we're certain it was intentionally removed
@@ -550,8 +552,9 @@ class ApiService {
     });
   }
 
-  async getUserWorkspaces(): Promise<ApiResponse<{ workspaces: Workspace[] }>> {
-    return this.request<{ workspaces: Workspace[] }>('/workspaces');
+  async getUserWorkspaces(includeArchived: boolean = false): Promise<ApiResponse<{ workspaces: Workspace[] }>> {
+    const params = includeArchived ? '?includeArchived=true' : '';
+    return this.request<{ workspaces: Workspace[] }>(`/workspaces${params}`);
   }
 
   async getWorkspaceById(id: number): Promise<ApiResponse<{ workspace: Workspace }>> {
@@ -562,6 +565,18 @@ class ApiService {
     return this.request<{ workspace: Workspace }>(`/workspaces/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
+    });
+  }
+
+  async archiveWorkspace(id: number): Promise<ApiResponse> {
+    return this.request(`/workspaces/${id}/archive`, {
+      method: 'PATCH',
+    });
+  }
+
+  async unarchiveWorkspace(id: number): Promise<ApiResponse> {
+    return this.request(`/workspaces/${id}/unarchive`, {
+      method: 'PATCH',
     });
   }
 
@@ -615,6 +630,14 @@ class ApiService {
     return this.request<{ logs: any[]; pagination: any }>(`/workspaces/${workspaceId}/logs${queryString}`);
   }
 
+  async getWorkspaceDashboard(workspaceId: number): Promise<ApiResponse<{ stats: any }>> {
+    return this.request<{ stats: any }>(`/workspaces/${workspaceId}/dashboard`);
+  }
+
+  async getWorkspaceAnalytics(workspaceId: number, timeRange: string = 'month'): Promise<ApiResponse<{ analytics: any }>> {
+    return this.request<{ analytics: any }>(`/workspaces/${workspaceId}/analytics?timeRange=${timeRange}`);
+  }
+
   async searchWorkspaceMembers(workspaceId: number, email: string): Promise<ApiResponse<{ members: any[]; allMembers: any[]; userExistsButNotMember?: boolean; user?: { id: number; name?: string; email: string; profilePictureUrl?: string } }>> {
     const params = new URLSearchParams();
     params.append('email', email);
@@ -633,7 +656,7 @@ class ApiService {
       const tokenFromStorage = localStorage.getItem('authToken');
       if (tokenFromStorage && tokenFromStorage.trim()) {
         this.token = tokenFromStorage.trim();
-        console.log('[ApiService] Token recovered from localStorage in createMeeting');
+        // console.log('[ApiService] Token recovered from localStorage in createMeeting');
       } else {
         console.error('[ApiService] No token available for createMeeting - user may need to log in');
         return {

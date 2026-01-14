@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import TabNavigation from '../../components/workspace/analytics/TabNavigation';
 import StatsCard from '../../components/workspace/analytics/StatsCard';
@@ -11,18 +11,36 @@ import FiltersSidebar from '../../components/workspace/analytics/FiltersSidebar'
 import ChatBubble from '../../components/workspace/analytics/ChatBubble';
 import AnalyticsChat from '../../components/workspace/analytics/AnalyticsChat';
 import { useUser } from '../../context/UserContext';
+import apiService from '../../services/api';
 import type { AnalyticsData, FilterOptions, TimeSeriesData, ChartDataPoint, AnalyticsInsight, MeetingAnalytics } from '../../components/workspace/analytics/types';
 
 const Analytics: React.FC = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, loading } = useUser();
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
+  const { isAuthenticated, loading, workspaces } = useUser();
+  
+  const currentWorkspace = workspaceId 
+    ? workspaces.find((ws: any) => String(ws.id) === workspaceId)
+    : null;
   const [activeTab, setActiveTab] = useState('overview');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [filters, setFilters] = useState<FilterOptions>({
-    timeRange: 'month',
+    timeRange: 'all',
     team: undefined,
     meetingType: undefined
   });
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Debug: Log analytics data when it changes
+  useEffect(() => {
+    if (analyticsData) {
+      console.log('📊 Analytics data state updated:', analyticsData);
+      console.log('📈 Total Meetings:', analyticsData.totalMeetings);
+      console.log('📈 Completed Meetings:', analyticsData.completedMeetings);
+      console.log('📈 Total Action Items:', analyticsData.totalActionItems);
+    }
+  }, [analyticsData]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -31,178 +49,252 @@ const Analytics: React.FC = () => {
     }
   }, [isAuthenticated, loading, navigate]);
 
-  // Mock data for corporate project workspace
-  const analyticsData: AnalyticsData = {
-    totalUsers: 47,
-    activeSessions: 23,
-    completedTasks: 128,
-    meetingsScheduled: 34,
-    meetingsAttended: 31,
-    engagementRate: 91.2
+  // Fetch analytics data
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      if (!workspaceId) return;
+      
+      setIsLoading(true);
+      try {
+        const response = await apiService.getWorkspaceAnalytics(
+          parseInt(workspaceId),
+          filters.timeRange
+        );
+        
+        if (response.data?.analytics) {
+          console.log('📊 Analytics data received:', response.data.analytics);
+          setAnalyticsData(response.data.analytics);
+        } else {
+          console.warn('⚠️ No analytics data in response:', response);
+        }
+      } catch (error) {
+        console.error('Failed to fetch analytics:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchAnalytics();
+  }, [workspaceId, filters.timeRange]);
+
+  // Use real data or fallback to mock data
+  const data: AnalyticsData = analyticsData ? {
+    totalUsers: analyticsData.totalMembers,
+    activeSessions: analyticsData.totalMembers, // TODO: Track active sessions
+    completedTasks: analyticsData.completedActionItems,
+    meetingsScheduled: analyticsData.totalMeetings,
+    meetingsAttended: analyticsData.completedMeetings,
+    engagementRate: analyticsData.engagementRate
+  } : {
+    totalUsers: 0,
+    activeSessions: 0,
+    completedTasks: 0,
+    meetingsScheduled: 0,
+    meetingsAttended: 0,
+    engagementRate: 0
   };
 
-  const workspaceActivityData: TimeSeriesData[] = [
-    { date: '2024-01-01', value: 45, label: 'Jan 1' },
-    { date: '2024-01-02', value: 52, label: 'Jan 2' },
-    { date: '2024-01-03', value: 38, label: 'Jan 3' },
-    { date: '2024-01-04', value: 61, label: 'Jan 4' },
-    { date: '2024-01-05', value: 67, label: 'Jan 5' },
-    { date: '2024-01-06', value: 43, label: 'Jan 6' },
-    { date: '2024-01-07', value: 58, label: 'Jan 7' }
+  const workspaceActivityData: TimeSeriesData[] = analyticsData?.timeSeriesData || [];
+
+  const taskCompletionData: ChartDataPoint[] = analyticsData?.meetingTypesData || [
+    { label: 'No data', value: 1, color: '#94a3b8' }
   ];
 
-  const taskCompletionData: ChartDataPoint[] = [
-    { label: 'Backend Development', value: 28, color: '#3b82f6' },
-    { label: 'Frontend Development', value: 24, color: '#8b5cf6' },
-    { label: 'UI/UX Design', value: 18, color: '#10b981' },
-    { label: 'QA Testing', value: 22, color: '#f59e0b' },
-    { label: 'DevOps', value: 16, color: '#ef4444' },
-    { label: 'Project Management', value: 20, color: '#06b6d4' }
-  ];
-
-  const engagementDistribution: ChartDataPoint[] = [
-    { label: 'Highly Engaged', value: 42, color: '#10b981' },
-    { label: 'Moderately Engaged', value: 38, color: '#f59e0b' },
-    { label: 'Low Engagement', value: 20, color: '#ef4444' }
+  const engagementDistribution: ChartDataPoint[] = analyticsData ? [
+    { label: 'Completed Meetings', value: analyticsData.completedMeetings || 0, color: '#10b981' },
+    { label: 'Pending/Scheduled', value: (analyticsData.totalMeetings - analyticsData.completedMeetings) || 0, color: '#8b5cf6' }
+  ] : [
+    { label: 'No data', value: 1, color: '#94a3b8' }
   ];
 
   const meetingAnalytics: MeetingAnalytics = {
-    meetingsPerTeam: [
-      { label: 'Backend Team', value: 12, color: '#3b82f6' },
-      { label: 'Frontend Team', value: 10, color: '#8b5cf6' },
-      { label: 'Design Team', value: 8, color: '#10b981' },
-      { label: 'QA Team', value: 6, color: '#f59e0b' },
-      { label: 'DevOps Team', value: 4, color: '#ef4444' },
-      { label: 'Project Management', value: 9, color: '#06b6d4' }
-    ],
-    attendanceTrends: [
-      { date: '2024-01-01', value: 88, label: 'Jan 1' },
-      { date: '2024-01-02', value: 94, label: 'Jan 2' },
-      { date: '2024-01-03', value: 82, label: 'Jan 3' },
-      { date: '2024-01-04', value: 91, label: 'Jan 4' },
-      { date: '2024-01-05', value: 96, label: 'Jan 5' },
-      { date: '2024-01-06', value: 85, label: 'Jan 6' },
-      { date: '2024-01-07', value: 93, label: 'Jan 7' }
-    ],
-    meetingTypesDistribution: [
-      { label: 'Daily Stand-ups', value: 35, color: '#3b82f6' },
-      { label: 'Sprint Planning', value: 20, color: '#8b5cf6' },
-      { label: 'Code Reviews', value: 18, color: '#10b981' },
-      { label: 'Client Meetings', value: 15, color: '#f59e0b' },
-      { label: 'Retrospectives', value: 12, color: '#ef4444' }
-    ],
-    averageDuration: 32,
-    participationByTeam: [
-      { label: 'Backend Team', value: 95, color: '#3b82f6' },
-      { label: 'Frontend Team', value: 92, color: '#8b5cf6' },
-      { label: 'Design Team', value: 89, color: '#10b981' },
-      { label: 'QA Team', value: 87, color: '#f59e0b' },
-      { label: 'DevOps Team', value: 91, color: '#ef4444' },
-      { label: 'Project Management', value: 96, color: '#06b6d4' }
-    ]
+    meetingsPerTeam: analyticsData?.meetingTypesData || [],
+    attendanceTrends: workspaceActivityData,
+    meetingTypesDistribution: analyticsData?.meetingTypesData || [],
+    averageDuration: analyticsData?.averageDuration || 0,
+    participationByTeam: analyticsData?.meetingTypesData || []
   };
 
-  const insights: AnalyticsInsight[] = [
+  const insights: AnalyticsInsight[] = analyticsData ? [
     {
       type: 'trend',
-      title: 'Sprint Velocity Increased 18%',
-      description: 'Project sprint velocity has improved significantly this month, with Backend and Frontend teams completing 18% more story points than previous sprint.',
+      title: `${analyticsData.completedMeetings} Meetings Completed`,
+      description: `Out of ${analyticsData.totalMeetings} scheduled meetings, ${analyticsData.completedMeetings} have been completed with ${analyticsData.totalActionItems} action items generated.`,
       priority: 'high',
-      icon: '📈'
+      icon: '📊'
     },
     {
       type: 'recommendation',
-      title: 'Optimize Meeting Efficiency',
-      description: 'Average meeting duration is 32 minutes. Consider implementing 25-minute timeboxes for daily stand-ups to improve team productivity.',
+      title: analyticsData.averageDuration > 60 ? 'Consider Shorter Meetings' : 'Good Meeting Duration',
+      description: analyticsData.averageDuration > 60 
+        ? `Average meeting duration is ${analyticsData.averageDuration} minutes. Consider implementing timeboxes to improve efficiency.`
+        : `Average meeting duration of ${analyticsData.averageDuration} minutes is within optimal range for productivity.`,
       priority: 'medium',
       icon: '💡'
     },
     {
-      type: 'anomaly',
-      title: 'QA Team Workload Imbalance',
-      description: 'QA team shows lower task completion compared to development teams. Consider redistributing testing tasks or increasing QA team capacity.',
-      priority: 'high',
-      icon: '⚠️'
+      type: analyticsData.completedActionItems < analyticsData.totalActionItems * 0.5 ? 'anomaly' : 'trend',
+      title: `${analyticsData.completedActionItems}/${analyticsData.totalActionItems} Action Items Completed`,
+      description: analyticsData.completedActionItems < analyticsData.totalActionItems * 0.5
+        ? 'Action item completion rate is below 50%. Consider following up on pending tasks more regularly.'
+        : 'Action item completion is on track. Keep up the good work with task follow-through.',
+      priority: analyticsData.completedActionItems < analyticsData.totalActionItems * 0.5 ? 'high' : 'low',
+      icon: analyticsData.completedActionItems < analyticsData.totalActionItems * 0.5 ? '⚠️' : '✅'
     }
-  ];
+  ] : [];
 
   const statsCards = useMemo(() => [
     {
-      title: 'Project Members',
-      value: analyticsData.totalUsers,
-      change: 8.5,
-      changeType: 'positive' as const,
+      title: 'Workspace Members',
+      value: data.totalUsers,
+      change: 0,
+      changeType: 'neutral' as const,
       icon: '👥',
       trend: workspaceActivityData.slice(-7)
     },
     {
-      title: 'Active Contributors',
-      value: analyticsData.activeSessions,
-      change: 12.3,
-      changeType: 'positive' as const,
-      icon: '🟢',
-      trend: workspaceActivityData.slice(-7)
-    },
-    {
-      title: 'Stories Completed',
-      value: analyticsData.completedTasks,
-      change: 15.7,
-      changeType: 'positive' as const,
-      icon: '✅',
-      trend: workspaceActivityData.slice(-7)
-    },
-    {
-      title: 'Sprint Meetings',
-      value: analyticsData.meetingsScheduled,
-      change: 22.1,
-      changeType: 'positive' as const,
+      title: 'Total Meetings',
+      value: data.meetingsScheduled,
+      change: 0,
+      changeType: 'neutral' as const,
       icon: '📅',
       trend: workspaceActivityData.slice(-7)
     },
     {
-      title: 'Meeting Attendance',
-      value: analyticsData.meetingsAttended,
-      change: 18.9,
-      changeType: 'positive' as const,
-      icon: '👥',
+      title: 'Completed Meetings',
+      value: data.meetingsAttended,
+      change: 0,
+      changeType: 'neutral' as const,
+      icon: '✅',
       trend: workspaceActivityData.slice(-7)
     },
     {
-      title: 'Team Engagement',
-      value: `${analyticsData.engagementRate}%`,
-      change: 7.2,
-      changeType: 'positive' as const,
+      title: 'Action Items',
+      value: data.completedTasks,
+      change: 0,
+      changeType: 'neutral' as const,
+      icon: '📋',
+      trend: workspaceActivityData.slice(-7)
+    },
+    {
+      title: 'Avg Meeting Duration',
+      value: `${analyticsData?.averageDuration || 0} min`,
+      change: 0,
+      changeType: 'neutral' as const,
+      icon: '⏱️',
+      trend: workspaceActivityData.slice(-7)
+    },
+    {
+      title: 'Attendance Rate',
+      value: `${data.engagementRate.toFixed(1)}%`,
+      change: 0,
+      changeType: 'neutral' as const,
       icon: '📊',
       trend: workspaceActivityData.slice(-7)
     }
-  ], [analyticsData, workspaceActivityData]);
+  ], [data, workspaceActivityData, analyticsData]);
 
   const renderTabContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+        </div>
+      );
+    }
+
     switch (activeTab) {
       case 'overview':
         return (
           <div className="space-y-8">
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {statsCards.map((card, index) => (
                 <StatsCard key={index} {...card} />
               ))}
+              <StatsCard
+                title="Transcript Coverage"
+                value={`${analyticsData?.transcriptCoverage || 0}%`}
+                change={0}
+                changeType={analyticsData?.transcriptCoverage >= 70 ? 'positive' : 'neutral'}
+                icon="📝"
+              />
+              <StatsCard
+                title="Avg Meeting Duration"
+                value={`${analyticsData?.averageDuration || 0} min`}
+                change={analyticsData?.durationTrend || 0}
+                changeType={analyticsData?.durationTrend > 0 ? 'negative' : analyticsData?.durationTrend < 0 ? 'positive' : 'neutral'}
+                icon="⏱️"
+              />
+              <StatsCard
+                title="Total Participants"
+                value={analyticsData?.totalParticipants || 0}
+                change={0}
+                changeType="neutral"
+                icon="👥"
+              />
+              <StatsCard
+                title="Peak Meeting Time"
+                value={analyticsData?.timePatterns?.peakHour || 'N/A'}
+                change={0}
+                changeType="neutral"
+                icon="📅"
+              />
             </div>
 
             {/* Main Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <LineChart
                 data={workspaceActivityData}
-                title="Project Activity Over Time"
+                title="Meetings Created Over Time"
                 xAxisLabel="Date"
-                yAxisLabel="Daily Activity"
+                yAxisLabel="Meetings"
                 height={350}
               />
-              <BarChart
-                data={taskCompletionData}
-                title="Story Points Completed by Team"
-                xAxisLabel="Team"
-                yAxisLabel="Story Points"
+              <LineChart
+                data={(() => {
+                  const platformData = analyticsData?.meetingTypesData?.map((d: any) => ({
+                    label: d.label,
+                    value: d.value,
+                    date: d.label
+                  }));
+                  return platformData && platformData.length > 0 ? platformData : [];
+                })()}
+                title="Meetings by Platform"
+                xAxisLabel="Platform"
+                yAxisLabel="Count"
+                height={350}
+              />
+            </div>
+
+            {/* Time Patterns */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <LineChart
+                data={(() => {
+                  const hourlyData = analyticsData?.timePatterns?.hourly?.filter((h: any) => h.value > 0).map((h: any) => ({
+                    label: h.hour,
+                    value: h.value,
+                    date: h.hour
+                  }));
+                  return hourlyData && hourlyData.length > 0 ? hourlyData : [];
+                })()}
+                title="Meeting Distribution by Hour"
+                xAxisLabel="Hour of Day"
+                yAxisLabel="Number of Meetings"
+                height={350}
+              />
+              <LineChart
+                data={(() => {
+                  const dailyData = analyticsData?.timePatterns?.daily?.map((d: any) => ({
+                    label: d.day.substring(0, 3),
+                    value: d.value || 0,
+                    date: d.day.substring(0, 3)
+                  }));
+                  return dailyData && dailyData.length > 0 ? dailyData : [];
+                })()}
+                title="Meeting Distribution by Day of Week"
+                xAxisLabel="Day"
+                yAxisLabel="Number of Meetings"
                 height={350}
               />
             </div>
@@ -211,64 +303,254 @@ const Analytics: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <PieChart
                 data={engagementDistribution}
-                title="Engagement Distribution"
+                title="Meeting Status Distribution"
                 height={300}
               />
-              <SummaryPanel insights={insights.slice(0, 2)} />
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Key Metrics</h3>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-600 dark:text-slate-400">Total Action Items</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">{analyticsData?.totalActionItems || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-600 dark:text-slate-400">Completed Action Items</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">{analyticsData?.completedActionItems || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-600 dark:text-slate-400">Meetings with Transcripts</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">{analyticsData?.meetingsWithTranscripts || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-600 dark:text-slate-400">Most Active Day</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">{analyticsData?.timePatterns?.peakDay || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         );
 
-      case 'meetings':
+      case 'participants':
         return (
           <div className="space-y-8">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <BarChart
-                data={meetingAnalytics.meetingsPerTeam}
-                title="Sprint Meetings by Team"
-                xAxisLabel="Team"
-                yAxisLabel="Meetings"
-                height={300}
+            {/* Participant Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <StatsCard
+                title="Total Participants"
+                value={analyticsData?.totalParticipants || 0}
+                change={0}
+                changeType="neutral"
+                icon="👥"
               />
-              <LineChart
-                data={meetingAnalytics.attendanceTrends}
-                title="Daily Stand-up Attendance"
-                xAxisLabel="Date"
-                yAxisLabel="Attendance %"
-                height={300}
+              <StatsCard
+                title="Active Contributors"
+                value={analyticsData?.topParticipants?.filter((p: any) => p.meetingsAttended > 0).length || 0}
+                change={0}
+                changeType="neutral"
+                icon="✨"
               />
-              <PieChart
-                data={meetingAnalytics.meetingTypesDistribution}
-                title="Meeting Types Distribution"
-                height={300}
+              <StatsCard
+                title="Avg Attendance Rate"
+                value={`${analyticsData?.topParticipants?.length > 0 
+                  ? (analyticsData.topParticipants.reduce((sum: number, p: any) => sum + p.attendanceRate, 0) / analyticsData.topParticipants.length).toFixed(1)
+                  : 0}%`}
+                change={0}
+                changeType="neutral"
+                icon="📊"
               />
             </div>
 
+            {/* Top Participants Table */}
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Top Contributors</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                  <thead>
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Participant</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Meetings Invited</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Meetings Attended</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Attendance Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                    {analyticsData?.topParticipants?.map((participant: any, index: number) => (
+                      <tr key={participant.userId} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              {participant.profilePictureUrl ? (
+                                <img className="h-10 w-10 rounded-full" src={participant.profilePictureUrl} alt="" />
+                              ) : (
+                                <div className="h-10 w-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+                                  {participant.name?.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-slate-900 dark:text-white">{participant.name}</div>
+                              <div className="text-sm text-slate-500 dark:text-slate-400">{participant.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white">
+                          {participant.totalMeetings}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white">
+                          {participant.meetingsAttended}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="w-16 bg-slate-200 dark:bg-slate-700 rounded-full h-2 mr-2">
+                              <div
+                                className={`h-2 rounded-full ${
+                                  participant.attendanceRate >= 80 ? 'bg-green-500' :
+                                  participant.attendanceRate >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                                }`}
+                                style={{ width: `${participant.attendanceRate}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-sm text-slate-900 dark:text-white">
+                              {participant.attendanceRate.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    )) || (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                          No participant data available
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Engagement Insights */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Engagement Insights</h3>
+                <div className="space-y-3">
+                  {analyticsData?.topParticipants && analyticsData.topParticipants.length > 0 ? (
+                    <>
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 bg-green-500 mt-2"></div>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          <strong>{analyticsData.topParticipants[0]?.name}</strong> is the most active participant with {analyticsData.topParticipants[0]?.meetingsAttended} meetings attended.
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 bg-blue-500 mt-2"></div>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          {analyticsData.topParticipants.filter((p: any) => p.attendanceRate >= 80).length} participants have attendance rates above 80%.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">
+                      Not enough data yet. Create some meetings to see insights!
+                    </p>
+                  )}
+                </div>
+              </div>
+              
               <BarChart
-                data={meetingAnalytics.participationByTeam}
-                title="Meeting Participation by Team"
-                xAxisLabel="Team"
-                yAxisLabel="Participation %"
+                data={(() => {
+                  const participantData = analyticsData?.topParticipants?.slice(0, 5).map((p: any) => ({
+                    label: p.name.split(' ')[0],
+                    value: p.meetingsAttended || 0,
+                    color: '#8b5cf6'
+                  }));
+                  return participantData && participantData.length > 0 ? participantData : [{ label: 'No data', value: 1, color: '#94a3b8' }];
+                })()}
+                title="Top 5 Most Active Participants"
+                xAxisLabel="Participant"
+                yAxisLabel="Meetings Attended"
+                height={300}
+              />
+            </div>
+          </div>
+        );
+
+      case 'action-items':
+        return (
+          <div className="space-y-8">
+            {/* Action Items Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <StatsCard
+                title="Total Action Items"
+                value={analyticsData?.totalActionItems || 0}
+                change={0}
+                changeType="neutral"
+                icon="📋"
+              />
+              <StatsCard
+                title="Completed Items"
+                value={analyticsData?.completedActionItems || 0}
+                change={0}
+                changeType="neutral"
+                icon="✅"
+              />
+              <StatsCard
+                title="Completion Rate"
+                value={`${analyticsData?.totalActionItems > 0 
+                  ? ((analyticsData.completedActionItems / analyticsData.totalActionItems) * 100).toFixed(1)
+                  : 0}%`}
+                change={0}
+                changeType={analyticsData?.totalActionItems > 0 && (analyticsData.completedActionItems / analyticsData.totalActionItems) > 0.7 ? 'positive' : 'neutral'}
+                icon="📊"
+              />
+            </div>
+
+            {/* Action Item Trends Over Time */}
+            <div className="grid grid-cols-1 gap-6">
+              <LineChart
+                data={analyticsData?.actionItemTrends?.map((trend: any) => ({
+                  date: trend.date,
+                  value: trend.created,
+                  label: trend.label
+                })) || []}
+                title="Action Items Created Over Time"
+                xAxisLabel="Date"
+                yAxisLabel="Items Created"
                 height={350}
               />
+            </div>
+
+            {/* Action Items Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <PieChart
+                data={analyticsData ? [
+                  { label: 'Completed', value: analyticsData.completedActionItems || 0, color: '#10b981' },
+                  { label: 'Pending', value: (analyticsData.totalActionItems - analyticsData.completedActionItems) || 0, color: '#ef4444' }
+                ] : [{ label: 'No data', value: 1, color: '#94a3b8' }]}
+                title="Action Items Status"
+                height={300}
+              />
               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-                  Meeting Statistics
-                </h3>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Action Items Insights</h3>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
-                    <span className="text-slate-600 dark:text-slate-400">Average Duration</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">{meetingAnalytics.averageDuration} min</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
-                    <span className="text-slate-600 dark:text-slate-400">Total Meetings</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">{analyticsData.meetingsScheduled}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
-                    <span className="text-slate-600 dark:text-slate-400">Attendance Rate</span>
+                    <span className="text-slate-600 dark:text-slate-400">Items per Meeting</span>
                     <span className="font-semibold text-slate-900 dark:text-white">
-                      {((analyticsData.meetingsAttended / analyticsData.meetingsScheduled) * 100).toFixed(1)}%
+                      {analyticsData?.totalMeetings > 0 
+                        ? (analyticsData.totalActionItems / analyticsData.totalMeetings).toFixed(1)
+                        : 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-600 dark:text-slate-400">Pending Items</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">
+                      {analyticsData ? analyticsData.totalActionItems - analyticsData.completedActionItems : 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-600 dark:text-slate-400">Success Rate</span>
+                    <span className={`font-semibold ${analyticsData?.totalActionItems > 0 && (analyticsData.completedActionItems / analyticsData.totalActionItems) > 0.7 ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                      {analyticsData?.totalActionItems > 0 && (analyticsData.completedActionItems / analyticsData.totalActionItems) > 0.7 ? 'High' : analyticsData?.totalActionItems > 0 ? 'Medium' : 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -277,142 +559,67 @@ const Analytics: React.FC = () => {
           </div>
         );
 
-      case 'teams':
-        return (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <BarChart
-                data={taskCompletionData}
-                title="Story Points by Development Team"
-                xAxisLabel="Team"
-                yAxisLabel="Story Points"
-                height={350}
-              />
-              <BarChart
-                data={meetingAnalytics.participationByTeam}
-                title="Sprint Participation by Team"
-                xAxisLabel="Team"
-                yAxisLabel="Participation %"
-                height={350}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Top Performing Team</h3>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2">Backend</div>
-                  <div className="text-sm text-slate-600 dark:text-slate-400">95% sprint participation</div>
-                </div>
-              </div>
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Most Active Team</h3>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">Frontend</div>
-                  <div className="text-sm text-slate-600 dark:text-slate-400">28 story points completed</div>
-                </div>
-              </div>
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Growth Leader</h3>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-2">DevOps</div>
-                  <div className="text-sm text-slate-600 dark:text-slate-400">+25% velocity increase</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'performance':
-        return (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <LineChart
-                data={workspaceActivityData}
-                title="Project Velocity Trends"
-                xAxisLabel="Date"
-                yAxisLabel="Daily Velocity"
-                height={350}
-              />
-              <LineChart
-                data={meetingAnalytics.attendanceTrends}
-                title="Sprint Meeting Attendance"
-                xAxisLabel="Date"
-                yAxisLabel="Attendance %"
-                height={350}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <StatsCard
-                title="Sprint Velocity"
-                value="42"
-                change={8.5}
-                changeType="positive"
-                icon="⚡"
-              />
-              <StatsCard
-                title="Code Quality Score"
-                value="94.2"
-                change={3.1}
-                changeType="positive"
-                icon="🎯"
-              />
-              <StatsCard
-                title="Bug Resolution Rate"
-                value="96.8"
-                change={2.4}
-                changeType="positive"
-                icon="⭐"
-              />
-            </div>
-          </div>
-        );
-
       case 'insights':
         return (
           <div className="space-y-8">
-            <SummaryPanel insights={insights} />
+            {insights.length > 0 && <SummaryPanel insights={insights} />}
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Project Recommendations</h3>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Meeting Recommendations</h3>
                 <div className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-2 h-2 bg-blue-500 mt-2"></div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Implement 25-minute timeboxes for daily stand-ups to improve team efficiency
-                    </p>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-2 h-2 bg-green-500 mt-2"></div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Backend team's sprint practices could be adopted by other development teams
-                    </p>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-2 h-2 bg-yellow-500 mt-2"></div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Consider increasing QA team capacity or redistributing testing tasks
-                    </p>
-                  </div>
+                  {analyticsData?.averageDuration > 60 && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 bg-yellow-500 mt-2"></div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
+                        Average meeting duration is {analyticsData.averageDuration} minutes. Consider implementing timeboxes to keep meetings focused.
+                      </p>
+                    </div>
+                  )}
+                  {analyticsData?.totalActionItems > 0 && analyticsData.completedActionItems / analyticsData.totalActionItems < 0.5 && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 bg-red-500 mt-2"></div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
+                        Action item completion rate is below 50%. Consider setting up reminder systems for task follow-up.
+                      </p>
+                    </div>
+                  )}
+                  {analyticsData?.totalMeetings > 0 && analyticsData.completedMeetings / analyticsData.totalMeetings > 0.8 && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 bg-green-500 mt-2"></div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
+                        Excellent meeting completion rate! {((analyticsData.completedMeetings / analyticsData.totalMeetings) * 100).toFixed(0)}% of scheduled meetings are being completed.
+                      </p>
+                    </div>
+                  )}
+                  {(!analyticsData || analyticsData.totalMeetings === 0) && (
+                    <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                      <p className="text-sm">Not enough data yet. Create some meetings to see insights!</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Sprint Metrics</h3>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Workspace Health</h3>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-600 dark:text-slate-400">Sprint Velocity</span>
-                    <span className="text-green-600 dark:text-green-400 font-semibold">↗ +18%</span>
+                    <span className="text-slate-600 dark:text-slate-400">Meeting Completion</span>
+                    <span className={`font-semibold ${analyticsData?.totalMeetings > 0 && analyticsData.completedMeetings / analyticsData.totalMeetings > 0.7 ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                      {analyticsData?.totalMeetings > 0 ? `${((analyticsData.completedMeetings / analyticsData.totalMeetings) * 100).toFixed(0)}%` : 'N/A'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-600 dark:text-slate-400">Story Completion</span>
-                    <span className="text-green-600 dark:text-green-400 font-semibold">↗ +15.7%</span>
+                    <span className="text-slate-600 dark:text-slate-400">Task Follow-Through</span>
+                    <span className={`font-semibold ${analyticsData?.totalActionItems > 0 && analyticsData.completedActionItems / analyticsData.totalActionItems > 0.7 ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                      {analyticsData?.totalActionItems > 0 ? `${((analyticsData.completedActionItems / analyticsData.totalActionItems) * 100).toFixed(0)}%` : 'N/A'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-600 dark:text-slate-400">Team Engagement</span>
-                    <span className="text-green-600 dark:text-green-400 font-semibold">↗ +7.2%</span>
+                    <span className="text-slate-600 dark:text-slate-400">Avg Meeting Efficiency</span>
+                    <span className={`font-semibold ${analyticsData?.averageDuration > 0 && analyticsData.averageDuration < 45 ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                      {analyticsData?.averageDuration > 0 && analyticsData.averageDuration < 45 ? 'Optimal' : analyticsData?.averageDuration > 0 ? 'Could Improve' : 'N/A'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -438,10 +645,10 @@ const Analytics: React.FC = () => {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                    Project Analytics
+                    {currentWorkspace?.name || 'Workspace'} Analytics
                   </h1>
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Sprint metrics and team performance insights
+                    Meeting metrics and workspace performance insights
                   </p>
                 </div>
               </div>

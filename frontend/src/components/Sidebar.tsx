@@ -17,6 +17,7 @@ import {
   Check,
   Sparkles,
   LayoutGrid,
+  Archive,
 } from 'lucide-react';
 import CreateWorkspaceModal from '../modals/workspace/CreateWorkspace';
 import { useUser } from '../context/UserContext';
@@ -57,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite } = useUser();
+  const { user, workspaces, pendingInvites, acceptInvite, rejectInvite, showArchivedWorkspaces, setShowArchivedWorkspaces } = useUser();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showCreateWorkspaceModal, setShowCreateWorkspaceModal] = useState(false);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
@@ -157,6 +158,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     role: ws.role || 'Member',
     colorTheme: ws.colorTheme || colors[index % colors.length],
     memberCount: ws.memberCount,
+    isArchived: ws.isArchived,
   }));
   
   const generalMenuItems: MenuItem[] = [
@@ -421,9 +423,31 @@ const Sidebar: React.FC<SidebarProps> = ({
                     
                     <div className={`h-px my-2 ${isDark ? 'bg-white/10' : 'bg-gray-200'}`}></div>
                     
-                    <p className={`text-xs font-semibold uppercase tracking-wider px-3 py-2 ${
-                      isDark ? 'text-slate-500' : 'text-gray-500'
-                    }`}>Workspaces</p>
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <p className={`text-xs font-semibold uppercase tracking-wider ${
+                        isDark ? 'text-slate-500' : 'text-gray-500'
+                      }`}>Workspaces</p>
+                      {!shouldShowDummyData && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowArchivedWorkspaces(!showArchivedWorkspaces);
+                          }}
+                          className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                            showArchivedWorkspaces
+                              ? isDark
+                                ? 'bg-purple-500/20 text-purple-400'
+                                : 'bg-purple-100 text-purple-600'
+                              : isDark
+                                ? 'text-slate-500 hover:text-slate-400 hover:bg-white/5'
+                                : 'text-gray-500 hover:text-gray-600 hover:bg-gray-100'
+                          }`}
+                          title={showArchivedWorkspaces ? "Hide archived" : "Show archived"}
+                        >
+                          <Archive className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                     
                     {sidebarWorkspaces.map((workspace) => (
                       <button
@@ -451,12 +475,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                         >
                           <Building2 className="w-4 h-4 text-white" />
                         </div>
-                        <div className="flex-1 text-left">
-                          <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{workspace.name}</p>
+                        <div className="flex-1 text-left min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{workspace.name}</p>
+                            {workspace.isArchived && (
+                              <Archive className={`w-3 h-3 flex-shrink-0 ${isDark ? 'text-orange-400' : 'text-orange-600'}`} title="Archived" />
+                            )}
+                          </div>
                           <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{workspace.memberCount} members • {`${(workspace.role || '').slice(0,1).toUpperCase()}${(workspace.role || '').slice(1).toLowerCase()}`}</p>
                         </div>
                         {currentWorkspace?.id === workspace.id && viewMode === 'workspace' && (
-                          <Check className={`w-4 h-4 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                          <Check className={`w-4 h-4 flex-shrink-0 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
                         )}
                       </button>
                     ))}
