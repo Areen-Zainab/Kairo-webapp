@@ -1325,7 +1325,7 @@ Kairo has made substantial progress on core infrastructure and meeting intellige
 
 #### 💡 Optional Future Enhancements:
 - [ ] Add bookmarking
-  - Allow users to bookmark important transcript segments
+- [ ] Allow users to bookmark important transcript segments
 - [ ] Add commenting on transcript segments
 - [ ] Implement sentiment indicators per entry
 - [ ] Add AI-powered topic segmentation visualization
@@ -1555,10 +1555,6 @@ Kairo has made substantial progress on core infrastructure and meeting intellige
 Kairo has established a solid foundation with ~50% of planned features implemented. The core meeting intelligence pipeline is functional, and the application has a polished frontend with comprehensive UI components. 
 
 **Note:** Microsoft Teams support is NOT in scope. Focus remains on Google Meet and Zoom.
-
-**This document should be updated monthly as features are completed.**
-
-**Last Updated:** January 14, 2026
 
 ---
 
