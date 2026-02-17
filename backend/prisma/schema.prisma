@@ -356,7 +356,7 @@ model MeetingEmbedding {
 model MeetingMemoryContext {
   id                String   @id @default(uuid())
   meetingId         Int      @unique @map("meeting_id")
-  // summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
+ // summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
   keyTopics         String[] @map("key_topics")
   keyDecisions      Json?    @map("key_decisions")
   keyActionItems    Json?    @map("key_action_items")
