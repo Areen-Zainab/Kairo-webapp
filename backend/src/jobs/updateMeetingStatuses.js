@@ -51,6 +51,19 @@ async function updateMeetingStatuses() {
               console.error(`Error stopping bot session for meeting ${meeting.id}:`, sessionError);
               // Continue even if stopping session fails
             }
+
+            // Create tasks from confirmed action items
+            try {
+              const TaskCreationService = require('../services/TaskCreationService');
+              const result = await TaskCreationService.createTasksFromMeetingActionItems(meeting.id);
+              if (result.tasks.length > 0) {
+                console.log(`   ✅ Created ${result.tasks.length} task(s) from auto-completed meeting ${meeting.id}`);
+              }
+            } catch (taskError) {
+              console.error(`   ⚠️ Error creating tasks from meeting ${meeting.id}:`, taskError.message);
+              // Continue even if task creation fails
+            }
+
             completedCount++;
           } else if (computedStatus === 'in-progress') {
             inProgressCount++;

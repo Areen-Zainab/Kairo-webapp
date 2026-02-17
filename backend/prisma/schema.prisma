@@ -91,24 +91,27 @@ model NotificationSettings {
 }
 
 model Workspace {
-  id          Int                @id @default(autoincrement())
-  name        String
-  description String?
-  code        String             @unique
-  ownerId     Int                @map("owner_id")
-  colorTheme  String?            @default("#9333ea") @map("color_theme")
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
-  isActive    Boolean            @default(true) @map("is_active")
-  isArchived  Boolean            @default(false) @map("is_archived")
-  archivedAt  DateTime?          @map("archived_at")
-  archivedBy  Int?               @map("archived_by")
-  settings    Json?
-  members     WorkspaceMember[]
-  invites     WorkspaceInvite[]
-  logs        WorkspaceLog[]
-  meetings    Meeting[]
-  owner       User               @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  id            Int                @id @default(autoincrement())
+  name          String
+  description   String?
+  code          String             @unique
+  ownerId       Int                @map("owner_id")
+  colorTheme    String?            @default("#9333ea") @map("color_theme")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  isActive      Boolean            @default(true) @map("is_active")
+  isArchived    Boolean            @default(false) @map("is_archived")
+  archivedAt    DateTime?          @map("archived_at")
+  archivedBy    Int?               @map("archived_by")
+  settings      Json?
+  members       WorkspaceMember[]
+  invites       WorkspaceInvite[]
+  logs          WorkspaceLog[]
+  meetings      Meeting[]
+  kanbanColumns KanbanColumn[]
+  tasks         Task[]
+  tags          Tag[]
+  owner         User               @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@map("workspaces")
 }
@@ -176,9 +179,10 @@ model ActionItem {
   updateHistory Json?     @map("update_history")
   createdAt     DateTime  @default(now()) @map("created_at")
 
-  meeting        Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  confirmedByUser User?  @relation("ActionItemConfirmedBy", fields: [confirmedBy], references: [id])
-  rejectedByUser  User?  @relation("ActionItemRejectedBy", fields: [rejectedBy], references: [id])
+  meeting         Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  confirmedByUser User?   @relation("ActionItemConfirmedBy", fields: [confirmedBy], references: [id])
+  rejectedByUser  User?   @relation("ActionItemRejectedBy", fields: [rejectedBy], references: [id])
+  task            Task?
 
   @@index([meetingId, status])
   @@index([meetingId, canonicalKey])
@@ -335,7 +339,7 @@ model MeetingEmbedding {
   contentType     String   @map("content_type") // 'transcript', 'summary', 'note', 'action_item', 'decision', 'topic'
   contentId       String?  @map("content_id")   // Reference to specific content
   content         String   @db.Text             // Original text content
-  embedding       Unsupported("vector(1536)")   // OpenAI ada-002 embedding
+  // embedding       Unsupported("vector(1536)")   // OpenAI ada-002 embedding
   metadata        Json?                         // Additional context
   chunkIndex      Int?     @map("chunk_index")  // For chunked content
   createdAt       DateTime @default(now()) @map("created_at")
@@ -352,7 +356,7 @@ model MeetingEmbedding {
 model MeetingMemoryContext {
   id                String   @id @default(uuid())
   meetingId         Int      @unique @map("meeting_id")
-  summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
+  // summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
   keyTopics         String[] @map("key_topics")
   keyDecisions      Json?    @map("key_decisions")
   keyActionItems    Json?    @map("key_action_items")
@@ -386,5 +390,79 @@ model MeetingRelationship {
   @@index([targetMeetingId])
   @@index([similarityScore])
   @@map("meeting_relationships")
+}
+
+model KanbanColumn {
+  id          Int       @id @default(autoincrement())
+  workspaceId Int       @map("workspace_id")
+  name        String
+  position    Int       // For ordering columns
+  isDefault   Boolean   @default(false) @map("is_default") // true for to-do, in-progress, complete
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, position])
+  @@map("kanban_columns")
+}
+
+model Task {
+  id              Int         @id @default(autoincrement())
+  workspaceId     Int         @map("workspace_id")
+  columnId        Int         @map("column_id")
+  actionItemId    Int?        @unique @map("action_item_id") // Link to originating action item
+  title           String
+  description     String?     @db.Text
+  assignee        String?
+  dueDate         DateTime?   @map("due_date")
+  priority        String      @default("medium") // 'low', 'medium', 'high', 'urgent'
+  position        Int         // For ordering within column
+  metadata        Json?       // Additional flexible data (e.g., meeting context, tags, etc.)
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  
+  workspace       Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  column          KanbanColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  actionItem      ActionItem? @relation(fields: [actionItemId], references: [id], onDelete: SetNull)
+  tags            TaskTag[]
+
+  @@index([workspaceId, columnId])
+  @@index([columnId, position])
+  @@index([actionItemId])
+  @@map("tasks")
+}
+
+model Tag {
+  id          Int       @id @default(autoincrement())
+  workspaceId Int       @map("workspace_id")
+  name        String
+  color       String    @default("#3b82f6") // Hex color code
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskTags    TaskTag[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@map("tags")
+}
+
+model TaskTag {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  tagId     Int      @map("tag_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, tagId])
+  @@index([taskId])
+  @@index([tagId])
+  @@map("task_tags")
 }
 

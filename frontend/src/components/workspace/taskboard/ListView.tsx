@@ -117,16 +117,18 @@ const ListView: React.FC<ListViewProps> = ({
                   </p>
                 )}
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <span
-                    className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium"
-                    style={{ 
-                      backgroundColor: `${task.project.color}20`,
-                      color: task.project.color,
-                      border: `1px solid ${task.project.color}40`
-                    }}
-                  >
-                    {task.project.name}
-                  </span>
+                  {task.project && (
+                    <span
+                      className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium"
+                      style={{ 
+                        backgroundColor: `${task.project.color}20`,
+                        color: task.project.color,
+                        border: `1px solid ${task.project.color}40`
+                      }}
+                    >
+                      {task.project.name}
+                    </span>
+                  )}
                   <span className={`
                     inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium
                     ${task.priority === 'urgent' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
@@ -178,16 +180,18 @@ const ListView: React.FC<ListViewProps> = ({
                         </p>
                       )}
                       <div className="flex items-center gap-2 mt-2">
-                        <span
-                          className="inline-flex items-center px-2 py-1 rounded text-xs font-medium"
-                          style={{ 
-                            backgroundColor: `${task.project.color}20`,
-                            color: task.project.color,
-                            border: `1px solid ${task.project.color}40`
-                          }}
-                        >
-                          {task.project.name}
-                        </span>
+                        {task.project && (
+                          <span
+                            className="inline-flex items-center px-2 py-1 rounded text-xs font-medium"
+                            style={{ 
+                              backgroundColor: `${task.project.color}20`,
+                              color: task.project.color,
+                              border: `1px solid ${task.project.color}40`
+                            }}
+                          >
+                            {task.project.name}
+                          </span>
+                        )}
                         {task.tags.slice(0, 2).map((tag) => (
                           <span
                             key={tag.id}

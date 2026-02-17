@@ -32,7 +32,8 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   assignees: TaskAssignee[];
-  project: TaskProject;
+  assignee?: string; // Single assignee name for backend compatibility
+  project?: TaskProject; // Optional - only present if task created from meeting action item
   tags: TaskTag[];
   dueDate: string | null;
   createdAt: string;

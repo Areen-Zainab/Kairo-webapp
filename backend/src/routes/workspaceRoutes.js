@@ -92,6 +92,16 @@ router.post("/", authenticateToken, async (req, res) => {
       // Don't fail the workspace creation if notification creation fails
     }
 
+    // Create default kanban columns for task management
+    try {
+      const TaskCreationService = require('../services/TaskCreationService');
+      await TaskCreationService.ensureDefaultKanbanColumns(workspace.id);
+      console.log(`✅ Created default kanban columns for workspace ${workspace.id}`);
+    } catch (error) {
+      console.error(`⚠️ Failed to create default kanban columns for workspace ${workspace.id}:`, error);
+      // Don't fail workspace creation if kanban columns fail
+    }
+
     // Log workspace creation
     try {
       await WorkspaceLog.logWorkspaceCreated(workspace.id, req.user.id, workspace.name);

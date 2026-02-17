@@ -1,4 +1,5 @@
 import React from 'react';
+import { X, Calendar, Clock, Tag, AlertCircle, ChevronRight, CheckSquare, Square } from 'lucide-react';
 import type { Task, TaskStatus, TaskPriority } from '../../components/workspace/taskboard/types';
 import UserAvatar from '../../components/ui/UserAvatar';
 
@@ -10,6 +11,20 @@ interface TaskDetailModalProps {
   onPriorityChange: (taskId: string, newPriority: TaskPriority) => void;
 }
 
+const statusConfig: Record<TaskStatus, { label: string; color: string; bg: string; border: string }> = {
+  'todo':        { label: 'To Do',       color: 'text-slate-600 dark:text-slate-300',     bg: 'bg-slate-100 dark:bg-slate-700',        border: 'border-slate-200 dark:border-slate-600' },
+  'in-progress': { label: 'In Progress', color: 'text-blue-600 dark:text-blue-400',       bg: 'bg-blue-50 dark:bg-blue-900/30',         border: 'border-blue-200 dark:border-blue-800' },
+  'review':      { label: 'Review',      color: 'text-violet-600 dark:text-violet-400',   bg: 'bg-violet-50 dark:bg-violet-900/30',     border: 'border-violet-200 dark:border-violet-800' },
+  'done':        { label: 'Done',        color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30',   border: 'border-emerald-200 dark:border-emerald-800' },
+};
+
+const priorityConfig: Record<TaskPriority, { label: string; color: string; bg: string; border: string; dot: string }> = {
+  low:    { label: 'Low',    color: 'text-sky-600 dark:text-sky-400',       bg: 'bg-sky-50 dark:bg-sky-900/30',      border: 'border-sky-200 dark:border-sky-800',     dot: 'bg-sky-400' },
+  medium: { label: 'Medium', color: 'text-amber-600 dark:text-amber-400',   bg: 'bg-amber-50 dark:bg-amber-900/30',  border: 'border-amber-200 dark:border-amber-800', dot: 'bg-amber-400' },
+  high:   { label: 'High',   color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/30',border: 'border-orange-200 dark:border-orange-800',dot: 'bg-orange-400' },
+  urgent: { label: 'Urgent', color: 'text-rose-600 dark:text-rose-400',     bg: 'bg-rose-50 dark:bg-rose-900/30',    border: 'border-rose-200 dark:border-rose-800',   dot: 'bg-rose-500' },
+};
+
 const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   task,
   isOpen,
@@ -17,348 +32,342 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onStatusChange,
   onPriorityChange,
 }) => {
-
   if (!isOpen || !task) return null;
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString('en-US', {
+      weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
     });
-  };
 
-  const getPriorityColor = (priority: TaskPriority) => {
-    const colors = {
-      low: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-      medium: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
-      high: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
-      urgent: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
-    };
-    return colors[priority];
-  };
+  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'done';
+  const completedSubtasks = task.subtasks?.filter((s) => s.status === 'done').length ?? 0;
+  const totalSubtasks = task.subtasks?.length ?? 0;
+  const subtaskProgress = totalSubtasks > 0 ? (completedSubtasks / totalSubtasks) * 100 : 0;
 
-  const getStatusColor = (status: TaskStatus) => {
-    const colors = {
-      todo: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
-      'in-progress': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-      review: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
-      done: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-    };
-    return colors[status];
-  };
+  const sc = statusConfig[task.status];
+  const pc = priorityConfig[task.priority];
 
-  const isOverdue = () => {
-    if (!task.dueDate) return false;
-    return new Date(task.dueDate) < new Date() && task.status !== 'done';
-  };
+  const selectBase =
+    'w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-900 dark:text-white transition-colors cursor-pointer';
+
+  const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+    <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2.5">
+      {children}
+    </p>
+  );
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative w-full max-w-4xl bg-white dark:bg-slate-800 rounded-lg shadow-xl">
-          {/* Header */}
-          <div className="flex items-start justify-between p-6 border-b border-slate-200 dark:border-slate-700">
-            <div className="flex-1">
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                {task.title}
-              </h2>
-              <div className="flex items-center gap-4">
-                <span
-                  className={`
-                    inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
-                    ${getStatusColor(task.status)}
-                  `}
-                >
-                  {task.status.replace('-', ' ')}
+      <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+
+        {/* Top accent bar */}
+        <div className="h-0.5 w-full bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 flex-shrink-0" />
+
+        {/* Header */}
+        <div className="flex items-start justify-between px-7 pt-6 pb-5 border-b border-gray-100 dark:border-slate-800 flex-shrink-0">
+          <div className="flex-1 min-w-0 pr-6">
+            {/* Project breadcrumb - only show if task came from a meeting */}
+            {task.project && (
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: task.project.color }} />
+                <span className="text-xs font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wide">
+                  {task.project.name}
                 </span>
-                <span
-                  className={`
-                    inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
-                    ${getPriorityColor(task.priority)}
-                  `}
-                >
-                  {task.priority}
-                </span>
-                {isOverdue() && (
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                    Overdue
-                  </span>
-                )}
               </div>
+            )}
+
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white leading-snug mb-3">
+              {task.title}
+            </h2>
+
+            {/* Badges */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${sc.bg} ${sc.color} ${sc.border}`}>
+                {sc.label}
+              </span>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${pc.bg} ${pc.color} ${pc.border}`}>
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pc.dot}`} />
+                {pc.label}
+              </span>
+              {isOverdue && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                  <AlertCircle className="w-3 h-3" />
+                  Overdue
+                </span>
+              )}
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
           </div>
 
-          {/* Content */}
-          <div className="p-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Main content */}
-              <div className="lg:col-span-2 space-y-6">
-                {/* Description */}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                    Description
-                  </h3>
-                  <p className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap">
-                    {task.description || 'No description provided.'}
-                  </p>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-slate-300 dark:hover:bg-slate-800 transition-colors flex-shrink-0"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex flex-1 overflow-hidden">
+
+          {/* Left — main content */}
+          <div className="flex-1 overflow-y-auto px-7 py-6 space-y-7">
+
+            {/* Description */}
+            <section>
+              <SectionLabel>Description</SectionLabel>
+              {task.description ? (
+                <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                  {task.description}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400 dark:text-slate-500 italic">No description provided.</p>
+              )}
+            </section>
+
+            {/* Meeting Context */}
+            {task.meetingContext && (
+              <section>
+                <SectionLabel>Meeting Context</SectionLabel>
+                <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/10 overflow-hidden">
+                  {/* Meeting header */}
+                  <div className="flex items-center gap-2.5 px-4 py-3 bg-violet-100/70 dark:bg-violet-900/30 border-b border-violet-200 dark:border-violet-800">
+                    <div className="w-7 h-7 rounded-lg bg-violet-200 dark:bg-violet-800 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-3.5 h-3.5 text-violet-600 dark:text-violet-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-semibold text-violet-900 dark:text-violet-200">
+                      {task.meetingContext.meetingTitle}
+                    </span>
+                  </div>
+
+                  <div className="px-4 py-4 space-y-4">
+                    {task.meetingContext.transcriptSnippet && (
+                      <div>
+                        <p className="text-xs font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide mb-1.5">Transcript</p>
+                        <p className="text-sm text-violet-800 dark:text-violet-300 italic leading-relaxed border-l-2 border-violet-300 dark:border-violet-600 pl-3">
+                          "{task.meetingContext.transcriptSnippet}"
+                        </p>
+                      </div>
+                    )}
+
+                    {(Array.isArray(task.meetingContext.decisions) && task.meetingContext.decisions.length > 0) && (
+                      <div>
+                        <p className="text-xs font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide mb-1.5">Decisions</p>
+                        <ul className="space-y-1.5">
+                          {task.meetingContext.decisions.map((d, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-violet-800 dark:text-violet-300">
+                              <span className="mt-2 w-1 h-1 rounded-full bg-violet-400 flex-shrink-0" />
+                              {d}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {(Array.isArray(task.meetingContext.notes) && task.meetingContext.notes.length > 0) && (
+                      <div>
+                        <p className="text-xs font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide mb-1.5">Notes</p>
+                        <ul className="space-y-1.5">
+                          {task.meetingContext.notes.map((n, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-violet-800 dark:text-violet-300">
+                              <span className="mt-2 w-1 h-1 rounded-full bg-violet-400 flex-shrink-0" />
+                              {n}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <button className="inline-flex items-center gap-1 text-xs font-semibold text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors">
+                      View full meeting details <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Subtasks */}
+            {task.subtasks && task.subtasks.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-2.5">
+                  <SectionLabel>Subtasks</SectionLabel>
+                  <span className="text-xs font-semibold text-gray-400 dark:text-slate-500 -mt-2.5">
+                    {completedSubtasks} / {totalSubtasks} done
+                  </span>
                 </div>
 
-                {/* Meeting Context */}
-                {task.meetingContext && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                      Meeting Context
-                    </h3>
-                    <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        <span className="font-medium text-purple-900 dark:text-purple-200">
-                          {task.meetingContext.meetingTitle}
+                {/* Progress bar */}
+                <div className="h-1 w-full bg-gray-100 dark:bg-slate-700 rounded-full mb-3 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-500 to-violet-500 rounded-full transition-all duration-500"
+                    style={{ width: `${subtaskProgress}%` }}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  {task.subtasks.map((subtask) => {
+                    const done = subtask.status === 'done';
+                    return (
+                      <button
+                        key={subtask.id}
+                        onClick={() => onStatusChange(subtask.id, done ? 'todo' : 'done')}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800/80 transition-colors text-left group"
+                      >
+                        {done
+                          ? <CheckSquare className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                          : <Square className="w-4 h-4 text-gray-300 dark:text-slate-600 group-hover:text-gray-400 dark:group-hover:text-slate-500 flex-shrink-0 transition-colors" />
+                        }
+                        <span className={`text-sm leading-snug ${done ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-800 dark:text-slate-200'}`}>
+                          {subtask.title}
                         </span>
-                      </div>
-                      
-                      {task.meetingContext.transcriptSnippet && (
-                        <div className="mb-3">
-                          <h4 className="text-sm font-medium text-purple-800 dark:text-purple-300 mb-1">
-                            Transcript Snippet
-                          </h4>
-                          <p className="text-sm text-purple-700 dark:text-purple-400 italic">
-                            "{task.meetingContext.transcriptSnippet}"
-                          </p>
-                        </div>
-                      )}
-
-                      {task.meetingContext.decisions && task.meetingContext.decisions.length > 0 && (
-                        <div className="mb-3">
-                          <h4 className="text-sm font-medium text-purple-800 dark:text-purple-300 mb-1">
-                            Decisions
-                          </h4>
-                          <ul className="text-sm text-purple-700 dark:text-purple-400 space-y-1">
-                            {task.meetingContext.decisions.map((decision, index) => (
-                              <li key={index} className="flex items-start gap-2">
-                                <span className="text-purple-500 dark:text-purple-400">•</span>
-                                {decision}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {task.meetingContext.notes && task.meetingContext.notes.length > 0 && (
-                        <div>
-                          <h4 className="text-sm font-medium text-purple-800 dark:text-purple-300 mb-1">
-                            Notes
-                          </h4>
-                          <ul className="text-sm text-purple-700 dark:text-purple-400 space-y-1">
-                            {task.meetingContext.notes.map((note, index) => (
-                              <li key={index} className="flex items-start gap-2">
-                                <span className="text-purple-500 dark:text-purple-400">•</span>
-                                {note}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      <button className="mt-3 text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-medium">
-                        View full meeting details →
                       </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="w-px bg-gray-100 dark:bg-slate-800 flex-shrink-0" />
+
+          {/* Right — sidebar */}
+          <div className="w-64 flex-shrink-0 overflow-y-auto px-5 py-6 space-y-6 bg-gray-50/60 dark:bg-slate-900/60">
+
+            {/* Status */}
+            <section>
+              <SectionLabel>Status</SectionLabel>
+              <select
+                value={task.status}
+                onChange={(e) => onStatusChange(task.id, e.target.value as TaskStatus)}
+                className={selectBase}
+              >
+                <option value="todo">To Do</option>
+                <option value="in-progress">In Progress</option>
+                <option value="review">Review</option>
+                <option value="done">Done</option>
+              </select>
+            </section>
+
+            {/* Priority */}
+            <section>
+              <SectionLabel>Priority</SectionLabel>
+              <select
+                value={task.priority}
+                onChange={(e) => onPriorityChange(task.id, e.target.value as TaskPriority)}
+                className={selectBase}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </section>
+
+            {/* Dates */}
+            <section>
+              <SectionLabel>Dates</SectionLabel>
+              <div className="space-y-3">
+                {task.dueDate && (
+                  <div className="flex items-start gap-2.5">
+                    <Calendar className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isOverdue ? 'text-rose-500' : 'text-gray-400 dark:text-slate-500'}`} />
+                    <div>
+                      <p className="text-xs text-gray-400 dark:text-slate-500 leading-none mb-0.5">Due</p>
+                      <p className={`text-xs font-semibold ${isOverdue ? 'text-rose-500' : 'text-gray-800 dark:text-slate-200'}`}>
+                        {formatDate(task.dueDate)}
+                      </p>
                     </div>
                   </div>
                 )}
-
-                {/* Subtasks */}
-                {task.subtasks && task.subtasks.length > 0 && (
+                <div className="flex items-start gap-2.5">
+                  <Clock className="w-3.5 h-3.5 mt-0.5 text-gray-400 dark:text-slate-500 flex-shrink-0" />
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                      Subtasks ({task.subtasks.length})
-                    </h3>
-                    <div className="space-y-2">
-                      {task.subtasks.map((subtask) => (
-                        <div
-                          key={subtask.id}
-                          className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-700 rounded-lg"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={subtask.status === 'done'}
-                            onChange={() => onStatusChange(subtask.id, subtask.status === 'done' ? 'todo' : 'done')}
-                            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                          />
-                          <span className={`text-sm ${subtask.status === 'done' ? 'line-through text-slate-500' : 'text-slate-900 dark:text-white'}`}>
-                            {subtask.title}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Sidebar */}
-              <div className="space-y-6">
-                {/* Quick Actions */}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                    Quick Actions
-                  </h3>
-                  <div className="space-y-2">
-                    <select
-                      value={task.status}
-                      onChange={(e) => onStatusChange(task.id, e.target.value as TaskStatus)}
-                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="todo">To Do</option>
-                      <option value="in-progress">In Progress</option>
-                      <option value="review">Review</option>
-                      <option value="done">Done</option>
-                    </select>
-                    <select
-                      value={task.priority}
-                      onChange={(e) => onPriorityChange(task.id, e.target.value as TaskPriority)}
-                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="low">Low Priority</option>
-                      <option value="medium">Medium Priority</option>
-                      <option value="high">High Priority</option>
-                      <option value="urgent">Urgent</option>
-                    </select>
+                    <p className="text-xs text-gray-400 dark:text-slate-500 leading-none mb-0.5">Created</p>
+                    <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">{formatDate(task.createdAt)}</p>
                   </div>
                 </div>
-
-                {/* Task Details */}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                    Details
-                  </h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                        Project
-                      </label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: task.project.color }}
-                        />
-                        <span className="text-sm text-slate-900 dark:text-white">
-                          {task.project.name}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                        Due Date
-                      </label>
-                      <p className="text-sm text-slate-900 dark:text-white mt-1">
-                        {task.dueDate ? formatDate(task.dueDate) : 'No due date'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                        Created
-                      </label>
-                      <p className="text-sm text-slate-900 dark:text-white mt-1">
-                        {formatDate(task.createdAt)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                        Last Updated
-                      </label>
-                      <p className="text-sm text-slate-900 dark:text-white mt-1">
-                        {formatDate(task.updatedAt)}
-                      </p>
-                    </div>
-
-                    {task.estimatedHours && (
-                      <div>
-                        <label className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                          Estimated Hours
-                        </label>
-                        <p className="text-sm text-slate-900 dark:text-white mt-1">
-                          {task.estimatedHours}h
-                        </p>
-                      </div>
-                    )}
-
-                    {task.actualHours && (
-                      <div>
-                        <label className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                          Actual Hours
-                        </label>
-                        <p className="text-sm text-slate-900 dark:text-white mt-1">
-                          {task.actualHours}h
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Assignees */}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                    Assignees ({task.assignees.length})
-                  </h3>
-                  <div className="space-y-2">
-                    {task.assignees.map((assignee) => (
-                      <div key={assignee.id} className="flex items-center gap-3">
-                        <UserAvatar name={assignee.name} profilePictureUrl={assignee.profilePictureUrl} size="sm" />
-                        <div>
-                          <p className="text-sm font-medium text-slate-900 dark:text-white">
-                            {assignee.name}
-                          </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {assignee.role}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Tags */}
-                {task.tags.length > 0 && (
+                <div className="flex items-start gap-2.5">
+                  <Clock className="w-3.5 h-3.5 mt-0.5 text-gray-400 dark:text-slate-500 flex-shrink-0" />
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                      Tags
-                    </h3>
-                    <div className="flex flex-wrap gap-2">
-                      {task.tags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
+                    <p className="text-xs text-gray-400 dark:text-slate-500 leading-none mb-0.5">Updated</p>
+                    <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">{formatDate(task.updatedAt)}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Time tracking */}
+            {(task.estimatedHours || task.actualHours) && (
+              <section>
+                <SectionLabel>Time</SectionLabel>
+                <div className="space-y-2">
+                  {task.estimatedHours && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400 dark:text-slate-500">Estimated</span>
+                      <span className="text-xs font-semibold text-gray-800 dark:text-slate-200">{task.estimatedHours}h</span>
+                    </div>
+                  )}
+                  {task.actualHours && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400 dark:text-slate-500">Actual</span>
+                      <span className={`text-xs font-semibold ${task.estimatedHours && task.actualHours > task.estimatedHours ? 'text-rose-500' : 'text-gray-800 dark:text-slate-200'}`}>
+                        {task.actualHours}h
+                      </span>
+                    </div>
+                  )}
+                  {task.estimatedHours && task.actualHours && (
+                    <div className="h-1 w-full bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${task.actualHours > task.estimatedHours ? 'bg-rose-400' : 'bg-emerald-400'}`}
+                        style={{ width: `${Math.min((task.actualHours / task.estimatedHours) * 100, 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* Assignees */}
+            <section>
+              <SectionLabel>Assignees</SectionLabel>
+              <div className="space-y-3">
+                {task.assignees.map((assignee) => (
+                  <div key={assignee.id} className="flex items-center gap-2.5">
+                    <UserAvatar name={assignee.name} profilePictureUrl={assignee.profilePictureUrl} size="sm" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-slate-200 truncate leading-none mb-0.5">
+                        {assignee.name}
+                      </p>
+                      <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{assignee.role}</p>
                     </div>
                   </div>
-                )}
+                ))}
               </div>
-            </div>
+            </section>
+
+            {/* Tags */}
+            {task.tags.length > 0 && (
+              <section>
+                <SectionLabel>Tags</SectionLabel>
+                <div className="flex flex-wrap gap-1.5">
+                  {task.tags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700"
+                    >
+                      <Tag className="w-2.5 h-2.5 text-gray-400" />
+                      {tag.name}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+
           </div>
         </div>
       </div>

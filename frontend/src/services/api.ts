@@ -86,6 +86,18 @@ interface UploadAudioResponse {
   audioUrl: string;
 }
 
+interface Tag {
+  id: number;
+  workspaceId: number;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: {
+    taskTags: number;
+  };
+}
+
 interface Notification {
   id: number;
   userId: number;
@@ -1004,9 +1016,255 @@ class ApiService {
       method: 'POST',
     });
   }
+
+  // ==================== TASK MANAGEMENT ====================
+
+  /**
+   * Get all kanban columns with tasks for a workspace
+   */
+  async getKanbanColumns(workspaceId: number): Promise<ApiResponse<{
+    columns: Array<{
+      id: number;
+      workspaceId: number;
+      name: string;
+      position: number;
+      isDefault: boolean;
+      createdAt: string;
+      updatedAt: string;
+      tasks: Array<{
+        id: number;
+        workspaceId: number;
+        columnId: number;
+        actionItemId?: number | null;
+        title: string;
+        description?: string | null;
+        assignee?: string | null;
+        dueDate?: string | null;
+        priority: string;
+        position: number;
+        metadata?: any;
+        createdAt: string;
+        updatedAt: string;
+        actionItem?: {
+          id: number;
+          title: string;
+          status: string;
+          meeting: {
+            id: number;
+            title: string;
+            startTime: string;
+          };
+        } | null;
+      }>;
+    }>;
+  }>> {
+    return this.request(`/workspaces/${workspaceId}/kanban/columns`);
+  }
+
+  /**
+   * Get all tasks for a workspace
+   */
+  async getWorkspaceTasks(workspaceId: number): Promise<ApiResponse<{
+    tasks: Array<any>;
+  }>> {
+    return this.request(`/workspaces/${workspaceId}/tasks`);
+  }
+
+  /**
+   * Create a new task
+   */
+  async createTask(workspaceId: number, task: {
+    columnId: number;
+    title: string;
+    description?: string;
+    assignee?: string;
+    dueDate?: string;
+    priority?: string;
+  }): Promise<ApiResponse<{
+    message: string;
+    task: any;
+  }>> {
+    return this.request(`/workspaces/${workspaceId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(task),
+    });
+  }
+
+  /**
+   * Update a task
+   */
+  async updateTask(taskId: number, updates: {
+    title?: string;
+    description?: string;
+    assignee?: string;
+    dueDate?: string;
+    priority?: string;
+    columnId?: number;
+  }): Promise<ApiResponse<{
+    message: string;
+    task: any;
+  }>> {
+    return this.request(`/tasks/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Move a task to a different column
+   */
+  async moveTask(taskId: number, columnId: number, position?: number): Promise<ApiResponse<{
+    message: string;
+    task: any;
+  }>> {
+    return this.request(`/tasks/${taskId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ columnId, position }),
+    });
+  }
+
+  /**
+   * Delete a task
+   */
+  async deleteTask(taskId: number): Promise<ApiResponse<{
+    message: string;
+  }>> {
+    return this.request(`/tasks/${taskId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Create a kanban column (owners/admins only)
+   */
+  async createKanbanColumn(workspaceId: number, name: string): Promise<ApiResponse<{
+    message: string;
+    column: any;
+  }>> {
+    return this.request(`/workspaces/${workspaceId}/kanban/columns`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  /**
+   * Rename a kanban column
+   */
+  async renameKanbanColumn(columnId: number, name: string): Promise<ApiResponse<{
+    message: string;
+    column: any;
+  }>> {
+    return this.request(`/kanban/columns/${columnId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  /**
+   * Delete a kanban column (owners/admins only)
+   */
+  async deleteKanbanColumn(columnId: number, force = false): Promise<ApiResponse<{
+    message: string;
+  }>> {
+    return this.request(`/kanban/columns/${columnId}?force=${force}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Convert an action item to a task manually
+   */
+  async createTaskFromActionItem(actionItemId: number): Promise<ApiResponse<{
+    message: string;
+    task: any;
+  }>> {
+    return this.request(`/action-items/${actionItemId}/create-task`, {
+      method: 'POST',
+    });
+  }
+
+  // ==================== TAGS ====================
+
+  /**
+   * Get all tags for a workspace
+   */
+  async getTags(workspaceId: number): Promise<ApiResponse<{
+    tags: any[];
+  }>> {
+    return this.request(`/workspaces/${workspaceId}/tags`);
+  }
+
+  /**
+   * Create a new tag
+   */
+  async createTag(workspaceId: number, name: string, color?: string): Promise<ApiResponse<{
+    message: string;
+    tag: any;
+  }>> {
+    return this.request(`/workspaces/${workspaceId}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ name, color }),
+    });
+  }
+
+  /**
+   * Update a tag (rename or change color)
+   */
+  async updateTag(tagId: number, updates: { name?: string; color?: string }): Promise<ApiResponse<{
+    message: string;
+    tag: any;
+  }>> {
+    return this.request(`/tags/${tagId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Delete a tag
+   */
+  async deleteTag(tagId: number): Promise<ApiResponse<{
+    message: string;
+  }>> {
+    return this.request(`/tags/${tagId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Assign a tag to a task
+   */
+  async assignTagToTask(taskId: number, tagId: number): Promise<ApiResponse<{
+    message: string;
+    taskTag: any;
+  }>> {
+    return this.request(`/tasks/${taskId}/tags/${tagId}`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Remove a tag from a task
+   */
+  async removeTagFromTask(taskId: number, tagId: number): Promise<ApiResponse<{
+    message: string;
+  }>> {
+    return this.request(`/tasks/${taskId}/tags/${tagId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Get all tags for a specific task
+   */
+  async getTaskTags(taskId: number): Promise<ApiResponse<{
+    tags: any[];
+  }>> {
+    return this.request(`/tasks/${taskId}/tags`);
+  }
 }
 
-export type { Notification, NotificationsResponse };
+export type { Notification, NotificationsResponse, Tag };
 
 // Create and export a singleton instance
 export const apiService = new ApiService();

@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const TaskCreationService = require('../services/TaskCreationService');
 
 class Workspace {
   static async create(userData) {
@@ -42,6 +43,15 @@ class Workspace {
         role: 'owner',
       }
     });
+
+    // Create default kanban columns for task management
+    try {
+      await TaskCreationService.ensureDefaultKanbanColumns(workspace.id);
+      console.log(`✅ Created default kanban columns for workspace ${workspace.id}`);
+    } catch (error) {
+      console.error(`⚠️ Failed to create default kanban columns for workspace ${workspace.id}:`, error);
+      // Don't fail workspace creation if kanban columns fail
+    }
 
     return workspace;
   }

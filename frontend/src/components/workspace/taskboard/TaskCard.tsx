@@ -96,52 +96,38 @@ const TaskCard: React.FC<TaskCardProps> = ({
           </p>
         )}
 
-        {/* Project and tags */}
-        <div className="flex flex-wrap gap-0.5 sm:gap-1 mb-2 sm:mb-3">
-          <span
-            className="inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium"
-            style={{ 
-              backgroundColor: `${task.project.color}20`,
-              color: task.project.color,
-              border: `1px solid ${task.project.color}40`
-            }}
-          >
-            {task.project.name}
-          </span>
-          {task.tags.slice(0, 2).map((tag) => (
-            <span
-              key={tag.id}
-              className="inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-            >
-              {tag.name}
-            </span>
-          ))}
-          {task.tags.length > 2 && (
-            <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
-              +{task.tags.length - 2}
-            </span>
-          )}
-        </div>
-
-        {/* Assignees */}
-        {task.assignees.length > 0 && (
-          <div className="flex items-center gap-1 mb-2 sm:mb-3">
-            <div className="flex -space-x-1.5 sm:-space-x-2">
-              {task.assignees.slice(0, 3).map((assignee) => (
-                <div
-                  key={assignee.id}
-                  className="border-2 border-white dark:border-slate-800"
-                  title={assignee.name}
+        {/* Tags */}
+        {task.tags && task.tags.length > 0 && (
+          <div className="flex flex-wrap gap-0.5 sm:gap-1 mb-2 sm:mb-3">
+            {task.tags.slice(0, 3).map((tagItem: any) => {
+              const tag = tagItem.tag || tagItem; // Handle both TaskTag structure and direct Tag
+              return (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium text-white"
+                  style={{ backgroundColor: tag.color }}
                 >
-                  <UserAvatar name={assignee.name} profilePictureUrl={assignee.profilePictureUrl} size="xs" />
-                </div>
-              ))}
-            </div>
-            {task.assignees.length > 3 && (
-              <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 ml-1">
-                +{task.assignees.length - 3}
+                  {tag.name}
+                </span>
+              );
+            })}
+            {task.tags.length > 3 && (
+              <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
+                +{task.tags.length - 3}
               </span>
             )}
+          </div>
+        )}
+
+        {/* Assignee */}
+        {task.assignee && (
+          <div className="flex items-center gap-1 mb-2 sm:mb-3">
+            <div className="flex items-center gap-1.5">
+              <UserAvatar name={task.assignee} size="xs" />
+              <span className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-400">
+                {task.assignee}
+              </span>
+            </div>
           </div>
         )}
 

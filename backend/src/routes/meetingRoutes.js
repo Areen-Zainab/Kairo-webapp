@@ -812,6 +812,21 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
       } catch (notifError) {
         console.error("Error sending meeting ended notification:", notifError);
       }
+
+      // Create tasks from confirmed action items (run in background)
+      const TaskCreationService = require('../services/TaskCreationService');
+      TaskCreationService.createTasksFromMeetingActionItems(meetingId)
+        .then((result) => {
+          if (result.tasks.length > 0) {
+            console.log(`✅ Created ${result.tasks.length} task(s) from meeting ${meetingId} action items`);
+          } else {
+            console.log(`ℹ️ No tasks created from meeting ${meetingId} (no confirmed action items or already converted)`);
+          }
+        })
+        .catch((taskError) => {
+          console.error(`❌ Error creating tasks from meeting ${meetingId}:`, taskError);
+          // Don't fail the request if task creation fails
+        });
     }
 
     // Respond immediately to frontend

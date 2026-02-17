@@ -1,235 +1,329 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Globe, User, Columns, List as ListIcon, Calendar } from 'lucide-react';
-import type { Task, TaskView, TaskScope, TaskFilter, TaskSort, TaskStatus, TaskPriority } from '../../components/workspace/taskboard/types';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Globe, User, Columns, List as ListIcon, Calendar, Plus, Trash2, AlertCircle } from 'lucide-react';
+import type { Task, TaskView, TaskScope, TaskStatus, TaskPriority } from '../../components/workspace/taskboard/types';
 import KanbanBoard from '../../components/workspace/taskboard/KanbanBoard';
 import ListView from '../../components/workspace/taskboard/ListView';
 import CalendarView from '../../components/workspace/taskboard/CalendarView';
-import TaskFilters from '../../components/workspace/taskboard/TaskFilters';
+import TaskFiltersComponent, { type TaskFilters as TaskFiltersType } from '../../components/workspace/taskboard/TaskFilters';
 import TaskDetailModal from '../../modals/taskboard/TaskDetailModal';
+import CreateTaskModal, { type TaskFormData } from '../../modals/taskboard/CreateTaskModal';
 import Layout from '../../components/Layout';
 import { useUser } from '../../context/UserContext';
+import apiService, { type Tag } from '../../services/api';
 
-// Mock data - in a real app, this would come from an API
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Implement user authentication system',
-    description: 'Create a comprehensive authentication system with JWT tokens, password hashing, and role-based access control.',
-    status: 'in-progress',
-    priority: 'high',
-    assignees: [
-      { id: '1', name: 'Areeba Riaz', email: 'areeba@example.com', avatar: 'AR', role: 'admin' },
-      { id: '2', name: 'Fatima Khan', email: 'fatima@example.com', avatar: 'FK', role: 'member' }
-    ],
-    project: { id: '1', name: 'Core Platform', color: '#3B82F6' },
-    tags: [
-      { id: '1', name: 'backend', color: '#10B981' },
-      { id: '2', name: 'security', color: '#F59E0B' }
-    ],
-    dueDate: '2024-10-18',
-    createdAt: '2024-10-10T00:00:00Z',
-    updatedAt: '2024-10-15T00:00:00Z',
-    createdBy: { id: '1', name: 'Areeba Riaz', email: 'areeba@example.com', avatar: 'AR', role: 'admin' },
-    meetingContext: {
-      meetingId: 'meeting-1',
-      meetingTitle: 'Sprint Planning - Week 1',
-      transcriptSnippet: 'We need to prioritize the authentication system for the MVP release.',
-      decisions: ['Use JWT for token management', 'Implement bcrypt for password hashing'],
-      notes: ['Consider OAuth integration later', 'Add rate limiting for login attempts']
-    },
-    estimatedHours: 40,
-    actualHours: 25,
-    isOverdue: false
-  },
-  {
-    id: '2',
-    title: 'Design mobile responsive layout',
-    description: 'Create responsive design for mobile devices with proper touch interactions and optimized performance.',
-    status: 'todo',
-    priority: 'medium',
-    assignees: [
-      { id: '3', name: 'Ahmed Ali', email: 'ahmed@example.com', avatar: 'AA', role: 'member' }
-    ],
-    project: { id: '2', name: 'UI/UX', color: '#8B5CF6' },
-    tags: [
-      { id: '3', name: 'frontend', color: '#06B6D4' },
-      { id: '4', name: 'mobile', color: '#F97316' }
-    ],
-    dueDate: '2024-10-22',
-    createdAt: '2024-10-12T00:00:00Z',
-    updatedAt: '2024-10-12T00:00:00Z',
-    createdBy: { id: '2', name: 'Fatima Khan', email: 'fatima@example.com', avatar: 'FK', role: 'member' },
-    estimatedHours: 24,
-    isOverdue: false
-  },
-  {
-    id: '3',
-    title: 'Fix critical security vulnerability',
-    description: 'Address SQL injection vulnerability in user input validation.',
-    status: 'todo',
-    priority: 'urgent',
-    assignees: [
-      { id: '1', name: 'Areeba Riaz', email: 'areeba@example.com', avatar: 'AR', role: 'admin' }
-    ],
-    project: { id: '1', name: 'Core Platform', color: '#3B82F6' },
-    tags: [
-      { id: '2', name: 'security', color: '#F59E0B' },
-      { id: '5', name: 'bugfix', color: '#EF4444' }
-    ],
-    dueDate: '2024-10-16',
-    createdAt: '2024-10-14T00:00:00Z',
-    updatedAt: '2024-10-14T00:00:00Z',
-    createdBy: { id: '1', name: 'Areeba Riaz', email: 'areeba@example.com', avatar: 'AR', role: 'admin' },
-    estimatedHours: 8,
-    actualHours: 6,
-    isOverdue: true
-  },
-  {
-    id: '4',
-    title: 'Write API documentation',
-    description: 'Create comprehensive API documentation with examples and integration guides.',
-    status: 'review',
-    priority: 'low',
-    assignees: [
-      { id: '4', name: 'Zara Sheikh', email: 'zara@example.com', avatar: 'ZS', role: 'member' }
-    ],
-    project: { id: '3', name: 'Documentation', color: '#10B981' },
-    tags: [
-      { id: '6', name: 'documentation', color: '#6366F1' }
-    ],
-    dueDate: '2024-10-25',
-    createdAt: '2024-10-13T00:00:00Z',
-    updatedAt: '2024-10-16T00:00:00Z',
-    createdBy: { id: '4', name: 'Zara Sheikh', email: 'zara@example.com', avatar: 'ZS', role: 'member' },
-    estimatedHours: 16,
-    actualHours: 18,
-    isOverdue: false
-  },
-  {
-    id: '5',
-    title: 'Setup CI/CD pipeline',
-    description: 'Configure automated testing and deployment pipeline for the project.',
-    status: 'done',
-    priority: 'medium',
-    assignees: [
-      { id: '1', name: 'Areeba Riaz', email: 'areeba@example.com', avatar: 'AR', role: 'admin' },
-      { id: '2', name: 'Fatima Khan', email: 'fatima@example.com', avatar: 'FK', role: 'member' }
-    ],
-    project: { id: '1', name: 'Core Platform', color: '#3B82F6' },
-    tags: [
-      { id: '7', name: 'devops', color: '#84CC16' },
-      { id: '8', name: 'automation', color: '#F59E0B' }
-    ],
-    dueDate: '2024-10-15',
-    createdAt: '2024-10-08T00:00:00Z',
-    updatedAt: '2024-10-15T00:00:00Z',
-    createdBy: { id: '1', name: 'Areeba Riaz', email: 'areeba@example.com', avatar: 'AR', role: 'admin' },
-    estimatedHours: 20,
-    actualHours: 22,
-    isOverdue: false
-  }
-];
+// Helper function to map backend column names to frontend task statuses
+const mapColumnToStatus = (columnName: string): TaskStatus => {
+  const lowerName = columnName.toLowerCase();
+  if (lowerName === 'to-do') return 'todo';
+  if (lowerName === 'in-progress') return 'in-progress';
+  if (lowerName === 'complete' || lowerName === 'completed') return 'done';
+  // For custom columns, default to todo
+  return 'todo';
+};
 
-const mockAssignees = [
-  { id: '1', name: 'Areeba Riaz', avatar: 'AR' },
-  { id: '2', name: 'Fatima Khan', avatar: 'FK' },
-  { id: '3', name: 'Ahmed Ali', avatar: 'AA' },
-  { id: '4', name: 'Zara Sheikh', avatar: 'ZS' }
-];
+// Helper to map backend task to frontend format
+const mapBackendTask = (backendTask: any, columnName: string): Task => {
+  // Generate initials for assignee avatar
+  const getInitials = (name: string | null) => {
+    if (!name) return '?';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
 
-const mockProjects = [
-  { id: '1', name: 'Core Platform', color: '#3B82F6' },
-  { id: '2', name: 'UI/UX', color: '#8B5CF6' },
-  { id: '3', name: 'Documentation', color: '#10B981' }
-];
-
-const mockTags = [
-  { id: '1', name: 'backend', color: '#10B981' },
-  { id: '2', name: 'security', color: '#F59E0B' },
-  { id: '3', name: 'frontend', color: '#06B6D4' },
-  { id: '4', name: 'mobile', color: '#F97316' },
-  { id: '5', name: 'bugfix', color: '#EF4444' },
-  { id: '6', name: 'documentation', color: '#6366F1' },
-  { id: '7', name: 'devops', color: '#84CC16' },
-  { id: '8', name: 'automation', color: '#F59E0B' }
-];
+  const assigneeName = backendTask.assignee || 'Unassigned';
+  
+  // Extract tags from TaskTag structure
+  const taskTags = backendTask.tags ? backendTask.tags.map((taskTag: any) => taskTag.tag || taskTag) : [];
+  
+  return {
+    id: String(backendTask.id),
+    title: backendTask.title,
+    description: backendTask.description || '',
+    status: mapColumnToStatus(columnName),
+    priority: backendTask.priority as TaskPriority,
+    assignees: backendTask.assignee ? [{
+      id: String(backendTask.id),
+      name: assigneeName,
+      email: assigneeName,
+      avatar: getInitials(assigneeName),
+      role: 'member'
+    }] : [],
+    assignee: backendTask.assignee,
+    // Only include project if task was created from a meeting action item
+    ...(backendTask.actionItem?.meeting && {
+      project: {
+        id: String(backendTask.actionItem.meeting.id),
+        name: backendTask.actionItem.meeting.title,
+        color: '#3B82F6'
+      }
+    }),
+    tags: taskTags,
+    dueDate: backendTask.dueDate,
+    createdAt: backendTask.createdAt,
+    updatedAt: backendTask.updatedAt,
+    createdBy: { id: '1', name: 'System', email: 'system', avatar: 'SY', role: 'admin' },
+    meetingContext: backendTask.actionItem?.meeting ? {
+      meetingId: String(backendTask.actionItem.meeting.id),
+      meetingTitle: backendTask.actionItem.meeting.title,
+      transcriptSnippet: backendTask.description || '',
+      decisions: [],
+      notes: []
+    } : undefined,
+    isOverdue: backendTask.dueDate ? new Date(backendTask.dueDate) < new Date() && mapColumnToStatus(columnName) !== 'done' : false
+  };
+};
 
 const TaskBoard: React.FC = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, loading } = useUser();
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
+  const { workspaceId } = useParams<{ workspaceId: string }>();
+  const { isAuthenticated, loading: userLoading, workspaces } = useUser();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [columns, setColumns] = useState<any[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<TaskView>('kanban');
   const [scope, setScope] = useState<TaskScope>('global');
-  const [filters, setFilters] = useState<TaskFilter>({});
-  const [sort, setSort] = useState<TaskSort>({ field: 'dueDate', direction: 'asc' });
+  const [filters, setFilters] = useState<TaskFiltersType>({
+    assignee: null,
+    tags: [],
+    priority: null,
+    dueDateRange: 'all',
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  });
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showAddColumnModal, setShowAddColumnModal] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
+  
+  // Add task modal state
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+  const [selectedColumnForTask, setSelectedColumnForTask] = useState<{ id: number; name: string } | null>(null);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+
+  // Delete column confirmation
+  const [columnToDelete, setColumnToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [isDeletingColumn, setIsDeletingColumn] = useState(false);
+
+  // Check if user is workspace owner or admin
+  const workspaceRole = workspaceId 
+    ? workspaces.find((ws: any) => String(ws.id) === workspaceId)?.role 
+    : null;
+  const canManageColumns = workspaceRole === 'owner' || workspaceRole === 'admin';
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!loading && !isAuthenticated) {
+    if (!userLoading && !isAuthenticated) {
       navigate('/login');
     }
-  }, [isAuthenticated, loading, navigate]);
+  }, [isAuthenticated, userLoading, navigate]);
+
+  // Fetch tasks and columns from backend
+  const fetchData = async () => {
+    if (!workspaceId) {
+      setError('No workspace selected');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch both columns and tags in parallel
+      const [columnsResponse, tagsResponse] = await Promise.all([
+        apiService.getKanbanColumns(parseInt(workspaceId)),
+        apiService.getTags(parseInt(workspaceId))
+      ]);
+      
+      if (columnsResponse.error) {
+        setError(columnsResponse.error);
+        setTasks([]);
+        setColumns([]);
+      } else if (columnsResponse.data?.columns) {
+        // Store columns
+        setColumns(columnsResponse.data.columns);
+        
+        // Convert backend columns/tasks to frontend format
+        const allTasks: Task[] = [];
+        
+        columnsResponse.data.columns.forEach(column => {
+          column.tasks.forEach(task => {
+            allTasks.push(mapBackendTask(task, column.name));
+          });
+        });
+        
+        setTasks(allTasks);
+      }
+
+      // Store tags
+      if (tagsResponse.data?.tags) {
+        setTags(tagsResponse.data.tags);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch tasks:', err);
+      setError(err.message || 'Failed to load tasks');
+      setTasks([]);
+      setColumns([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (workspaceId && !userLoading) {
+      fetchData();
+    }
+  }, [workspaceId, userLoading]);
+
+  // Handle adding new column
+  const handleAddColumn = async () => {
+    if (!newColumnName.trim() || !workspaceId) return;
+
+    try {
+      setIsAddingColumn(true);
+      const response = await apiService.createKanbanColumn(parseInt(workspaceId), newColumnName.trim());
+      
+      if (response.error) {
+        alert(response.error);
+      } else {
+        // Refresh data
+        await fetchData();
+        setShowAddColumnModal(false);
+        setNewColumnName('');
+      }
+    } catch (err: any) {
+      console.error('Failed to add column:', err);
+      alert(err.message || 'Failed to add column');
+    } finally {
+      setIsAddingColumn(false);
+    }
+  };
+
+  // Handle adding new task
+  const handleAddTask = (columnId: number, columnName: string) => {
+    setSelectedColumnForTask({ id: columnId, name: columnName });
+    setShowAddTaskModal(true);
+  };
+
+  const handleCreateTask = async (taskData: TaskFormData) => {
+    if (!taskData.title.trim() || !workspaceId || !selectedColumnForTask) return;
+
+    try {
+      setIsCreatingTask(true);
+      const response = await apiService.createTask(parseInt(workspaceId), {
+        columnId: selectedColumnForTask.id,
+        title: taskData.title.trim(),
+        description: taskData.description.trim() || undefined,
+        assignee: taskData.assignee.trim() || undefined,
+        dueDate: taskData.dueDate || undefined,
+        priority: taskData.priority
+      });
+      
+      if (response.error) {
+        alert(response.error);
+      } else if (response.data?.task) {
+        // Assign tags to the task
+        const taskId = response.data.task.id;
+        if (taskData.tags.length > 0) {
+          await Promise.all(
+            taskData.tags.map(tag =>
+              apiService.assignTagToTask(taskId, tag.id)
+            )
+          );
+        }
+
+        // Refresh data
+        await fetchData();
+        // Close modal
+        setShowAddTaskModal(false);
+        setSelectedColumnForTask(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to create task:', err);
+      alert(err.message || 'Failed to create task');
+    } finally {
+      setIsCreatingTask(false);
+    }
+  };
+
+  // Handle deleting column
+  const handleDeleteColumn = (columnId: number, columnName: string) => {
+    setColumnToDelete({ id: columnId, name: columnName });
+  };
+
+  const confirmDeleteColumn = async () => {
+    if (!columnToDelete) return;
+
+    try {
+      setIsDeletingColumn(true);
+      const response = await apiService.deleteKanbanColumn(columnToDelete.id, true);
+      
+      if (response.error) {
+        alert(response.error);
+      } else {
+        // Refresh data
+        await fetchData();
+        setColumnToDelete(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete column:', err);
+      alert(err.message || 'Failed to delete column');
+    } finally {
+      setIsDeletingColumn(false);
+    }
+  };
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
 
-    // Apply scope filter
-    if (scope === 'personal') {
-      // In a real app, this would filter by current user
-      filtered = filtered.filter(task => 
-        task.assignees.some(assignee => assignee.id === '1') // Mock current user ID
-      );
-    }
-
-    // Apply other filters
+    // Filter by assignee
     if (filters.assignee) {
-      filtered = filtered.filter(task =>
-        task.assignees.some(assignee => assignee.id === filters.assignee)
-      );
+      filtered = filtered.filter(task => task.assignee === filters.assignee);
     }
 
+    // Filter by priority
     if (filters.priority) {
       filtered = filtered.filter(task => task.priority === filters.priority);
     }
 
-    if (filters.status) {
-      filtered = filtered.filter(task => task.status === filters.status);
-    }
-
-    if (filters.project) {
-      filtered = filtered.filter(task => task.project.id === filters.project);
-    }
-
+    // Filter by tags
     if (filters.tags && filters.tags.length > 0) {
       filtered = filtered.filter(task =>
-        task.tags.some(tag => filters.tags!.includes(tag.id))
+        task.tags && task.tags.some((tag: any) => {
+          const tagObj = tag.tag || tag;
+          return filters.tags.includes(tagObj.id);
+        })
       );
     }
 
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      filtered = filtered.filter(task =>
-        task.title.toLowerCase().includes(searchLower) ||
-        task.description.toLowerCase().includes(searchLower) ||
-        task.assignees.some(assignee => 
-          assignee.name.toLowerCase().includes(searchLower)
-        )
-      );
-    }
+    // Filter by due date range
+    if (filters.dueDateRange !== 'all') {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const weekEnd = new Date(today);
+      weekEnd.setDate(today.getDate() + 7);
+      const monthEnd = new Date(today);
+      monthEnd.setDate(today.getDate() + 30);
 
-    if (filters.dueDate) {
       filtered = filtered.filter(task => {
         if (!task.dueDate) return false;
         const taskDate = new Date(task.dueDate);
-        const startDate = filters.dueDate?.start ? new Date(filters.dueDate.start) : null;
-        const endDate = filters.dueDate?.end ? new Date(filters.dueDate.end) : null;
-        
-        if (startDate && taskDate < startDate) return false;
-        if (endDate && taskDate > endDate) return false;
-        return true;
+
+        switch (filters.dueDateRange) {
+          case 'overdue':
+            return taskDate < today && task.status !== 'done';
+          case 'today':
+            return taskDate.toDateString() === today.toDateString();
+          case 'week':
+            return taskDate >= today && taskDate <= weekEnd;
+          case 'month':
+            return taskDate >= today && taskDate <= monthEnd;
+          default:
+            return true;
+        }
       });
     }
 
@@ -237,7 +331,7 @@ const TaskBoard: React.FC = () => {
     filtered.sort((a, b) => {
       let comparison = 0;
       
-      switch (sort.field) {
+      switch (filters.sortBy) {
         case 'dueDate':
           const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
           const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
@@ -248,19 +342,16 @@ const TaskBoard: React.FC = () => {
           break;
         case 'priority':
           const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
-          comparison = priorityOrder[b.priority as keyof typeof priorityOrder] - 
-                      priorityOrder[a.priority as keyof typeof priorityOrder];
-          break;
-        case 'title':
-          comparison = a.title.localeCompare(b.title);
+          comparison = priorityOrder[a.priority as keyof typeof priorityOrder] - 
+                      priorityOrder[b.priority as keyof typeof priorityOrder];
           break;
       }
       
-      return sort.direction === 'desc' ? -comparison : comparison;
+      return filters.sortOrder === 'desc' ? -comparison : comparison;
     });
 
     return filtered;
-  }, [tasks, scope, filters, sort]);
+  }, [tasks, filters]);
 
   // Update overdue status
   useEffect(() => {
@@ -302,9 +393,13 @@ const TaskBoard: React.FC = () => {
     handleTaskStatusChange(taskId, toStatus);
   };
 
-  const handleClearFilters = () => {
-    setFilters({});
-  };
+  // Get unique assignees from tasks
+  const availableAssignees = useMemo(() => {
+    const assignees = tasks
+      .map(task => task.assignee)
+      .filter((assignee): assignee is string => !!assignee);
+    return Array.from(new Set(assignees));
+  }, [tasks]);
 
   const getTaskStats = () => {
     const total = filteredTasks.length;
@@ -402,6 +497,19 @@ const TaskBoard: React.FC = () => {
                 <span className="hidden sm:inline">Calendar</span>
               </button>
             </div>
+
+            {/* Add Column Button (only for owners/admins in kanban view) */}
+            {canManageColumns && view === 'kanban' && !loading && (
+              <button
+                onClick={() => setShowAddColumnModal(true)}
+                className="px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-2 shadow-sm"
+                title="Add Column"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Add Column</span>
+                <span className="sm:hidden">Add</span>
+              </button>
+            )}
           </div>
 
           {/* Stats */}
@@ -465,43 +573,108 @@ const TaskBoard: React.FC = () => {
         </div>
 
         {/* Filters */}
-        <TaskFilters
+        <TaskFiltersComponent
           filters={filters}
-          sort={sort}
           onFiltersChange={setFilters}
-          onSortChange={setSort}
-          onClearFilters={handleClearFilters}
-          assignees={mockAssignees}
-          projects={mockProjects}
-          tags={mockTags}
+          availableTags={tags}
+          availableAssignees={availableAssignees}
         />
 
         {/* Task Board Content */}
         <div className="mb-8">
-          {view === 'kanban' && (
-            <KanbanBoard
-              tasks={filteredTasks}
-              onTaskClick={handleTaskClick}
-              onTaskStatusChange={handleTaskStatusChange}
-              onTaskMove={handleTaskMove}
-            />
-          )}
-          
-          {view === 'list' && (
-            <ListView
-              tasks={filteredTasks}
-              onTaskClick={handleTaskClick}
-              onTaskStatusChange={handleTaskStatusChange}
-              sortBy={sort.field}
-              sortDirection={sort.direction}
-            />
-          )}
-          
-          {view === 'calendar' && (
-            <CalendarView
-              tasks={filteredTasks}
-              onTaskClick={handleTaskClick}
-            />
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
+                <p className="text-gray-600 dark:text-slate-400">Loading tasks...</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 text-center">
+              <p className="text-red-600 dark:text-red-400">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Retry
+              </button>
+            </div>
+          ) : columns.length === 0 ? (
+            <div className="bg-gray-50 dark:bg-slate-800/40 border border-gray-200 dark:border-slate-700 rounded-lg p-12 text-center">
+              <div className="text-gray-400 dark:text-slate-500 mb-4">
+                <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No columns yet</h3>
+              <p className="text-gray-600 dark:text-slate-400 mb-4">
+                Setting up your task board... Please refresh if columns don't appear.
+              </p>
+            </div>
+          ) : (
+            <>
+              {view === 'kanban' && (
+                <KanbanBoard
+                  tasks={filteredTasks}
+                  columns={columns}
+                  onTaskClick={handleTaskClick}
+                  onTaskStatusChange={handleTaskStatusChange}
+                  onTaskMove={handleTaskMove}
+                  onAddTask={handleAddTask}
+                  onDeleteColumn={handleDeleteColumn}
+                  canManageColumns={canManageColumns}
+                />
+              )}
+              
+              {view === 'list' && (
+                <>
+                  {tasks.length === 0 ? (
+                    <div className="bg-gray-50 dark:bg-slate-800/40 border border-gray-200 dark:border-slate-700 rounded-lg p-12 text-center">
+                      <div className="text-gray-400 dark:text-slate-500 mb-4">
+                        <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No tasks yet</h3>
+                      <p className="text-gray-600 dark:text-slate-400 mb-4">
+                        Tasks will appear here after meetings with confirmed action items are completed.
+                      </p>
+                    </div>
+                  ) : (
+                    <ListView
+                      tasks={filteredTasks}
+                      onTaskClick={handleTaskClick}
+                      onTaskStatusChange={handleTaskStatusChange}
+                      sortBy={filters.sortBy}
+                      sortDirection={filters.sortOrder}
+                    />
+                  )}
+                </>
+              )}
+              
+              {view === 'calendar' && (
+                <>
+                  {tasks.length === 0 ? (
+                    <div className="bg-gray-50 dark:bg-slate-800/40 border border-gray-200 dark:border-slate-700 rounded-lg p-12 text-center">
+                      <div className="text-gray-400 dark:text-slate-500 mb-4">
+                        <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No tasks yet</h3>
+                      <p className="text-gray-600 dark:text-slate-400 mb-4">
+                        Tasks will appear here after meetings with confirmed action items are completed.
+                      </p>
+                    </div>
+                  ) : (
+                    <CalendarView
+                      tasks={filteredTasks}
+                      onTaskClick={handleTaskClick}
+                    />
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
 
@@ -513,6 +686,121 @@ const TaskBoard: React.FC = () => {
           onStatusChange={handleTaskStatusChange}
           onPriorityChange={handleTaskPriorityChange}
         />
+
+        {/* Add Column Modal */}
+        {showAddColumnModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Add New Column
+              </h3>
+              <input
+                type="text"
+                value={newColumnName}
+                onChange={(e) => setNewColumnName(e.target.value)}
+                placeholder="Column name (e.g., In Review, Blocked)"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-slate-700 dark:text-white mb-4"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isAddingColumn) {
+                    handleAddColumn();
+                  }
+                }}
+                autoFocus
+              />
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowAddColumnModal(false);
+                    setNewColumnName('');
+                  }}
+                  className="px-4 py-2 text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                  disabled={isAddingColumn}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddColumn}
+                  disabled={!newColumnName.trim() || isAddingColumn}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isAddingColumn ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Add Column
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Task Modal */}
+        <CreateTaskModal
+          isOpen={showAddTaskModal && !!selectedColumnForTask}
+          onClose={() => {
+            setShowAddTaskModal(false);
+            setSelectedColumnForTask(null);
+          }}
+          onSubmit={handleCreateTask}
+          columnName={selectedColumnForTask?.name || ''}
+          workspaceId={parseInt(workspaceId!)}
+          isSubmitting={isCreatingTask}
+        />
+
+        {/* Delete Column Confirmation Modal */}
+        {columnToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                  <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    Delete Column?
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-slate-400">
+                    Are you sure you want to delete the "<span className="font-semibold">{columnToDelete.name}</span>" column? 
+                    Any tasks in this column will be moved to "To-Do".
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setColumnToDelete(null)}
+                  className="px-4 py-2 text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                  disabled={isDeletingColumn}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteColumn}
+                  disabled={isDeletingColumn}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isDeletingColumn ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete Column
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );
