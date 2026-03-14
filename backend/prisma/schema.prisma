@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
 }
 
 model User {
@@ -339,7 +341,7 @@ model MeetingEmbedding {
   contentType     String   @map("content_type") // 'transcript', 'summary', 'note', 'action_item', 'decision', 'topic'
   contentId       String?  @map("content_id")   // Reference to specific content
   content         String   @db.Text             // Original text content
-  // embedding       Unsupported("vector(1536)")   // OpenAI ada-002 embedding
+  embedding       Unsupported("vector(1536)")   // OpenAI ada-002 embedding
   metadata        Json?                         // Additional context
   chunkIndex      Int?     @map("chunk_index")  // For chunked content
   createdAt       DateTime @default(now()) @map("created_at")
@@ -356,7 +358,7 @@ model MeetingEmbedding {
 model MeetingMemoryContext {
   id                String   @id @default(uuid())
   meetingId         Int      @unique @map("meeting_id")
- // summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
+  summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
   keyTopics         String[] @map("key_topics")
   keyDecisions      Json?    @map("key_decisions")
   keyActionItems    Json?    @map("key_action_items")
