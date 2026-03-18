@@ -63,6 +63,7 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const meetingRoutes = require("./routes/meetingRoutes");
 const actionItemRoutes = require("./routes/actionItemRoutes");
 const taskRoutes = require("./routes/taskRoutes");
+const memoryRoutes = require("./routes/memoryRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/workspaces", workspaceRoutes);
@@ -71,6 +72,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/meetings", meetingRoutes);
 app.use("/api/action-items", actionItemRoutes);
 app.use("/api", taskRoutes);
+app.use("/api/workspaces/:workspaceId/memory", memoryRoutes);
 
 // Health check route
 app.get("/", (req, res) => {

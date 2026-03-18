@@ -12,18 +12,16 @@ interface User {
 
 interface NavbarProps {
   sidebarCollapsed: boolean;
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
   user: User;
   onNewMeetingClick: () => void;
+  onSearchClick?: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({ 
   sidebarCollapsed, 
-  searchQuery, 
-  onSearchChange, 
   user,
-  onNewMeetingClick
+  onNewMeetingClick,
+  onSearchClick
 }) => {
   const navigate = useNavigate();
   const { logout: logoutUser, user: contextUser } = useUser();
@@ -96,23 +94,27 @@ const Navbar: React.FC<NavbarProps> = ({
       <div className="px-3 py-2 md:px-6 md:py-4 flex items-center justify-between">
         {/* Search Section */}
         <div className="relative hidden lg:block w-72 xl:w-96">
-          <Search 
-            className={`absolute left-3 top-1/2 transform -translate-y-1/2 ${
-              isDark ? 'text-slate-500' : 'text-gray-400'
-            }`} 
-            size={18} 
-          />
-          <input
-            type="text"
-            placeholder="Search workspaces, meetings, tasks..."
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className={`w-full pl-10 pr-4 py-2 rounded-lg focus:outline-none text-sm transition-all duration-300 ${
+          <button
+            onClick={onSearchClick}
+            className={`w-full text-left flex items-center pl-10 pr-4 py-2 rounded-lg transition-all duration-300 ${
               isDark
-                ? 'bg-transparent border border-slate-700/40 text-white placeholder-slate-500 focus:ring-2 focus:ring-purple-500/60 focus:border-purple-500/60'
-                : 'bg-gray-50 border-2 border-gray-200 text-gray-900 placeholder-gray-400 focus:border-purple-500 focus:ring-4 focus:ring-purple-100 focus:bg-white'
+                ? 'bg-slate-800/40 border border-slate-700/50 text-slate-400 hover:bg-slate-800 hover:border-slate-600'
+                : 'bg-gray-100 border border-transparent text-gray-500 hover:bg-white hover:border-gray-300 hover:shadow-sm'
             }`}
-          />
+          >
+            <Search 
+              className={`absolute left-3 top-1/2 transform -translate-y-1/2 ${
+                isDark ? 'text-slate-500' : 'text-gray-400'
+              }`} 
+              size={18} 
+            />
+            <span className="flex-1 text-sm font-medium">Search meeting memory...</span>
+            <kbd className={`hidden sm:inline-block px-2 py-0.5 text-xs font-semibold rounded ${
+              isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-200 text-gray-500'
+            }`}>
+              {navigator.platform.includes('Mac') ? '⌘K' : 'Ctrl+K'}
+            </kbd>
+          </button>
         </div>
 
         {/* Action Buttons */}
