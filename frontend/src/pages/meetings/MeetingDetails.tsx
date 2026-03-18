@@ -16,8 +16,9 @@ import {
 } from '../../components/meetings/details';
 
 const MeetingDetails: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id, workspaceId } = useParams<{ id: string; workspaceId?: string }>();
   const meetingId = id || '1'; // Default to '1' if no id provided
+  const workspaceIdNum = workspaceId ? parseInt(workspaceId, 10) : undefined;
   const { success: toastSuccess, error: toastError } = useToastContext();
   const [meeting, setMeeting] = useState<MeetingDetailsData | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -763,6 +764,7 @@ const MeetingDetails: React.FC = () => {
         
         <KairoAssistantFAB
           onGeneratePersonalSummary={handleGeneratePersonalSummary}
+          workspaceId={workspaceIdNum}
         />
       </div>
     </Layout>

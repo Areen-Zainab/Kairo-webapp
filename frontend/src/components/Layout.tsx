@@ -44,6 +44,22 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
     }
   }, [location.pathname]);
 
+  // Global Cmd+K / Ctrl+K handler for Smart Search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSmartSearchOpen(true);
+      }
+      if (e.key === 'Escape') {
+        setIsSmartSearchOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Initialize sidebar state from localStorage on component mount
   useEffect(() => {
     const savedState = localStorage.getItem('sidebarCollapsed');

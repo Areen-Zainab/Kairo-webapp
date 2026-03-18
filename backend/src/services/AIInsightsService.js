@@ -1194,6 +1194,11 @@ print(result)
       console.log(`   🔄 Force regeneration mode - will regenerate even if insights exist`);
     }
 
+    const meetingIdInt = parseInt(meetingId, 10);
+    if (Number.isNaN(meetingIdInt)) {
+      return { success: false, error: `Invalid meetingId: ${meetingId}` };
+    }
+
     const updateMetadataStatus = async (status, errorMessage = null, progress = 0) => {
       try {
         const meetingIdInt = parseInt(meetingId);
@@ -1335,11 +1340,22 @@ print(result)
         }
 
         // 2. Embed the summary and save memory context
-        if (insights.summary && insights.summary.summary) {
-          // Use the paragraph summary text
-          const summaryText = typeof insights.summary.summary === 'string' 
-            ? insights.summary.summary 
-            : JSON.stringify(insights.summary.summary);
+        if (insights.summary) {
+          const summaryCandidate =
+            insights.summary.paragraph_summary ||
+            insights.summary.overview ||
+            insights.summary.executive_summary ||
+            insights.summary.detailed_summary ||
+            insights.summary.bullet_summary ||
+            insights.summary.summary;
+
+          // Use the best available summary text; fallback to a truncated transcript.
+          const summaryText =
+            typeof summaryCandidate === 'string' && summaryCandidate.trim()
+              ? summaryCandidate.trim()
+              : (typeof transcriptText === 'string'
+                ? transcriptText.slice(0, 2000).trim()
+                : '');
             
           // Get topics list
           const topics = insights.topics ? insights.topics.map(t => typeof t === 'string' ? t : (t.topic || JSON.stringify(t))) : [];
@@ -1349,8 +1365,10 @@ print(result)
           
           // Get participant list
           let participants = [];
-          if (insights.participants && insights.participants.participants) {
-            participants = insights.participants.participants.map(p => typeof p === 'string' ? p : p.name).filter(Boolean);
+          if (Array.isArray(insights.participants)) {
+            participants = insights.participants
+              .map((p) => (typeof p === 'string' ? p : p?.name))
+              .filter(Boolean);
           }
 
           await MeetingEmbeddingService.generateMemoryContext(

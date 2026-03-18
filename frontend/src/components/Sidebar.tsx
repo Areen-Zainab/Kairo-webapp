@@ -146,10 +146,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   const colors = ['#9333ea', '#3b82f6', '#10b981', '#f97316'];
   
   const demoWorkspaces = shouldShowDummyData ? [
-    { id: 1, name: 'Product Team Alpha', role: 'Manager', colorTheme: '#9333ea', memberCount: 12 },
-    { id: 2, name: 'Design Squad', role: 'Member', colorTheme: '#3b82f6', memberCount: 8 },
-    { id: 3, name: 'Engineering Core', role: 'Lead', colorTheme: '#10b981', memberCount: 15 },
-    { id: 4, name: 'Marketing Team', role: 'Member', colorTheme: '#f97316', memberCount: 10 },
+    { id: 1, name: 'Product Team Alpha', role: 'Manager', colorTheme: '#9333ea', memberCount: 12, isArchived: false },
+    { id: 2, name: 'Design Squad', role: 'Member', colorTheme: '#3b82f6', memberCount: 8, isArchived: false },
+    { id: 3, name: 'Engineering Core', role: 'Lead', colorTheme: '#10b981', memberCount: 15, isArchived: false },
+    { id: 4, name: 'Marketing Team', role: 'Member', colorTheme: '#f97316', memberCount: 10, isArchived: false },
   ] : [];
 
   const sidebarWorkspaces = shouldShowDummyData ? demoWorkspaces : workspaces.map((ws, index) => ({
@@ -479,7 +479,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                           <div className="flex items-center gap-1.5">
                             <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{workspace.name}</p>
                             {workspace.isArchived && (
-                              <Archive className={`w-3 h-3 flex-shrink-0 ${isDark ? 'text-orange-400' : 'text-orange-600'}`} title="Archived" />
+                              <span title="Archived">
+                                <Archive className={`w-3 h-3 flex-shrink-0 ${isDark ? 'text-orange-400' : 'text-orange-600'}`} />
+                              </span>
                             )}
                           </div>
                           <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{workspace.memberCount} members • {`${(workspace.role || '').slice(0,1).toUpperCase()}${(workspace.role || '').slice(1).toLowerCase()}`}</p>

@@ -1,12 +1,31 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import apiService from '../../../services/api';
 
 interface KairoAssistantFABProps {
   onGeneratePersonalSummary: () => void;
+  workspaceId?: number;
 }
 
-const KairoAssistantFAB: React.FC<KairoAssistantFABProps> = ({ onGeneratePersonalSummary }) => {
+type MemorySearchResult = {
+  id: string;
+  meetingId: number;
+  meetingTitle: string;
+  meetingStartTime?: string;
+  contentType?: string;
+  snippet?: string;
+  distance?: number;
+};
+
+const KairoAssistantFAB: React.FC<KairoAssistantFABProps> = ({ onGeneratePersonalSummary, workspaceId }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [isAsking, setIsAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [citations, setCitations] = useState<MemorySearchResult[]>([]);
+
+  const navigate = useNavigate();
 
   const handleGeneratePersonalSummary = async () => {
     setIsGenerating(true);
@@ -63,6 +82,55 @@ const KairoAssistantFAB: React.FC<KairoAssistantFABProps> = ({ onGeneratePersona
       action: () => console.log('View follow-ups')
     }
   ];
+
+  const canAsk = useMemo(() => {
+    return Boolean(workspaceId) && question.trim().length > 0 && !isAsking;
+  }, [isAsking, question, workspaceId]);
+
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const handleAsk = async () => {
+    if (!workspaceId) {
+      setAskError('Open a workspace meeting page to ask across that workspace.');
+      return;
+    }
+    const q = question.trim();
+    if (!q) return;
+
+    setIsAsking(true);
+    setAskError(null);
+    setCitations([]);
+
+    try {
+      const res = await apiService.searchMeetingMemory(workspaceId, q, 5);
+      if (res.error) throw new Error(res.error);
+      const results = (res.data?.results || []) as any[];
+
+      const normalized: MemorySearchResult[] = results.map((r) => ({
+        id: String(r.id),
+        meetingId: r.meetingId ?? r.meeting_id,
+        meetingTitle: r.meetingTitle ?? r.meeting_title ?? 'Untitled meeting',
+        meetingStartTime: r.meetingStartTime ?? r.start_time,
+        contentType: r.contentType ?? r.content_type,
+        snippet: r.snippet ?? r.content,
+        distance: r.distance
+      }));
+
+      setCitations(normalized);
+      if (normalized.length === 0) {
+        setAskError('No matches found. Try rephrasing your question.');
+      }
+    } catch (e: any) {
+      setAskError(e?.message || 'Failed to search meeting memory.');
+    } finally {
+      setIsAsking(false);
+    }
+  };
 
   return (
     <>
@@ -177,13 +245,71 @@ const KairoAssistantFAB: React.FC<KairoAssistantFABProps> = ({ onGeneratePersona
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="Ask me anything about this meeting..."
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (canAsk) handleAsk();
+                          }
+                        }}
+                        placeholder={workspaceId ? 'Ask across this workspace… (press Enter)' : 'Open a workspace meeting page to ask…'}
                         className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                       />
-                      <button className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors">
-                        Ask
+                      <button
+                        onClick={handleAsk}
+                        disabled={!canAsk}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-400 disabled:hover:bg-slate-400 text-white text-sm font-medium rounded-md transition-colors"
+                      >
+                        {isAsking ? 'Searching…' : 'Ask'}
                       </button>
                     </div>
+
+                    {askError && (
+                      <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3">
+                        {askError}
+                      </div>
+                    )}
+
+                    {citations.length > 0 && (
+                      <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                        <div className="px-4 py-2 bg-slate-50 dark:bg-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-200">
+                          Top semantic matches
+                        </div>
+                        <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                          {citations.map((c) => (
+                            <button
+                              key={c.id}
+                              onClick={() => {
+                                if (!workspaceId) return;
+                                setIsOpen(false);
+                                navigate(`/workspace/${workspaceId}/meetings/${c.meetingId}`);
+                              }}
+                              className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                                    {c.meetingTitle}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 dark:text-slate-300">
+                                    {formatDate(c.meetingStartTime)}{c.contentType ? ` • ${c.contentType}` : ''}
+                                  </div>
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-300 whitespace-nowrap">
+                                  {typeof c.distance === 'number' ? `dist ${c.distance.toFixed(3)}` : ''}
+                                </div>
+                              </div>
+                              {c.snippet && (
+                                <div className="mt-2 text-xs text-slate-700 dark:text-slate-200 line-clamp-3">
+                                  {c.snippet}
+                                </div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 

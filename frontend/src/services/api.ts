@@ -1273,7 +1273,8 @@ class ApiService {
     results: any[];
   }>> {
     const params = new URLSearchParams();
-    params.append('query', query);
+    // Backend supports both `q` and `query`, but prefer `q` (short, standard search param)
+    params.append('q', query);
     params.append('limit', limit.toString());
     
     return this.request(`/workspaces/${workspaceId}/memory/search?${params.toString()}`);

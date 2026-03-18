@@ -1,16 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Calendar, FileText, MessageSquare, Loader2, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 
 interface SearchResult {
   id: string;
-  meeting_id: number;
-  content_type: string;
-  content: string;
-  distance: number;
-  meeting_title: string;
-  start_time: string;
+  meetingId: number;
+  meetingTitle: string;
+  meetingStartTime: string;
+  contentType: string;
+  snippet: string;
+  content?: string;
+  distance?: number;
 }
 
 interface SmartSearchModalProps {
@@ -24,28 +25,54 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number>(0);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
-  // Handle Cmd+K / Ctrl+K to open
+  const normalizedResults: SearchResult[] = useMemo(() => {
+    // Back-compat: older backend response used snake_case fields.
+    return (results || []).map((r: any) => ({
+      id: String(r.id),
+      meetingId: r.meetingId ?? r.meeting_id,
+      meetingTitle: r.meetingTitle ?? r.meeting_title ?? 'Untitled meeting',
+      meetingStartTime: r.meetingStartTime ?? r.start_time,
+      contentType: r.contentType ?? r.content_type ?? 'summary',
+      snippet: r.snippet ?? (typeof r.content === 'string' ? r.content : ''),
+      content: r.content,
+      distance: r.distance
+    }));
+  }, [results]);
+
+  // Handle ESC + keyboard navigation (↑↓ + Enter)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        if (!isOpen) {
-          // You ideally trigger open from the parent, but since we handle 
-          // Cmd+K globally, we dispatch a custom event or let the parent do it.
-          // In this implementation, the parent will listen for the standard event or we do it here if we expose an open method.
-        }
-      }
       if (e.key === 'Escape' && isOpen) {
         onClose();
+      }
+      if (!isOpen) return;
+      if (normalizedResults.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIndex((i) => Math.min(i + 1, normalizedResults.length - 1));
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIndex((i) => Math.max(i - 1, 0));
+      }
+      if (e.key === 'Enter') {
+        const selected = normalizedResults[activeIndex];
+        if (selected?.meetingId && workspaceId) {
+          e.preventDefault();
+          onClose();
+          navigate(`/workspace/${workspaceId}/meetings/${selected.meetingId}`);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [activeIndex, isOpen, navigate, normalizedResults, onClose, workspaceId]);
 
   // Focus input when opened
   useEffect(() => {
@@ -54,6 +81,7 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
       setQuery('');
       setResults([]);
       setError(null);
+      setActiveIndex(0);
     }
   }, [isOpen]);
 
@@ -73,6 +101,7 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
         if (res.error) throw new Error(res.error);
         if (res.data) {
           setResults(res.data.results || []);
+          setActiveIndex(0);
         }
       } catch (err: any) {
         console.error('Search error:', err);
@@ -172,29 +201,33 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
             </div>
           )}
 
-          {!isSearching && results.length > 0 && (
+          {!isSearching && normalizedResults.length > 0 && (
             <div className="py-2">
               <h3 className="px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                 Semantic Matches
               </h3>
               <ul className="space-y-1">
-                {results.map((result) => (
+                {normalizedResults.map((result, idx) => (
                   <li key={result.id}>
                     <button
-                      onClick={() => handleResultClick(result.meeting_id)}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg transition group flex flex-col gap-1"
+                      onClick={() => handleResultClick(result.meetingId)}
+                      className={`w-full text-left px-4 py-3 rounded-lg transition group flex flex-col gap-1 ${
+                        idx === activeIndex
+                          ? 'bg-slate-100 dark:bg-slate-800/70'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                      }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          {getIconForType(result.content_type)}
+                          {getIconForType(result.contentType)}
                           <span className="font-medium text-sm text-slate-900 dark:text-slate-200">
-                            {result.meeting_title}
+                            {result.meetingTitle}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-slate-500">
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {formatDate(result.start_time)}
+                            {result.meetingStartTime ? formatDate(result.meetingStartTime) : '—'}
                           </span>
                           <span className="opacity-0 group-hover:opacity-100 transition">
                             <ArrowRight className="w-3 h-3 ml-1" />
@@ -202,7 +235,7 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
                         </div>
                       </div>
                       <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 pl-6">
-                        ...{result.content}...
+                        {result.snippet}
                       </p>
                     </button>
                   </li>
