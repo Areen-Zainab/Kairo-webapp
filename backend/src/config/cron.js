@@ -2,10 +2,12 @@ const cron = require('node-cron');
 const updateMeetingStatuses = require('../jobs/updateMeetingStatuses');
 const autoJoinMeetings = require('../jobs/autoJoinMeetings');
 const preloadModels = require('../jobs/preloadModels');
+const checkTaskReminders = require('../jobs/checkTaskReminders');
 
 let meetingStatusCronJob = null;
 let autoJoinCronJob = null;
 let preloadModelsCronJob = null;
+let taskRemindersCronJob = null;
 
 /**
  * Initialize cron jobs
@@ -74,6 +76,28 @@ function initializeCronJobs() {
   
   console.log('   - Model preload: every minute (3 minutes before meetings)');
   
+  // Task reminders job - runs every 15 minutes to check for upcoming task deadlines
+  taskRemindersCronJob = cron.schedule('*/15 * * * *', async () => {
+    try {
+      const result = await checkTaskReminders();
+      
+      if (result.success) {
+        if (result.remindersSent > 0) {
+          console.log(`✅ Task reminders sent: ${result.remindersSent}`);
+        }
+      } else {
+        console.error(`❌ Task reminder check failed: ${result.error}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error in task reminder job:`, error);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  
+  console.log('   - Task reminders: every 15 minutes');
+  
   // Optional: Run the job immediately on startup (for testing)
   // Uncomment the line below if you want to run the job once on startup
   // updateMeetingStatuses();
@@ -97,6 +121,10 @@ function stopCronJobs() {
   if (preloadModelsCronJob) {
     preloadModelsCronJob.stop();
     console.log('   - Model preload job stopped');
+  }
+  if (taskRemindersCronJob) {
+    taskRemindersCronJob.stop();
+    console.log('   - Task reminders job stopped');
   }
   
   console.log('✅ All cron jobs stopped');

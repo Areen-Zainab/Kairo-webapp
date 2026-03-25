@@ -118,6 +118,21 @@ interface NotificationsResponse {
   unreadCount: number;
 }
 
+interface ReminderPreferences {
+  enabled: boolean;
+  intervals: number[];
+  quietHoursStart: number | null;
+  quietHoursEnd: number | null;
+}
+
+interface UpcomingReminder {
+  taskId: number;
+  title: string;
+  dueDate: string;
+  workspace: string;
+  nextReminderIn: string;
+}
+
 class ApiService {
   private baseURL: string;
   private token: string | null = null;
@@ -845,6 +860,28 @@ class ApiService {
     return this.request(`/notifications/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // Reminder methods
+  async getReminderPreferences(): Promise<ApiResponse<{ preferences: ReminderPreferences }>> {
+    return this.request<{ preferences: ReminderPreferences }>('/reminders/preferences');
+  }
+
+  async updateReminderPreferences(preferences: Partial<ReminderPreferences>): Promise<ApiResponse<{ preferences: ReminderPreferences }>> {
+    return this.request<{ preferences: ReminderPreferences }>('/reminders/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    });
+  }
+
+  async getUpcomingReminders(limit?: number): Promise<ApiResponse<{ reminders: UpcomingReminder[] }>> {
+    const params = new URLSearchParams();
+    if (limit) {
+      params.append('limit', limit.toString());
+    }
+    const queryString = params.toString();
+    const endpoint = queryString ? `/reminders/upcoming?${queryString}` : '/reminders/upcoming';
+    return this.request<{ reminders: UpcomingReminder[] }>(endpoint);
   }
 
   // Meeting file methods

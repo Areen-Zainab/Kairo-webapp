@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
 }
 
 model User {
@@ -23,6 +25,8 @@ model User {
   notificationSettings NotificationSettings?
   notifications        Notification[]
   userPreferences      UserPreferences?
+  reminderPreferences  ReminderPreferences?
+  sentReminders        SentReminder[]
   sessions             UserSession[]
   workspaceMembers     WorkspaceMember[]
   createdWorkspaces    Workspace[]           @relation("WorkspaceOwner")
@@ -88,6 +92,20 @@ model NotificationSettings {
   user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_settings")
+}
+
+model ReminderPreferences {
+  id                 Int      @id @default(autoincrement())
+  userId             Int      @unique @map("user_id")
+  enabled            Boolean  @default(true)
+  reminderIntervals  Int[]    @default([24, 1]) @map("reminder_intervals") // Hours before deadline
+  quietHoursStart    Int?     @map("quiet_hours_start") // Hour of day (0-23)
+  quietHoursEnd      Int?     @map("quiet_hours_end")   // Hour of day (0-23)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reminder_preferences")
 }
 
 model Workspace {
@@ -339,7 +357,7 @@ model MeetingEmbedding {
   contentType     String   @map("content_type") // 'transcript', 'summary', 'note', 'action_item', 'decision', 'topic'
   contentId       String?  @map("content_id")   // Reference to specific content
   content         String   @db.Text             // Original text content
-  // embedding       Unsupported("vector(1536)")   // OpenAI ada-002 embedding
+  embedding       Unsupported("vector(1536)")?  // OpenAI ada-002 embedding
   metadata        Json?                         // Additional context
   chunkIndex      Int?     @map("chunk_index")  // For chunked content
   createdAt       DateTime @default(now()) @map("created_at")
@@ -356,7 +374,7 @@ model MeetingEmbedding {
 model MeetingMemoryContext {
   id                String   @id @default(uuid())
   meetingId         Int      @unique @map("meeting_id")
- // summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
+ summaryEmbedding  Unsupported("vector(1536)")? @map("summary_embedding")
   keyTopics         String[] @map("key_topics")
   keyDecisions      Json?    @map("key_decisions")
   keyActionItems    Json?    @map("key_action_items")
@@ -410,28 +428,30 @@ model KanbanColumn {
 }
 
 model Task {
-  id              Int         @id @default(autoincrement())
-  workspaceId     Int         @map("workspace_id")
-  columnId        Int         @map("column_id")
-  actionItemId    Int?        @unique @map("action_item_id") // Link to originating action item
+  id              Int            @id @default(autoincrement())
+  workspaceId     Int            @map("workspace_id")
+  columnId        Int            @map("column_id")
+  actionItemId    Int?           @unique @map("action_item_id") // Link to originating action item
   title           String
-  description     String?     @db.Text
+  description     String?        @db.Text
   assignee        String?
-  dueDate         DateTime?   @map("due_date")
-  priority        String      @default("medium") // 'low', 'medium', 'high', 'urgent'
-  position        Int         // For ordering within column
-  metadata        Json?       // Additional flexible data (e.g., meeting context, tags, etc.)
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
+  dueDate         DateTime?      @map("due_date")
+  priority        String         @default("medium") // 'low', 'medium', 'high', 'urgent'
+  position        Int            // For ordering within column
+  metadata        Json?          // Additional flexible data (e.g., meeting context, tags, etc.)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
   
-  workspace       Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  column          KanbanColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
-  actionItem      ActionItem? @relation(fields: [actionItemId], references: [id], onDelete: SetNull)
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  column          KanbanColumn   @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  actionItem      ActionItem?    @relation(fields: [actionItemId], references: [id], onDelete: SetNull)
   tags            TaskTag[]
+  sentReminders   SentReminder[]
 
   @@index([workspaceId, columnId])
   @@index([columnId, position])
   @@index([actionItemId])
+  @@index([dueDate])
   @@map("tasks")
 }
 
@@ -464,5 +484,22 @@ model TaskTag {
   @@index([taskId])
   @@index([tagId])
   @@map("task_tags")
+}
+
+model SentReminder {
+  id               Int      @id @default(autoincrement())
+  taskId           Int      @map("task_id")
+  userId           Int      @map("user_id")
+  reminderInterval Int      @map("reminder_interval") // Hours before deadline
+  sentAt           DateTime @default(now()) @map("sent_at")
+  
+  task             Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId, reminderInterval])
+  @@index([taskId])
+  @@index([userId])
+  @@index([sentAt])
+  @@map("sent_reminders")
 }
 
