@@ -1299,6 +1299,23 @@ class ApiService {
   }>> {
     return this.request(`/tasks/${taskId}/tags`);
   }
+
+  // ==================== SMART SEARCH / MEMORY ====================
+
+  /**
+   * Perform semantic search across a workspace's meeting memories
+   */
+  async searchMeetingMemory(workspaceId: number, query: string, limit: number = 10): Promise<ApiResponse<{
+    query: string;
+    results: any[];
+  }>> {
+    const params = new URLSearchParams();
+    // Backend supports both `q` and `query`, but prefer `q` (short, standard search param)
+    params.append('q', query);
+    params.append('limit', limit.toString());
+    
+    return this.request(`/workspaces/${workspaceId}/memory/search?${params.toString()}`);
+  }
 }
 
 export type { Notification, NotificationsResponse, Tag };

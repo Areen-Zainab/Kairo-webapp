@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import NewMeetingModal from '../modals/NewMeetingModal';
+import SmartSearchModal from './SmartSearch/SmartSearchModal';
 import { useUser } from '../context/UserContext';
 import { useMeetingNotifications } from '../hooks/useMeetingNotifications';
 
@@ -17,8 +18,8 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
   const { user, currentWorkspace, setCurrentWorkspace } = useUser();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState<'general' | 'workspace'>('general');
-  const [searchQuery, setSearchQuery] = useState('');
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
+  const [isSmartSearchOpen, setIsSmartSearchOpen] = useState(false);
   
   // Extract workspace ID from URL
   const workspaceIdFromUrl = location.pathname.match(/\/workspace\/(\d+)/)?.[1];
@@ -42,6 +43,22 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
       setViewMode('general');
     }
   }, [location.pathname]);
+
+  // Global Cmd+K / Ctrl+K handler for Smart Search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSmartSearchOpen(true);
+      }
+      if (e.key === 'Escape') {
+        setIsSmartSearchOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Initialize sidebar state from localStorage on component mount
   useEffect(() => {
@@ -144,10 +161,9 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
         >
         <Navbar
           sidebarCollapsed={sidebarCollapsed}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
           user={displayUser}
           onNewMeetingClick={handleNewMeetingClick}
+          onSearchClick={() => setIsSmartSearchOpen(true)}
         />
         </div>
 
@@ -207,6 +223,13 @@ const Layout: React.FC<LayoutProps> = ({ children, forceSidebarCollapsed = false
           onMeetingCreated={handleMeetingCreated}
         />
       )}
+
+      {/* Smart Search Modal */}
+      <SmartSearchModal 
+        isOpen={isSmartSearchOpen}
+        onClose={() => setIsSmartSearchOpen(false)}
+        workspaceId={activeWorkspaceId}
+      />
 
       <style>{`
         @keyframes float {

@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const prisma = require('../lib/prisma');
 const { findMeetingDirectory } = require('../utils/meetingFileStorage');
 const NotificationService = require('./NotificationService');
+const MeetingEmbeddingService = require('./MeetingEmbeddingService');
 
 // In-memory storage for generation status (not persisted to DB)
 // If backend restarts, these are cleared, preventing false "generating" states
@@ -1193,6 +1194,11 @@ print(result)
       console.log(`   🔄 Force regeneration mode - will regenerate even if insights exist`);
     }
 
+    const meetingIdInt = parseInt(meetingId, 10);
+    if (Number.isNaN(meetingIdInt)) {
+      return { success: false, error: `Invalid meetingId: ${meetingId}` };
+    }
+
     const updateMetadataStatus = async (status, errorMessage = null, progress = 0) => {
       try {
         const meetingIdInt = parseInt(meetingId);
@@ -1323,6 +1329,62 @@ print(result)
       await updateMetadataStatus('completed', null, 100);
 
       console.log(`✅ AI insights generation completed for meeting ${meetingId}`);
+
+      // MEETING MEMORY ENGINE: Generate Embeddings
+      try {
+        console.log(`🧠 [Memory Engine] Starting embedding generation for meeting ${meetingId}...`);
+        
+        // 1. Embed the full transcript text (chunked automatically)
+        if (transcriptText) {
+          await MeetingEmbeddingService.embedTranscript(meetingIdInt, transcriptText);
+        }
+
+        // 2. Embed the summary and save memory context
+        if (insights.summary) {
+          const summaryCandidate =
+            insights.summary.paragraph_summary ||
+            insights.summary.overview ||
+            insights.summary.executive_summary ||
+            insights.summary.detailed_summary ||
+            insights.summary.bullet_summary ||
+            insights.summary.summary;
+
+          // Use the best available summary text; fallback to a truncated transcript.
+          const summaryText =
+            typeof summaryCandidate === 'string' && summaryCandidate.trim()
+              ? summaryCandidate.trim()
+              : (typeof transcriptText === 'string'
+                ? transcriptText.slice(0, 2000).trim()
+                : '');
+            
+          // Get topics list
+          const topics = insights.topics ? insights.topics.map(t => typeof t === 'string' ? t : (t.topic || JSON.stringify(t))) : [];
+          
+          // Get decision list
+          const decisions = insights.decisions || [];
+          
+          // Get participant list
+          let participants = [];
+          if (Array.isArray(insights.participants)) {
+            participants = insights.participants
+              .map((p) => (typeof p === 'string' ? p : p?.name))
+              .filter(Boolean);
+          }
+
+          await MeetingEmbeddingService.generateMemoryContext(
+            meetingIdInt,
+            summaryText,
+            topics,
+            decisions,
+            participants
+          );
+        }
+        
+        console.log(`✅ [Memory Engine] Embeddings successfully generated and stored.`);
+      } catch (embError) {
+        console.error(`⚠️ [Memory Engine] Failed to generate embeddings:`, embError.message);
+        // Non-fatal error, we still consider insights "completed"
+      }
 
       // Send notification that insights are ready
       try {
