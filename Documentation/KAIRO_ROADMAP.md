@@ -59,32 +59,29 @@ Kairo has made substantial progress. The platform now has:
 3. **Real-Time Transcription (WhisperX)** — 90% Complete (speaker names still generic)
 4. **Summarization Engine** — 100% Complete
 5. **Action Item Detection** — 85% Complete (auto task creation works; real-time detection missing)
-6. **Task Extraction & Deadline Parsing** — 75% Complete (TaskCreationService done; deadline NLP + "Create Task" UI button missing)
-7. **Role-Based Access Control (RBAC)** — 100% Complete
-8. **Note-Taking** — 100% Complete
-9. **Interactive Transcript Review & Timeline** — 100% Complete
-10. **Analytics Dashboard** — 100% Complete (real backend data, charts, filters)
-11. **Kanban Board Integration** — 95% Complete (TaskDetailModal inline editing still pending)
-12. **Meeting Memory Engine (Embedding Pipeline)** — 70% Complete *(was listed as 10%)*
-13. **Smart Search & Query** — 60% Complete *(was listed as 20%)*
-11. **Auto Follow-Up Reminders** - 100% Complete
+6. **Role-Based Access Control (RBAC)** — 100% Complete
+7. **Note-Taking** — 100% Complete
+8. **Interactive Transcript Review & Timeline** — 100% Complete
+9. **Analytics Dashboard** — 100% Complete (real backend data, charts, filters)
+10. **Kanban Board Integration** — 95% Complete (TaskDetailModal inline editing still pending)
+11. **Meeting Memory Engine (Embedding Pipeline)** — 70% Complete
+12. **Auto Follow-Up Reminders** - 100% Complete
 
 ### 🔄 PARTIALLY IMPLEMENTED (4/21)
 
-10. **Task Extraction and Deadline Parsing** - 40% Complete
-11. **Meeting Memory Engine** - 10% Complete (planning only)
-12. **Smart Search & Query** - 20% Complete (basic search only)
-13. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
+13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP + "Create Task" UI button missing)
+14. **Meeting Memory Engine** - 10% Complete (planning only)
+15. **Smart Search & Query** - 60% Complete (basic search only)
+16. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
 
 ### ❌ NOT IMPLEMENTED (4/21)
 
-14. **Whisper Mode (Micro-Recap During Meeting)** - 0% Complete
-15. **Meeting Memory Graph (Knowledge Graph)** - 0% Complete (UI mockup exists)
-16. **Task Contextual Micro-Channels** - 0% Complete
-18. **Privacy & Compliance Mode** - 0% Complete
-19. **Calendar Integrations** - 0% Complete (UI mockup exists)
-20. **Third-Party Tool Integrations** - 0% Complete (UI mockup exists)
-21. **Auto Follow-Up Reminders** - 0% Complete
+17. **Whisper Mode (Micro-Recap During Meeting)** - 0% Complete
+18. **Meeting Memory Graph (Knowledge Graph)** - 0% Complete (UI mockup exists)
+19. **Task Contextual Micro-Channels** - 0% Complete
+20. **Privacy & Compliance Mode** - 0% Complete
+21. **Calendar Integrations** - 0% Complete (UI mockup exists)
+22. **Third-Party Tool Integrations** - 0% Complete (UI mockup exists)
 
 ---
 
@@ -798,5 +795,5 @@ Kairo has made significant strides since January 2026, with the progress now est
 
 ---
 
-*Last Updated: January 15, 2026*  
+*Last Updated: March 25, 2026*  
 *Maintained by: Kairo Team*
