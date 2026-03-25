@@ -15,9 +15,9 @@
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~72% Complete
+### Overall Progress: ~74% Complete
 
-> **Last Audited:** March 25, 2026  
+> **Last Audited:** March 26, 2026  
 > Previous estimate (Jan 15, 2026) was 52%. Significant work has been completed since — especially the Meeting Memory Engine, Smart Search, Analytics Dashboard, Kanban Board, and Notification System.
 
 Kairo has made substantial progress. The platform now has:
@@ -35,12 +35,13 @@ Kairo has made substantial progress. The platform now has:
 - ✅ **Smart Search Modal** (frontend component consuming semantic search API)
 - ✅ **Memory API route** (`GET /api/workspaces/:id/memory/search`)
 - ✅ **NotificationService** (in-app notifications)
+- ✅ **MicroSummaryService** (whisper-mode backend)
 
 ### Key Remaining Gaps:
 - ❌ **Knowledge Graph backend** — `memoryAPI.ts` still returns mock data; graph tables, `GraphConstructionService`, and `GraphQueryRoutes` not built
 - ❌ **PostMeetingProcessor.convertToTasks()** is a placeholder stub — embedding trigger after meeting completion not connected
 - ❌ `MeetingMemoryContext` and related-meetings retrieval not wired to any route
-- ❌ Whisper Mode (micro-recaps during meetings)
+- ❌ Whisper Mode (micro-recaps during meetings: frontend and web-socket left)
 - ❌ Calendar Integration (Google/Outlook OAuth)
 - ❌ Third-Party integrations (Jira, Slack, Trello)
 - ❌ Privacy & Compliance Mode controls
@@ -50,7 +51,7 @@ Kairo has made substantial progress. The platform now has:
 
 ## IMPLEMENTATION STATUS OVERVIEW
 
-### ✅ COMPLETED FEATURES (13/21)
+### ✅ COMPLETED FEATURES (13/22)
 
 1. **Team and Workspace Management** — 100% Complete
 2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom only)
@@ -64,20 +65,22 @@ Kairo has made substantial progress. The platform now has:
 10. **Kanban Board Integration** — 100% Complete
 11. **Meeting Memory Engine (Embedding Pipeline)** — 70% Complete
 12. **Auto Follow-Up Reminders** - 85% Complete (quiet hours enforcement + push/email channels missing)
-
-### 🔄 PARTIALLY IMPLEMENTED (4/21)
-
 13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP missing)
-14. **Meeting Memory Engine** - 10% Complete (planning only)
-15. **Smart Search & Query** - 60% Complete (basic search only)
-16. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
-17. **Whisper Mode (Micro-Recap During Meeting)** - 50% Complete (MicroSummaryService + guarded cron tick are now in place, while WebSocket/UI integration is still pending)
 
-### ❌ NOT IMPLEMENTED (4/21)
+### 🔄 PARTIALLY IMPLEMENTED (3/22)
 
-18. **Meeting Memory Graph (Knowledge Graph)** - 0% Complete (UI mockup exists)
-19. **Task Contextual Micro-Channels** - 0% Complete
-20. **Privacy & Compliance Mode** - 0% Complete
+14. **Smart Search & Query** - 60% Complete (basic search only)
+15. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
+16. **Whisper Mode (Micro-Recap During Meeting)** - 50% Complete (MicroSummaryService + guarded cron tick are now in place, while WebSocket/UI integration is still pending)
+
+### ❌ NOT IMPLEMENTED (4/22)
+
+17. **Meeting Memory Graph (Knowledge Graph)** - 0% Complete (UI mockup exists)
+18. **Task Contextual Micro-Channels** - 0% Complete
+19. **Privacy & Compliance Mode** - 0% Complete
+20. **Speaker Diarization** - 0% Complete
+
+### Optional (2/22):
 21. **Calendar Integrations** - 0% Complete (UI mockup exists)
 22. **Third-Party Tool Integrations** - 0% Complete (UI mockup exists)
 
