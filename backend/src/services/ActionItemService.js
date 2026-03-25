@@ -307,6 +307,9 @@ class ActionItemService {
         },
         rejectedByUser: {
           select: { id: true, name: true, email: true }
+        },
+        task: {
+          select: { id: true, title: true, status: true }
         }
       }
     });
@@ -428,6 +431,9 @@ class ActionItemService {
           name: item.rejectedByUser.name,
           email: item.rejectedByUser.email
         }
+        : null,
+      task: item.task
+        ? { id: item.task.id, title: item.task.title, status: item.task.status }
         : null
     };
   }

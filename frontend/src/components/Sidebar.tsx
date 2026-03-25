@@ -67,6 +67,17 @@ const Sidebar: React.FC<SidebarProps> = ({
     return (saved as 'light' | 'dark') || 'dark';
   });
   const [upcomingMeetingsCount, setUpcomingMeetingsCount] = useState<number>(0);
+  const [inProgressTasksCount, setInProgressTasksCount] = useState<number>(0);
+
+  // Keep this mapping consistent with the kanban status mapping used in TaskBoard.
+  const mapColumnToStatus = (columnName: string): 'todo' | 'in-progress' | 'review' | 'done' => {
+    const lowerName = columnName.toLowerCase();
+    if (lowerName === 'to-do') return 'todo';
+    if (lowerName === 'in-progress') return 'in-progress';
+    if (lowerName === 'complete' || lowerName === 'completed') return 'done';
+    if (lowerName === 'review') return 'review';
+    return 'todo';
+  };
 
   // Listen for theme changes
   useEffect(() => {
@@ -143,6 +154,34 @@ const Sidebar: React.FC<SidebarProps> = ({
     fetchUpcomingMeetingsCount();
   }, [currentWorkspace, shouldShowDummyData]);
 
+  // Fetch "in-progress" task count when workspace changes
+  useEffect(() => {
+    const fetchInProgressTaskCount = async () => {
+      if (!currentWorkspace || shouldShowDummyData) {
+        setInProgressTasksCount(12);
+        return;
+      }
+
+      try {
+        const columnsResponse = await apiService.getKanbanColumns(parseInt(currentWorkspace.id));
+        const columns = columnsResponse.data?.columns || [];
+
+        const count = columns.reduce((acc: number, col: any) => {
+          const status = mapColumnToStatus(col.name);
+          if (status === 'in-progress') return acc + (col.tasks?.length || 0);
+          return acc;
+        }, 0);
+
+        setInProgressTasksCount(count);
+      } catch (error) {
+        console.error('Error fetching in-progress tasks count:', error);
+        setInProgressTasksCount(0);
+      }
+    };
+
+    fetchInProgressTaskCount();
+  }, [currentWorkspace, shouldShowDummyData]);
+
   const colors = ['#9333ea', '#3b82f6', '#10b981', '#f97316'];
   
   const demoWorkspaces = shouldShowDummyData ? [
@@ -170,7 +209,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const workspaceMenuItems: MenuItem[] = [
     { id: 'workspace-home', icon: Home, label: 'Overview', badge: null, path: '/workspace' },
     { id: 'meetings', icon: Video, label: 'Meetings', badge: upcomingMeetingsCount > 0 ? String(upcomingMeetingsCount) : null, path: '/workspace/meetings' },
-    { id: 'tasks', icon: CheckSquare, label: 'Task Boards', badge: '12', path: '/workspace/tasks' },
+    { id: 'tasks', icon: CheckSquare, label: 'Task Boards', badge: String(inProgressTasksCount), path: '/workspace/tasks' },
     { id: 'memory', icon: Brain, label: 'Meeting Memory', badge: null, path: '/workspace/memory' },
     { id: 'transcripts', icon: FileText, label: 'Transcripts', badge: null, path: '/workspace/transcripts' },
     { id: 'analytics', icon: BarChart3, label: 'Analytics', badge: null, path: '/workspace/analytics' },

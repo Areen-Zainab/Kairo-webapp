@@ -18,6 +18,7 @@ const mapColumnToStatus = (columnName: string): TaskStatus => {
   if (lowerName === 'to-do') return 'todo';
   if (lowerName === 'in-progress') return 'in-progress';
   if (lowerName === 'complete' || lowerName === 'completed') return 'done';
+  if (lowerName === 'review') return 'review';
   // For custom columns, default to todo
   return 'todo';
 };
@@ -80,6 +81,7 @@ const TaskBoard: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [workspaceMembers, setWorkspaceMembers] = useState<Array<{ id: number; name: string; email: string; profilePictureUrl?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<TaskView>('kanban');
@@ -131,10 +133,11 @@ const TaskBoard: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      // Fetch both columns and tags in parallel
-      const [columnsResponse, tagsResponse] = await Promise.all([
+      // Fetch columns, tags, and workspace members in parallel
+      const [columnsResponse, tagsResponse, membersResponse] = await Promise.all([
         apiService.getKanbanColumns(parseInt(workspaceId)),
-        apiService.getTags(parseInt(workspaceId))
+        apiService.getTags(parseInt(workspaceId)),
+        apiService.searchWorkspaceMembers(parseInt(workspaceId), '')
       ]);
       
       if (columnsResponse.error) {
@@ -160,6 +163,16 @@ const TaskBoard: React.FC = () => {
       // Store tags
       if (tagsResponse.data?.tags) {
         setTags(tagsResponse.data.tags);
+      }
+
+      // Store workspace members
+      if (membersResponse.data?.allMembers) {
+        setWorkspaceMembers(membersResponse.data.allMembers.map((m: any) => ({
+          id: m.userId ?? m.id,
+          name: m.user?.name ?? m.name ?? m.email,
+          email: m.user?.email ?? m.email,
+          profilePictureUrl: m.user?.profilePictureUrl ?? m.profilePictureUrl,
+        })));
       }
     } catch (err: any) {
       console.error('Failed to fetch tasks:', err);
@@ -370,6 +383,7 @@ const TaskBoard: React.FC = () => {
   };
 
   const handleTaskStatusChange = (taskId: string, newStatus: TaskStatus) => {
+    // Optimistic update
     setTasks(prevTasks =>
       prevTasks.map(task =>
         task.id === taskId
@@ -377,9 +391,26 @@ const TaskBoard: React.FC = () => {
           : task
       )
     );
+
+    // Keep selected task in sync so the modal UI updates immediately.
+    setSelectedTask(prev => (prev && prev.id === taskId)
+      ? { ...prev, status: newStatus, updatedAt: new Date().toISOString() }
+      : prev
+    );
+
+    // Persist to backend by moving the task to the target kanban column.
+    // Backend ignores `columnId` in PATCH /tasks/:taskId (not an allowed field),
+    // so we must use POST /tasks/:taskId/move with a real columnId.
+    const targetColumn = columns.find(col => mapColumnToStatus(col.name) === newStatus);
+    if (!targetColumn?.id) return;
+
+    apiService
+      .moveTask(parseInt(taskId), targetColumn.id)
+      .catch(() => {});
   };
 
   const handleTaskPriorityChange = (taskId: string, newPriority: TaskPriority) => {
+    // Optimistic update
     setTasks(prevTasks =>
       prevTasks.map(task =>
         task.id === taskId
@@ -387,6 +418,19 @@ const TaskBoard: React.FC = () => {
           : task
       )
     );
+    // Persist to backend
+    apiService.updateTask(parseInt(taskId), { priority: newPriority }).catch(() => {});
+  };
+
+  /** Called by TaskDetailModal after a field is saved — syncs local task state */
+  const handleTaskUpdate = (taskId: string, updates: Partial<Task>) => {
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        task.id === taskId ? { ...task, ...updates } : task
+      )
+    );
+    // Also keep selectedTask in sync so the modal reflects the change immediately
+    setSelectedTask(prev => prev && prev.id === taskId ? { ...prev, ...updates } : prev);
   };
 
   const handleTaskMove = (taskId: string, _fromStatus: TaskStatus, toStatus: TaskStatus) => {
@@ -685,6 +729,10 @@ const TaskBoard: React.FC = () => {
           onClose={() => setSelectedTask(null)}
           onStatusChange={handleTaskStatusChange}
           onPriorityChange={handleTaskPriorityChange}
+          onTaskUpdate={handleTaskUpdate}
+          workspaceTags={tags.map((t: any) => ({ id: String(t.id), name: t.name, color: t.color }))}
+          workspaceId={workspaceId ? parseInt(workspaceId) : undefined}
+          workspaceMembers={workspaceMembers}
         />
 
         {/* Add Column Modal */}

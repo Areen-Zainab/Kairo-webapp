@@ -7,7 +7,6 @@ import {
   MeetingHeader,
   MeetingTabs,
   AddNoteFAB,
-  KairoAssistantFAB,
   type MeetingDetailsData,
   type MeetingMinute,
   type MeetingNote,
@@ -16,9 +15,8 @@ import {
 } from '../../components/meetings/details';
 
 const MeetingDetails: React.FC = () => {
-  const { id, workspaceId } = useParams<{ id: string; workspaceId?: string }>();
+  const { id } = useParams<{ id: string; workspaceId?: string }>();
   const meetingId = id || '1'; // Default to '1' if no id provided
-  const workspaceIdNum = workspaceId ? parseInt(workspaceId, 10) : undefined;
   const { success: toastSuccess, error: toastError } = useToastContext();
   const [meeting, setMeeting] = useState<MeetingDetailsData | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -542,11 +540,6 @@ const MeetingDetails: React.FC = () => {
     }
   };
 
-  const handleGeneratePersonalSummary = () => {
-    console.log('Generating personal summary');
-    // Implement Kairo assistant functionality
-  };
-
   const handleFileClick = (file: MeetingFile) => {
     // For now, just trigger download
     handleFileDownload(file);
@@ -760,11 +753,6 @@ const MeetingDetails: React.FC = () => {
         <AddNoteFAB
           onAddNote={handleAddNote}
           currentTime={currentTime}
-        />
-        
-        <KairoAssistantFAB
-          onGeneratePersonalSummary={handleGeneratePersonalSummary}
-          workspaceId={workspaceIdNum}
         />
       </div>
     </Layout>

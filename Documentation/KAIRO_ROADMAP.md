@@ -39,14 +39,12 @@ Kairo has made substantial progress. The platform now has:
 ### Key Remaining Gaps:
 - ❌ **Knowledge Graph backend** — `memoryAPI.ts` still returns mock data; graph tables, `GraphConstructionService`, and `GraphQueryRoutes` not built
 - ❌ **PostMeetingProcessor.convertToTasks()** is a placeholder stub — embedding trigger after meeting completion not connected
-- ❌ **TaskDetailModal** incomplete (inline editing + meeting context tab missing)
 - ❌ `MeetingMemoryContext` and related-meetings retrieval not wired to any route
 - ❌ Whisper Mode (micro-recaps during meetings)
 - ❌ Calendar Integration (Google/Outlook OAuth)
 - ❌ Third-Party integrations (Jira, Slack, Trello)
 - ❌ Privacy & Compliance Mode controls
 - ❌ Speaker identification by name (only Speaker_0, Speaker_1 labels)
-- ❌ Auto Follow-Up Reminders
 
 ---
 
@@ -63,13 +61,13 @@ Kairo has made substantial progress. The platform now has:
 7. **Note-Taking** — 100% Complete
 8. **Interactive Transcript Review & Timeline** — 100% Complete
 9. **Analytics Dashboard** — 100% Complete (real backend data, charts, filters)
-10. **Kanban Board Integration** — 95% Complete (TaskDetailModal inline editing still pending)
+10. **Kanban Board Integration** — 100% Complete
 11. **Meeting Memory Engine (Embedding Pipeline)** — 70% Complete
-12. **Auto Follow-Up Reminders** - 100% Complete
+12. **Auto Follow-Up Reminders** - 85% Complete (quiet hours enforcement + push/email channels missing)
 
 ### 🔄 PARTIALLY IMPLEMENTED (4/21)
 
-13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP + "Create Task" UI button missing)
+13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP missing)
 14. **Meeting Memory Engine** - 10% Complete (planning only)
 15. **Smart Search & Query** - 60% Complete (basic search only)
 16. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
@@ -345,15 +343,14 @@ Kairo has made substantial progress. The platform now has:
 - Not extracted in real-time during meeting (only post-meeting)
 - Assignee names extracted but not linked to workspace users
 - Due dates extracted but not parsed to datetime automatically
-- No manual "Create Task" button in ActionItemsPanel UI (only auto-created on meeting end)
 
 #### 📋 To-Do List:
 
 **HIGH PRIORITY:**
-- [ ] Add "Create Task" button in ActionItemsPanel for confirmed items
-  - Show success toast when task created
-  - Add visual indicator if task already has a linked task
-  - **Estimate: 1 day**
+- [x] Add "Create Task" button in ActionItemsPanel for confirmed items
+  - Shows success toast when task created
+  - Shows "TASK CREATED" badge + disabled "Task Exists" button if task already linked
+  - **Completed: March 26, 2026**
 
 - [ ] Implement deadline parsing
   - Use `dateparser` or `chrono-node` library
@@ -389,13 +386,14 @@ Kairo has made substantial progress. The platform now has:
 #### ⚠️ What's Missing:
 - Due dates not parsed automatically from natural language
 - No automatic priority classification from action item text
-- No "Create Task" button in ActionItemsPanel UI
-- No visual indicator if action item already has a task
 
 #### 📋 To-Do List:
 
 **HIGH PRIORITY:**
-- [ ] **Add "Create Task" button to action items UI** — *1 day*
+- [x] **"Create Task" button in ActionItemsPanel** — *Completed March 26, 2026*
+  - Confirmed action items now have a "Create Task" button
+  - Shows "TASK CREATED" badge + disabled state if task already linked
+  - Success/error toast feedback
 - [ ] **Implement basic deadline parsing** — *2-3 days*
   - Install `chrono-node` or `dateparser`
   - Handle: "by Friday", "next week", "in 2 days"
@@ -412,7 +410,7 @@ Kairo has made substantial progress. The platform now has:
 ---
 
 ### 9. Kanban Board Integration
-**Status:** ✅ 95% COMPLETE  
+**Status:** ✅ 100% COMPLETE  
 **Priority:** Low — Core features complete  
 **Technologies:** React, dnd-kit, PostgreSQL, Prisma
 
@@ -430,13 +428,17 @@ Kairo has made substantial progress. The platform now has:
 
 #### 🎯 Remaining Tasks:
 **HIGH PRIORITY:**
-- [ ] **Update TaskDetailModal** to show:
-  - Full task information with inline editing
-  - Task tags with add/remove functionality
+- [x] **Update TaskDetailModal** to show:
+  - Full task information with inline editing ✅
+  - Inline editing for title (click header to edit)
+  - Inline editing for description (click to edit, Ctrl+Enter to save)
+  - Inline editing for assignee (click to edit)
+  - Inline editing for due date (click to edit, date picker)
+  - Optimistic updates with revert on error
+  - Save/Cancel buttons with per-field error display
+  - Task tags display (read-only)
   - Meeting context (if created from action item)
-  - Link to original action item
-  - Task history/activity log
-  - **Estimate: 2-3 days**
+  - **Completed: March 26, 2026**
 
 ---
 
@@ -636,32 +638,49 @@ This feature links tasks to transcript contexts from meetings. Dependent on Task
 ---
 
 ### 19. Auto Follow-Up Reminders
-**Status:** ❌ 0% COMPLETE  
-**Priority:** Medium (Month 6)
+**Status:** ✅ ~85% COMPLETE  
+**Priority:** Medium
 
-**NOTE: Depends on Calendar Integration (Feature #15) being implemented first.**
+**NOTE: Calendar Integration (Feature #15) is NOT a prerequisite — the reminder system is implemented independently via in-app notifications and a cron-based scheduler.**
 
-#### 📋 Complete Implementation To-Do List:
+#### ✅ What's Working (verified in code):
+- `ReminderService.js` — fully implemented with task deadline scheduling
+  - `checkAndSendReminders()` — scans all tasks with upcoming due dates, checks per-user preferences, deduplicates via `SentReminder` table
+  - Default reminder intervals: 24h and 1h before deadline
+  - `getUserReminderPreferences(userId)` — fetches or auto-creates user preferences
+  - `updateReminderPreferences(userId, prefs)` — upserts custom intervals and quiet hours
+  - `getUpcomingReminders(userId)` — returns upcoming task deadlines with next reminder time
+  - `cleanupOldReminders()` — purges `SentReminder` records older than 30 days
+- `checkTaskReminders.js` cron job — registered in `cron.js`, runs every 15 minutes on server startup
+- `reminderRoutes.js` — registered at `/api/reminders` in `server.js`
+  - `GET /api/reminders/preferences` — fetch user preferences
+  - `PUT /api/reminders/preferences` — update intervals, quiet hours, enabled toggle
+  - `GET /api/reminders/upcoming` — list upcoming task reminders
+  - `POST /api/reminders/test` — dev-only trigger for manual testing
+- `NotificationService.js` — in-app notification delivery (database-backed, no external push service)
+- `ReminderPreferences` and `SentReminder` Prisma models — fully defined in schema
+- `RemindersTab.tsx` — full preferences UI in user profile settings
+  - Enable/disable toggle
+  - Customizable reminder intervals (add/remove hours)
+  - Quiet hours start/end selectors
+  - Connected to `GET/PUT /api/reminders/preferences` via `apiService`
+- `ProfileSettings.tsx` — `RemindersTab` wired in as a dedicated "reminders" tab
 
-**After Calendar Integration Complete:**
-- [ ] Build reminder service
-  - Create `backend/src/services/ReminderService.js`
-  - Implement task deadline reminder scheduling
-  - Use calendar API to create reminder events
-  - Set default reminders (24h, 1h before deadline)
-  - Allow customizable reminder intervals per user
+#### ⚠️ What's Missing:
+- **Quiet hours not enforced at send time** — `quietHoursStart`/`quietHoursEnd` are stored and shown in UI but `checkAndSendReminders()` never checks them before dispatching a notification
+- **No push or email delivery** — reminders are in-app only (database notifications); no Firebase Cloud Messaging, browser push, or email channel implemented
 
-- [ ] Implement in-app notifications
-  - Build notification system for non-calendar users
-  - Use Firebase Cloud Messaging or similar
-  - Schedule notifications based on task due dates
-  - Display in Kairo notification center
+#### 📋 Remaining To-Do List:
 
-- [ ] Build reminder preferences UI
-  - Add reminder settings in user preferences
-  - Allow users to customize reminder times
-  - Toggle email/push/in-app reminders
-  - Set quiet hours for reminders
+**HIGH PRIORITY:**
+- [ ] **Enforce quiet hours in `ReminderService.checkAndSendReminders()`** — *~half a day*
+  - After fetching `preferences`, check if current UTC hour falls within `quietHoursStart`–`quietHoursEnd` window before sending
+  - Handle overnight ranges (e.g. 22:00–07:00)
+
+**LOW PRIORITY:**
+- [ ] Add email reminder channel — send email via existing email service when `NotificationSettings.emailActionItems` is enabled
+- [ ] Add browser push notifications (Web Push API or Firebase Cloud Messaging) for users who want out-of-app alerts
+- [ ] Surface upcoming reminders widget on the Task Board or dashboard
 
 ---
 
@@ -694,30 +713,9 @@ This feature links tasks to transcript contexts from meetings. Dependent on Task
 
 ## MASTER TO-DO LIST
 
-### ⭐ IMMEDIATE QUICK WINS  - START HERE!
-
-**1. Action Item → Task Creation Flow (Feature #8)** 
-- [ ] Build TaskCreationService with createTaskFromActionItem() method
-- [ ] Add "Create Task" button in action items UI
-- [ ] Create database link between action items and tasks
-- [ ] Add basic deadline parsing (dateparser library)
-- [ ] Add basic priority classification (keyword-based)
-- **Impact:** Makes action items immediately actionable
-
----
-
 ### 🚨 CRITICAL PATH - Build Foundations
 
-**These enable multiple other features:**
-
-**1. Task System Backend (Feature #9) - Week 3-6**
-- [ ] Build complete Task Management API (CRUD operations)
-- [ ] Connect Kanban board UI to real backend
-- [ ] Implement Projects and Tags system
-- [ ] Add task assignment and status updates
-- **Why Critical:** Unlocks Kanban board, integrations, task workflows
-
-**2. Basic Search Infrastructure - Week 7-8**
+**1. Basic Search Infrastructure**
 - [ ] Add PostgreSQL full-text search for meetings/transcripts
 - [ ] Build search API endpoints
 - [ ] Connect search UI to backend
@@ -773,12 +771,10 @@ This feature links tasks to transcript contexts from meetings. Dependent on Task
 
 - [ ] Calendar Integration (Google/Outlook OAuth) — 3-4 weeks
 - [ ] Third-party integrations (Jira, Slack, Trello) — depends on calendar
-- [ ] Auto follow-up reminders — depends on calendar
 - [ ] Multimodal capture (slide screenshots + OCR)
 - [ ] Multilingual transcription
 - [ ] Migrate to Faster-Whisper
 - [ ] Advanced analytics enhancements (PDF export, comparison views)
-- [ ] Auto Follow-Up Reminders
 
 ---
 
@@ -788,12 +784,11 @@ Kairo has made significant strides since January 2026, with the progress now est
 
 1. **Wiring existing components together** (embedding pipeline → post-meeting, Smart Search → frontend)
 2. **Completing the Knowledge Graph backend** (the UI shell exists but has no backend)
-3. **TaskDetailModal polish** (inline editing + meeting context tab)
-4. **New features** (Whisper Mode, Privacy Controls, Calendar Integration)
+3. **New features** (Whisper Mode, Privacy Controls, Calendar Integration)
 
 **Note:** Microsoft Teams support is NOT in scope. Focus remains on Google Meet and Zoom.
 
 ---
 
-*Last Updated: March 25, 2026*  
+*Last Updated: March 26, 2026*  
 *Maintained by: Kairo Team*

@@ -18,6 +18,7 @@ export interface ActionItem {
   rejectedAt?: string;
   confirmedBy?: { id: number; name: string; email: string } | null;
   rejectedBy?: { id: number; name: string; email: string } | null;
+  task?: { id: number; title: string; status: string } | null;
 }
 
 export const useActionItems = (meetingId: number | string | null, pollInterval = 12000, enableWebSocket = true) => {

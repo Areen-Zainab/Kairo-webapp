@@ -24,6 +24,7 @@ import MeetingsDashboard from "./pages/meetings/MeetingsMain";
 import LiveMeetingView from "./pages/meetings/MeetingLive";
 import MeetingDetailsPage from "./pages/meetings/MeetingDetails";
 import PreMeetingPage from "./pages/meetings/PreMeeting";
+import GlobalKairoAssistantFAB from "./components/GlobalKairoAssistantFAB";
 
 // Redirect component for invalid workspace sub-routes
 const WorkspaceRedirect = () => {
@@ -84,6 +85,7 @@ function App() {
         {/* Catch-all for invalid workspace sub-routes */}
         <Route path="/workspace/:workspaceId/*" element={<WorkspaceRedirect />} />
       </Routes>
+      <GlobalKairoAssistantFAB />
     </>
   );
 }
