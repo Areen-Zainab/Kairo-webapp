@@ -3,11 +3,13 @@ const updateMeetingStatuses = require('../jobs/updateMeetingStatuses');
 const autoJoinMeetings = require('../jobs/autoJoinMeetings');
 const preloadModels = require('../jobs/preloadModels');
 const checkTaskReminders = require('../jobs/checkTaskReminders');
+const runWhisperMode = require('../jobs/runWhisperMode');
 
 let meetingStatusCronJob = null;
 let autoJoinCronJob = null;
 let preloadModelsCronJob = null;
 let taskRemindersCronJob = null;
+let whisperModeCronJob = null;
 
 /**
  * Initialize cron jobs
@@ -98,6 +100,29 @@ function initializeCronJobs() {
   
   console.log('   - Task reminders: every 15 minutes');
   
+  // Whisper Mode - micro recaps during active meetings
+  // Guarded by WHISPER_MODE_ENABLED to avoid additive risk when feature is not desired.
+  if (process.env.WHISPER_MODE_ENABLED === 'true') {
+    const schedule = process.env.WHISPER_MODE_CRON_SCHEDULE || '*/10 * * * *'; // Every 5-10 minutes (roadmap)
+    whisperModeCronJob = cron.schedule(schedule, async () => {
+      try {
+        const result = await runWhisperMode();
+        if (!result?.success) {
+          console.error('❌ WhisperMode cron job failed:', result?.error || 'unknown error');
+        }
+      } catch (error) {
+        console.error('❌ Error in WhisperMode cron job:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: "UTC"
+    });
+
+    console.log(`   - Whisper Mode: cron ${schedule} (enabled)`);
+  } else {
+    console.log('   - Whisper Mode: disabled (set WHISPER_MODE_ENABLED=true to enable)');
+  }
+
   // Optional: Run the job immediately on startup (for testing)
   // Uncomment the line below if you want to run the job once on startup
   // updateMeetingStatuses();
@@ -125,6 +150,11 @@ function stopCronJobs() {
   if (taskRemindersCronJob) {
     taskRemindersCronJob.stop();
     console.log('   - Task reminders job stopped');
+  }
+
+  if (whisperModeCronJob) {
+    whisperModeCronJob.stop();
+    console.log('   - Whisper Mode cron job stopped');
   }
   
   console.log('✅ All cron jobs stopped');

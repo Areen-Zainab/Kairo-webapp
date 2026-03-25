@@ -71,10 +71,10 @@ Kairo has made substantial progress. The platform now has:
 14. **Meeting Memory Engine** - 10% Complete (planning only)
 15. **Smart Search & Query** - 60% Complete (basic search only)
 16. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
+17. **Whisper Mode (Micro-Recap During Meeting)** - 50% Complete (MicroSummaryService + guarded cron tick are now in place, while WebSocket/UI integration is still pending)
 
 ### ❌ NOT IMPLEMENTED (4/21)
 
-17. **Whisper Mode (Micro-Recap During Meeting)** - 0% Complete
 18. **Meeting Memory Graph (Knowledge Graph)** - 0% Complete (UI mockup exists)
 19. **Task Contextual Micro-Channels** - 0% Complete
 20. **Privacy & Compliance Mode** - 0% Complete
@@ -180,19 +180,22 @@ Kairo has made substantial progress. The platform now has:
 ---
 
 ### 4. Whisper Mode (Micro-Recap During Meeting)
-**Status:** ❌ 0% COMPLETE  
+**Status:** 🔄 50%  (Backend cron + MicroSummaryService added (no WebSocket/UI integration yet)) 
 **Priority:** Medium-High  
 **Technologies:** LLMs (Grok), WebSocket, React
 
 #### 📋 Complete Implementation To-Do List:
 
 **HIGH PRIORITY - Backend:**
-- [ ] Build MicroSummaryService
-  - Create `backend/src/services/MicroSummaryService.js`
-  - Implement `generateMicroRecap(meetingId, lastN_minutes)` method
+- [x] Build MicroSummaryService
+  - Implement micro-recap generation from recent live transcript chunks (`chunk_*_transcript.txt`)
   - Use Grok API to generate 2-3 sentence recap
-  - Add caching to avoid duplicate generation
-  - Implement rate limiting for API calls
+  - Add caching to avoid duplicate generation (transcript hash + recap interval in `meeting.metadata.whisperMode`)
+  - Implement rate limiting + retries for API calls
+
+- [x] Add scheduled cron trigger
+  - Create `backend/src/jobs/runWhisperMode.js` (active meeting guard + sequential execution)
+  - Register in `backend/src/config/cron.js` and gate by `WHISPER_MODE_ENABLED`
 
 - [ ] Add real-time trigger mechanism
   - Create scheduled task (every 5-10 minutes) per active meeting
