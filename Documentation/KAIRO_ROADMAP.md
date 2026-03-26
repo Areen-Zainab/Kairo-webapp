@@ -26,16 +26,6 @@
 - ✅ **Deadline parsing** — `chrono-node` integrated in `TaskCreationService.parseDeadline()` + wired into `AIInsightsService` (March 27, 2026)
 - ✅ **Priority auto-classification** — `_extractPriority()` already existed in `TaskCreationService` (confirmed March 27, 2026)
 
-<<<<<<< HEAD
-### Key Remaining Gaps:
-- ❌ **Knowledge Graph backend** — `memoryAPI.ts` still returns mock data; graph tables, `GraphConstructionService`, and `GraphQueryRoutes` not built
-- ⚠️ `PostMeetingProcessor.convertToTasks()` remains a placeholder for task conversion; Memory Engine embedding trigger is connected via `TranscriptionService.finalize()` -> `AIInsightsService.generateInsights()`
-- ✅ `MeetingMemoryContext` + related-meetings retrieval are now exposed via `memoryRoutes.js` context/related endpoints
-- ❌ Calendar Integration (Google/Outlook OAuth)
-- ❌ Third-Party integrations (Jira, Slack, Trello)
-- ❌ Privacy & Compliance Mode controls
-- ❌ Speaker identification by name (only Speaker_0, Speaker_1 labels)
-=======
 **Key Remaining Gaps (verified):**
 - ❌ **Knowledge Graph backend** — `memoryAPI.ts` is 100% mock/hardcoded; no `graph_nodes`/`graph_edges` tables; no `GraphConstructionService` or `GraphQueryService`
 - ❌ **ReminderService quiet hours** — `quietHoursStart`/`quietHoursEnd` stored and shown in UI but never checked in `checkAndSendReminders()` before dispatching
@@ -43,7 +33,6 @@
 - ❌ **Speaker identification by name** — Pyannote diarization works post-meeting but produces `Speaker_0`/`Speaker_1` labels only (no name mapping)
 - ❌ **Calendar Integration** — UI mockup only
 - ❌ **Third-party integrations** — UI mockups only
->>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
 
 ---
 
@@ -61,18 +50,11 @@
 8. **Interactive Transcript Review & Timeline** — 100% Complete
 9. **Analytics Dashboard** — 100% Complete
 10. **Kanban Board Integration** — 100% Complete
-<<<<<<< HEAD
-11. **Meeting Memory Engine (Embedding Pipeline)** — 86% Complete
-12. **Auto Follow-Up Reminders** - 85% Complete (quiet hours enforcement + push/email channels missing)
-13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP missing)
-14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron job + manual trigger endpoint + WebSocket broadcast + `useWhisperRecaps` hook + `WhisperRecapTab` + "Catch Me Up" button)*
-=======
 11. **Meeting Memory Engine (Embedding Pipeline)** — ✅ 90% Complete *(embeddings auto-triggered post-insights, transcript + summary embedded, memory context generated — verified in code)*
 12. **Auto Follow-Up Reminders** — 85% Complete *(quiet hours enforced in UI/DB but NOT in send logic)*
 13. **Task Extraction and Deadline Parsing** — ✅ 100% Complete *(chrono-node integrated March 27, 2026; handles ISO dates + natural language like "next Friday", "in 2 days")*
 14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron + manual trigger + WebSocket + useWhisperRecaps + WhisperRecapTab + "Catch Me Up" button)*
 15. **Smart Search & Query** — ✅ 75% Complete *(SmartSearchModal wired to real semantic search API — verified in code; hybrid search not yet implemented)*
->>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
 
 ### 🔄 PARTIALLY IMPLEMENTED (2/22)
 
@@ -172,8 +154,7 @@
 ## 🔹 KNOWLEDGE & MEMORY
 
 ### 5. Meeting Memory Engine
-<<<<<<< HEAD
-**Status:** 🔄 86% COMPLETE  
+**Status:** 🔄 90% COMPLETE  
 **Priority:** High  
 **Technologies:** PostgreSQL (pgvector), Sentence Transformers (Xenova/all-MiniLM-L6-v2), Node.js
 
@@ -205,9 +186,8 @@
 - Result caching for frequent `/context` and `/related` queries is not implemented yet
 - `meeting_relationships` is not populated as a persistent step yet; `/related` works via on-demand fallback similarity when relationships are empty
 - No `EmbeddingRepository.js` (direct Prisma wrapper) — raw SQL used instead (acceptable but fragile)
-=======
-**Status:** ✅ 90% COMPLETE *(verified in code — previously under-reported)*
-**Technologies:** PostgreSQL (pgvector), Sentence Transformers (all-MiniLM-L6-v2), Node.js
+- Hybrid search (pgvector + PostgreSQL FTS) not implemented
+- No embedding for notes or action items (only transcript + summary)
 
 #### ✅ What's Working (code-verified):
 - `EmbeddingService.js` — local all-MiniLM-L6-v2 (384-dim), `generateEmbedding()` + `generateBatchEmbeddings()`
@@ -217,18 +197,10 @@
 - pgvector extension + HNSW indexes installed
 - `SmartSearchModal.tsx` calls real backend API *(verified — no mock)*
 
-#### ⚠️ What's Still Missing:
-- `GET /api/meetings/:id/related` — related meetings route not implemented
-- `GET /api/meetings/:id/context` — context route not implemented
-- `MemoryContextService.js` — not built
-- Hybrid search (pgvector + PostgreSQL FTS) not implemented
-- No embedding for notes or action items (only transcript + summary)
->>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
 
 #### 📋 Remaining To-Do:
 
 **HIGH PRIORITY:**
-<<<<<<< HEAD
 - [x] **Wire embedding generation into the end-of-meeting intelligence pipeline**
   - `TranscriptionService` triggers `AIInsightsService.generateInsights()` asynchronously after diarized transcript finalize
   - `AIInsightsService` runs the Memory Engine embedding steps and upserts `meeting_memory_contexts`
@@ -250,7 +222,6 @@
 - [ ] Add manual embeddings-only regeneration endpoint (e.g. `POST /api/meetings/:id/regenerate-embeddings`)
 - [ ] Add embedding generation for notes and action items (currently only transcript + summary)
 - [ ] Implement result caching for frequent `/context` and `/related` queries
-=======
 - [ ] **Implement hybrid search** — combine `<=>` cosine similarity with `tsvector` FTS for better results — *2-3 days*
 - [ ] **Add related meetings routes** — `GET /api/meetings/:id/related` using existing `searchWorkspaceMeetings` — *1-2 days*
 - [ ] **Build MemoryContextService.js** — `findRelatedMeetings()`, `meeting_relationships` table — *2-3 days*
@@ -258,7 +229,6 @@
 **MEDIUM PRIORITY:**
 - [ ] Embed notes and confirmed action items for richer search
 - [ ] Add result highlighting in `SmartSearchModal` (show matching snippet in context)
->>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
 
 ---
 
