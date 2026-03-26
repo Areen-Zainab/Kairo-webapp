@@ -6,3 +6,7 @@ node_modules
 
 /src/services/meeting_data/*
 !/src/services/meeting_data/.gitkeep
+
+# Demo scripts (Areeba) — local only, not for production/repo
+/scripts/seedDemoWorkspace.js
+/scripts/generateDemoEmbeddings.js

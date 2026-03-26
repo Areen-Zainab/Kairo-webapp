@@ -5,7 +5,11 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon",
-    "test": "mocha tests/**/*.test.js"
+    "test": "mocha tests/**/*.test.js",
+    "seed": "node scripts/seedDemoWorkspace.js",
+    "seed:reset": "node scripts/seedDemoWorkspace.js --reset",
+    "seed:embed": "node scripts/generateDemoEmbeddings.js",
+    "setup": "node scripts/setup.js"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +22,7 @@
     "@supabase/supabase-js": "^2.76.1",
     "@xenova/transformers": "^2.17.2",
     "bcrypt": "^6.0.0",
+    "chrono-node": "^2.9.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",

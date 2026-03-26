@@ -1083,13 +1083,20 @@ print(result)
                 assignee: item.assignee || item.owner || null
               });
 
+              // Parse natural-language due date using chrono-node
+              const rawDueDateText = item.due_date || item.deadline || null;
+              const TaskCreationService = require('./TaskCreationService');
+              const parsedDueDate = rawDueDateText
+                ? TaskCreationService.parseDeadline(rawDueDateText, new Date())
+                : null;
+
               await tx.actionItem.create({
                 data: {
                   meetingId: meetingIdInt,
                   title: item.action || item.task || item.title || 'Action item',
                   description: item.description || item.details || '',
                   assignee: item.assignee || item.owner || null,
-                  dueDate: item.due_date || item.deadline || null,
+                  dueDate: parsedDueDate,
                   canonicalKey,
                   confidence: item.confidence || avgConfidence,
                   sourceChunk: null, // Post-meeting analysis, not from a specific chunk

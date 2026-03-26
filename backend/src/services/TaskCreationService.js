@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const chrono = require('chrono-node');
 
 /**
  * TaskCreationService - Handles creation of tasks from action items
@@ -60,6 +61,15 @@ class TaskCreationService {
       // Parse priority from description or use default
       const priority = this._extractPriority(actionItem.description, actionItem.rawData);
 
+      // Resolve dueDate: prefer the stored Date, otherwise try to parse from rawData text
+      let dueDate = actionItem.dueDate instanceof Date ? actionItem.dueDate : null;
+      if (!dueDate && actionItem.rawData) {
+        const rawDueDateText = actionItem.rawData.due_date || actionItem.rawData.deadline || null;
+        if (rawDueDateText) {
+          dueDate = this.parseDeadline(rawDueDateText, actionItem.meeting?.startTime || new Date());
+        }
+      }
+
       // Create the task
       const task = await prisma.task.create({
         data: {
@@ -69,7 +79,7 @@ class TaskCreationService {
           title: actionItem.title,
           description: actionItem.description,
           assignee: actionItem.assignee,
-          dueDate: actionItem.dueDate,
+          dueDate: dueDate,
           priority: priority,
           position: newPosition,
           metadata: {
@@ -210,6 +220,50 @@ class TaskCreationService {
       console.error(`Error ensuring default kanban columns for workspace ${workspaceId}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Parse a natural-language or ISO date string into a JS Date object.
+   * Uses chrono-node for relative expressions ("next Friday", "in 2 days").
+   * Falls back to native Date parsing, then returns null if unparseable.
+   *
+   * @param {string|null} text        - The date string from the AI (e.g. "2026-04-15", "next Monday")
+   * @param {Date}        [reference] - Reference date for relative expressions (defaults to now)
+   * @returns {Date|null}
+   */
+  static parseDeadline(text, reference = new Date()) {
+    if (!text || typeof text !== 'string') return null;
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+
+    // 1. Try chrono-node first — handles relative & natural language
+    try {
+      const parsed = chrono.parseDate(trimmed, reference, { forwardDate: true });
+      if (parsed && !isNaN(parsed.getTime())) {
+        console.log(`[parseDeadline] chrono-node parsed "${trimmed}" → ${parsed.toISOString()}`);
+        return parsed;
+      }
+    } catch (e) {
+      // chrono-node failed, fall through
+    }
+
+    // 2. Fallback: native Date parse (handles ISO strings like "2026-04-15")
+    try {
+      // Append time if it's a bare date to avoid UTC-midnight timezone issues
+      const isoStr = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+        ? `${trimmed}T12:00:00.000Z`
+        : trimmed;
+      const d = new Date(isoStr);
+      if (!isNaN(d.getTime())) {
+        console.log(`[parseDeadline] native parse "${trimmed}" → ${d.toISOString()}`);
+        return d;
+      }
+    } catch (e) {
+      // native parse failed
+    }
+
+    console.log(`[parseDeadline] could not parse "${trimmed}" — returning null`);
+    return null;
   }
 
   /**

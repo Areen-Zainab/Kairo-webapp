@@ -8,36 +8,25 @@
 1. [Executive Summary](#executive-summary)
 2. [Implementation Status Overview](#implementation-status-overview)
 3. [Core Features Breakdown](#core-features-breakdown)
-4. [Detailed Feature Analysis](#detailed-feature-analysis)
-5. [Master To-Do List](#master-to-do-list)
+4. [Master To-Do List](#master-to-do-list)
 
 ---
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~76% Complete
+### Overall Progress: ~82% Complete
 
-> **Last Audited:** March 26, 2026  
-> Previous estimate (Jan 15, 2026) was 52%. Significant work has been completed since — especially the Meeting Memory Engine, Smart Search, Analytics Dashboard, Kanban Board, Notification System, and Whisper Mode.
+> **Last Updated:** March 27, 2026 *(code-verified — not self-reported)*
+> Previous estimate (March 26, 2026) was 76%. Significant items completed since.
 
-Kairo has made substantial progress. The platform now has:
-- ✅ Functional meeting bot that joins Google Meet/Zoom
-- ✅ WhisperX-based transcription with speaker diarization
-- ✅ Comprehensive AI insights using Grok Cloud API (6 agent types)
-- ✅ Full-stack application with React frontend and Node.js backend
-- ✅ PostgreSQL database with Prisma ORM + pgvector extension
-- ✅ User authentication and workspace management
-- ✅ Meeting management UI with multiple view types
-- ✅ Full Kanban board (real data, drag-and-drop, tags, filtering, sorting)
-- ✅ Analytics Dashboard with real backend data
-- ✅ Action item extraction + automatic task creation
-- ✅ **EmbeddingService + MeetingEmbeddingService** (local all-MiniLM-L6-v2 model)
-- ✅ **Smart Search Modal** (frontend component consuming semantic search API)
-- ✅ **Memory API route** (`GET /api/workspaces/:id/memory/search`)
-- ✅ **NotificationService** (in-app notifications)
-- ✅ **MicroSummaryService** (whisper-mode backend)
-- ✅ **Whisper Mode UI** — `useWhisperRecaps` hook, `WhisperRecapTab`, "Catch Me Up" button, WebSocket broadcast
+**Completed Since Last Audit:**
+- ✅ Embeddings auto-triggered in `AIInsightsService.generateInsights()` after insights complete
+- ✅ `SmartSearchModal.tsx` calls real backend API — no mock data
+- ✅ `PostMeetingProcessor.convertToTasks()` is a harmless stub — task creation handled in `AIInsightsService`
+- ✅ **Deadline parsing** — `chrono-node` integrated in `TaskCreationService.parseDeadline()` + wired into `AIInsightsService` (March 27, 2026)
+- ✅ **Priority auto-classification** — `_extractPriority()` already existed in `TaskCreationService` (confirmed March 27, 2026)
 
+<<<<<<< HEAD
 ### Key Remaining Gaps:
 - ❌ **Knowledge Graph backend** — `memoryAPI.ts` still returns mock data; graph tables, `GraphConstructionService`, and `GraphQueryRoutes` not built
 - ⚠️ `PostMeetingProcessor.convertToTasks()` remains a placeholder for task conversion; Memory Engine embedding trigger is connected via `TranscriptionService.finalize()` -> `AIInsightsService.generateInsights()`
@@ -46,43 +35,57 @@ Kairo has made substantial progress. The platform now has:
 - ❌ Third-Party integrations (Jira, Slack, Trello)
 - ❌ Privacy & Compliance Mode controls
 - ❌ Speaker identification by name (only Speaker_0, Speaker_1 labels)
+=======
+**Key Remaining Gaps (verified):**
+- ❌ **Knowledge Graph backend** — `memoryAPI.ts` is 100% mock/hardcoded; no `graph_nodes`/`graph_edges` tables; no `GraphConstructionService` or `GraphQueryService`
+- ❌ **ReminderService quiet hours** — `quietHoursStart`/`quietHoursEnd` stored and shown in UI but never checked in `checkAndSendReminders()` before dispatching
+- ❌ **Privacy & Compliance Mode** — 0% implemented
+- ❌ **Speaker identification by name** — Pyannote diarization works post-meeting but produces `Speaker_0`/`Speaker_1` labels only (no name mapping)
+- ❌ **Calendar Integration** — UI mockup only
+- ❌ **Third-party integrations** — UI mockups only
+>>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
 
 ---
 
 ## IMPLEMENTATION STATUS OVERVIEW
 
-### ✅ COMPLETED FEATURES (14/22)
+### ✅ COMPLETED FEATURES (15/22)
 
 1. **Team and Workspace Management** — 100% Complete
-2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom only)
+2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom)
 3. **Real-Time Transcription (WhisperX)** — 90% Complete (speaker names still generic)
 4. **Summarization Engine** — 100% Complete
 5. **Action Item Detection** — 85% Complete (auto task creation works; real-time detection missing)
 6. **Role-Based Access Control (RBAC)** — 100% Complete
 7. **Note-Taking** — 100% Complete
 8. **Interactive Transcript Review & Timeline** — 100% Complete
-9. **Analytics Dashboard** — 100% Complete (real backend data, charts, filters)
+9. **Analytics Dashboard** — 100% Complete
 10. **Kanban Board Integration** — 100% Complete
+<<<<<<< HEAD
 11. **Meeting Memory Engine (Embedding Pipeline)** — 86% Complete
 12. **Auto Follow-Up Reminders** - 85% Complete (quiet hours enforcement + push/email channels missing)
 13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP missing)
 14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron job + manual trigger endpoint + WebSocket broadcast + `useWhisperRecaps` hook + `WhisperRecapTab` + "Catch Me Up" button)*
+=======
+11. **Meeting Memory Engine (Embedding Pipeline)** — ✅ 90% Complete *(embeddings auto-triggered post-insights, transcript + summary embedded, memory context generated — verified in code)*
+12. **Auto Follow-Up Reminders** — 85% Complete *(quiet hours enforced in UI/DB but NOT in send logic)*
+13. **Task Extraction and Deadline Parsing** — ✅ 100% Complete *(chrono-node integrated March 27, 2026; handles ISO dates + natural language like "next Friday", "in 2 days")*
+14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron + manual trigger + WebSocket + useWhisperRecaps + WhisperRecapTab + "Catch Me Up" button)*
+15. **Smart Search & Query** — ✅ 75% Complete *(SmartSearchModal wired to real semantic search API — verified in code; hybrid search not yet implemented)*
+>>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
 
 ### 🔄 PARTIALLY IMPLEMENTED (2/22)
 
-15. **Smart Search & Query** - 60% Complete (basic search only)
-16. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
+16. **Multimodal Meeting Capture** — 20% Complete (audio/video only)
+17. **Speaker Diarization** — 30% Complete *(Pyannote diarization runs post-meeting; produces Speaker_0/Speaker_1 labels; no name mapping to real users)*
 
-### ❌ NOT IMPLEMENTED (4/22)
+### ❌ NOT IMPLEMENTED (5/22)
 
-17. **Meeting Memory Graph (Knowledge Graph)** - 0% Complete (UI mockup exists)
-18. **Task Contextual Micro-Channels** - 0% Complete
-19. **Privacy & Compliance Mode** - 0% Complete
-20. **Speaker Diarization** - 0% Complete
-
-### Optional (2/22):
-21. **Calendar Integrations** - 0% Complete (UI mockup exists)
-22. **Third-Party Tool Integrations** - 0% Complete (UI mockup exists)
+18. **Meeting Memory Graph (Knowledge Graph)** — 0% Complete *(UI mockup + mock data ONLY — verified)*
+19. **Task Contextual Micro-Channels** — 0% Complete
+20. **Privacy & Compliance Mode** — 0% Complete
+21. **Calendar Integrations** — 0% Complete (UI mockup exists)
+22. **Third-Party Tool Integrations** — 0% Complete (UI mockups exist)
 
 ---
 
@@ -93,119 +96,83 @@ Kairo has made substantial progress. The platform now has:
 ## 🔹 CORE MEETING INTELLIGENCE
 
 ### 1. Auto-Join & Capture
-**Status:** ✅ 100% COMPLETE  
-**Priority:** High  
+**Status:** ✅ 100% COMPLETE
 **Technologies:** Puppeteer, WhisperX, Node.js, WebSockets, PostgreSQL
 
 #### ✅ What's Working:
-- Bot automatically joins scheduled meetings via manual trigger or cron job
-- Puppeteer-based bot joins Google Meet and Zoom
+- Bot joins Google Meet and Zoom automatically
 - Audio capture via virtual audio routing
-- Persistent browser sessions to avoid login issues
-- Audio chunks saved to disk and transcribed in real-time
+- Audio chunks saved and transcribed in real-time
 - Meeting status tracking (scheduled → in-progress → completed)
-- Bot session management to prevent duplicate joins
-- Lock mechanism to prevent concurrent join attempts
-- Meeting recordings stored in organized directories
+- Bot session management and duplicate-join protection
 
 ---
 
 ### 2. Real-Time Transcription (WhisperX-based)
-**Status:** ✅ 90% COMPLETE  
-**Priority:** High  
+**Status:** ✅ 90% COMPLETE
 **Technologies:** WhisperX, Pyannote-audio, Python, WebSocket, Node.js
 
 #### ✅ What's Working:
-- WhisperX transcription model preloaded at server startup (`ModelPreloader.js`)
-- Audio chunks transcribed in real-time during meetings (`TranscriptionService.js` — 75KB)
-- Speaker diarization using Pyannote after meeting completion
-- Transcripts saved in multiple formats (JSON, text)
-- WebSocket broadcasting of live transcripts to connected clients
-- Complete transcript with speaker attribution (Speaker_0, Speaker_1 labels)
-- Transcript stored in database and file system
+- WhisperX model preloaded at server startup (`ModelPreloader.js`)
+- Audio chunks transcribed in real-time (`TranscriptionService.js`)
+- Speaker diarization using Pyannote after meeting completion *(produces Speaker_0, Speaker_1 labels)*
+- Transcripts saved in JSON and text formats
+- WebSocket broadcasting of live transcript to clients
 - Hybrid processing: real-time + post-meeting refinement
 
-#### ⚠️ What Needs Updates:
-- First chunk delay (25+ seconds) due to model loading time
-- No multilingual transcription support yet
-- Speaker identification by labels (Speaker_0, Speaker_1) not actual names
+#### ⚠️ What's Missing:
+- Speaker identification by name (only `Speaker_0`, `Speaker_1` labels)
+- First chunk delay ~25s due to model loading
+- No multilingual support
 - Live captions not synchronized with video tiles
-- No confidence scores displayed for transcripts
 
-#### 📋 To-Do List:
+#### 📋 To-Do:
 
 **HIGH PRIORITY:**
-- [ ] Implement speaker identification
-  - Build voice profile database for workspace members
-  - Allow users to upload voice samples during onboarding
-  - Train speaker recognition model per workspace
-  - Match diarized speakers to user identities
-  - Display actual names instead of Speaker_0, Speaker_1
-  - Allow manual speaker assignment in post-meeting review
-
-- [ ] Improve real-time caption display
-  - Build React component for live captions overlay
-  - Synchronize captions with transcript timestamps
-  - Add caption history scrolling
-
-**MEDIUM PRIORITY:**
-- [ ] Add multilingual transcription support
-- [ ] Enhance transcription accuracy (custom vocabulary, confidence scores)
-- [ ] Add fallback transcription service
+- [ ] Allow manual speaker assignment in post-meeting transcript review UI
+- [ ] Display actual names instead of Speaker_0, Speaker_1
 
 **LOW PRIORITY:**
+- [ ] Add multilingual transcription support
 - [ ] Migrate to Faster-Whisper (see `Faster_Whisper_Migration_Roadmap.md`)
-- [ ] Add transcript export in multiple formats (SRT, VTT, DOCX)
 
 ---
 
 ### 3. Summarization Engine
-**Status:** ✅ 100% COMPLETE  
-**Priority:** High  
+**Status:** ✅ 100% COMPLETE
 **Technologies:** Grok Cloud API (xAI), Node.js
 
 #### ✅ What's Working:
-- Post-meeting summary generation using Grok API (`AIInsightsService.js` — 54KB)
-- Six types of AI insights generated:
-  1. Summary (paragraph + bullets)
-  2. Decision extraction
-  3. Sentiment analysis
-  4. Topic segmentation
-  5. Action items
-  6. Participant analysis
-- Python agents orchestrated by Node.js service (`AgentProcessingService.js`)
-- Insights stored in database as JSON
-- UI displays all insights in organized panels
-- Confidence scores for each insight type
-- Fallback methods if API fails
-- Insights generated asynchronously after meeting ends
+- 6 AI insight types: Summary, Decisions, Sentiment, Topics, Action Items, Participants
+- All generated asynchronously post-meeting via `AIInsightsService.js`
+- Stored in DB and displayed in organized UI panels
+- Confidence scores per insight type
 
 ---
 
 ### 4. Whisper Mode (Micro-Recap During Meeting)
-**Status:** ✅ 100% COMPLETE *(March 26, 2026)*  
-**Priority:** Medium-High  
-**Technologies:** LLMs (Groq), WebSocket, React, Node.js
+**Status:** ✅ 100% COMPLETE *(March 26, 2026)*
+**Technologies:** Groq API (llama-3.1-8b-instant), WebSocket, React, Node.js
 
 #### ✅ What's Working:
-- `MicroSummaryService.js` — Generates 2–3 sentence recaps via Groq API from recent live transcript chunks, with transcript-hash caching, rate limiting, and retry logic.
-- `runWhisperMode.js` — Cron job polls active meetings sequentially; gated by `WHISPER_MODE_ENABLED`.
-- **Manual trigger** — `POST /api/meetings/:id/whisper/trigger` bypasses interval constraints for on-demand recaps.
-- **WebSocket broadcast** — `WebSocketServer.broadcastWhisperRecap()` pushes new recaps to all connected clients via the `whisper_recap` event type.
-- **`useWhisperRecaps.ts`** — React hook fetches initial recaps from `meeting.metadata.whisperMode.microRecaps` and subscribes to real-time `whisper_recap` WebSocket events.
-- **`WhisperRecapTab.tsx`** — Chat-like sidebar tab displaying timestamped micro-recaps with auto-scroll and loading/error states.
-- **"Catch Me Up" button** — Added to the live meeting Top Bar; triggers `triggerCatchMeUp()` with animated loading feedback.
-- **Toast notification** — `toastSuccess` fires whenever a new recap arrives via WebSocket.
+- `MicroSummaryService.js` — Generates 2–3 sentence recaps via Groq from live transcript chunks
+- `runWhisperMode.js` — Cron job, gated by `WHISPER_MODE_ENABLED`
+- `POST /api/meetings/:id/whisper/trigger` — Manual trigger bypasses interval
+- `WebSocketServer.broadcastWhisperRecap()` — Real-time push via `whisper_recap` WS event
+- `useWhisperRecaps.ts` — React hook (REST initial load + WebSocket subscription)
+- `WhisperRecapTab.tsx` — Chat-like sidebar UI with timestamped recaps
+- "Catch Me Up" button in live meeting Top Bar
 
-#### 🔄 Optional Future Enhancements:
-- [ ] Smart triggering (new participant joins, topic changes)
-- [ ] Improved recap quality (include decisions, action items, participant contributions)
+#### 🔄 Optional Enhancements:
+- [ ] Smart triggering (topic changes, new participant joins)
+- [ ] Include decisions/action items in recap text
 
 ---
 
 ## 🔹 KNOWLEDGE & MEMORY
 
 ### 5. Meeting Memory Engine
+<<<<<<< HEAD
 **Status:** 🔄 86% COMPLETE  
 **Priority:** High  
 **Technologies:** PostgreSQL (pgvector), Sentence Transformers (Xenova/all-MiniLM-L6-v2), Node.js
@@ -238,10 +205,30 @@ Kairo has made substantial progress. The platform now has:
 - Result caching for frequent `/context` and `/related` queries is not implemented yet
 - `meeting_relationships` is not populated as a persistent step yet; `/related` works via on-demand fallback similarity when relationships are empty
 - No `EmbeddingRepository.js` (direct Prisma wrapper) — raw SQL used instead (acceptable but fragile)
+=======
+**Status:** ✅ 90% COMPLETE *(verified in code — previously under-reported)*
+**Technologies:** PostgreSQL (pgvector), Sentence Transformers (all-MiniLM-L6-v2), Node.js
 
-#### 📋 Remaining To-Do List:
+#### ✅ What's Working (code-verified):
+- `EmbeddingService.js` — local all-MiniLM-L6-v2 (384-dim), `generateEmbedding()` + `generateBatchEmbeddings()`
+- `MeetingEmbeddingService.js` — `chunkText()`, `embedTranscript()`, `embedSummary()`, `generateMemoryContext()`, `searchWorkspaceMeetings()`
+- **Auto-triggered in `AIInsightsService.generateInsights()`** after insights complete — `embedTranscript()` + `generateMemoryContext()` called with topics, decisions, participants
+- `GET /api/workspaces/:id/memory/search` route — semantic search working
+- pgvector extension + HNSW indexes installed
+- `SmartSearchModal.tsx` calls real backend API *(verified — no mock)*
+
+#### ⚠️ What's Still Missing:
+- `GET /api/meetings/:id/related` — related meetings route not implemented
+- `GET /api/meetings/:id/context` — context route not implemented
+- `MemoryContextService.js` — not built
+- Hybrid search (pgvector + PostgreSQL FTS) not implemented
+- No embedding for notes or action items (only transcript + summary)
+>>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
+
+#### 📋 Remaining To-Do:
 
 **HIGH PRIORITY:**
+<<<<<<< HEAD
 - [x] **Wire embedding generation into the end-of-meeting intelligence pipeline**
   - `TranscriptionService` triggers `AIInsightsService.generateInsights()` asynchronously after diarized transcript finalize
   - `AIInsightsService` runs the Memory Engine embedding steps and upserts `meeting_memory_contexts`
@@ -263,528 +250,273 @@ Kairo has made substantial progress. The platform now has:
 - [ ] Add manual embeddings-only regeneration endpoint (e.g. `POST /api/meetings/:id/regenerate-embeddings`)
 - [ ] Add embedding generation for notes and action items (currently only transcript + summary)
 - [ ] Implement result caching for frequent `/context` and `/related` queries
+=======
+- [ ] **Implement hybrid search** — combine `<=>` cosine similarity with `tsvector` FTS for better results — *2-3 days*
+- [ ] **Add related meetings routes** — `GET /api/meetings/:id/related` using existing `searchWorkspaceMeetings` — *1-2 days*
+- [ ] **Build MemoryContextService.js** — `findRelatedMeetings()`, `meeting_relationships` table — *2-3 days*
+
+**MEDIUM PRIORITY:**
+- [ ] Embed notes and confirmed action items for richer search
+- [ ] Add result highlighting in `SmartSearchModal` (show matching snippet in context)
+>>>>>>> f5fde241f087aeaf90b97f4a8f6c3c62d67a2290
 
 ---
 
 ### 6. Meeting Memory Graph (Knowledge Graph)
-**Status:** ❌ 10% COMPLETE (UI mockup + mock data only)  
-**Priority:** Medium  
+**Status:** ❌ 0% COMPLETE *(UI shell + 100% mock data — verified in code)*
+**Priority:** High (friend's assignment)
 **Technologies:** PostgreSQL (adjacency lists), D3.js/vis-network, React
 
-#### ✅ What Exists:
-- Frontend UI in `frontend/src/pages/workspace/MemoryView.tsx`
-- Memory components: `MemoryFAB.tsx`, `MemoryFilterBar.tsx`, `MemoryQueryBar.tsx`
-- `frontend/src/utils/memoryAPI.ts` — **ALL MOCK DATA** (returns hardcoded nodes/edges)
+#### ✅ What Exists (frontend only):
+- `frontend/src/pages/workspace/MemoryView.tsx` — full UI shell
+- `frontend/src/utils/memoryAPI.ts` — **ALL MOCK DATA** (hardcoded nodes, edges, stats)
 - `useQueryMemory.ts` hook wired to mock API
-- `MemoryTab.tsx` in live meeting view
 
-#### ⚠️ What's Missing:
-- No `graph_nodes` or `graph_edges` tables in database
-- No `GraphConstructionService.js`
-- No `GraphQueryService.js`
-- No `graphRoutes.js`
-- `memoryAPI.ts` must be replaced with real API calls
+#### ❌ What's Missing:
+- `graph_nodes` and `graph_edges` tables (not in Prisma schema)
+- `GraphConstructionService.js`
+- `GraphQueryService.js`
+- `graphRoutes.js`
+- Real API calls in `memoryAPI.ts`
 
-#### 📋 Complete Implementation To-Do List:
+#### 📋 Implementation Phases:
 
-**PHASE 1: Graph Data Model**
-- [ ] Create `graph_nodes` table (node_type, label, data JSONB, workspace_id)
-- [ ] Create `graph_edges` table (source_id, target_id, edge_type, weight)
-- [ ] Add Prisma models for GraphNode and GraphEdge
-- [ ] Link nodes to existing meeting/task/user tables
-
-**PHASE 2: Graph Construction**
-- [ ] Build `backend/src/services/GraphConstructionService.js`
-  - `buildMeetingNode(meetingId)` — creates meeting node
-  - `buildParticipantNodes(participants[])` — creates user nodes
-  - `buildTopicNodes(topics[])` — from AI insights
-  - `buildDecisionNodes(decisions[])` — from AI insights
-  - `buildTaskNodes(tasks[])` — from action items
-  - `detectRelationships(meetingId)` — links meetings to participants, topics, decisions, tasks
-
-**PHASE 3: Graph API**
-- [ ] Create `backend/src/routes/graphRoutes.js`
-  - `GET /api/graph/workspace/:id` — full graph for workspace
-  - `GET /api/graph/node/:id` — node details
-  - `POST /api/graph/search` — graph search
-
-**PHASE 4: Frontend Connection**
-- [ ] Replace all mock data in `memoryAPI.ts` with real API calls
-- [ ] Wire `MemoryView.tsx` to real graph data
-- [ ] Add interactive node exploration (click to expand)
-- [ ] Implement filtering by node type, time period, participants
+**PHASE 1: Schema** — `graph_nodes`, `graph_edges` Prisma models
+**PHASE 2: Construction** — `GraphConstructionService.js` (buildMeetingNode, buildTopicNodes, buildDecisionNodes, buildTaskNodes, detectRelationships)
+**PHASE 3: API** — `GET /api/graph/workspace/:id`, `GET /api/graph/node/:id`, `POST /api/graph/search`
+**PHASE 4: Frontend** — Replace all mock in `memoryAPI.ts`, wire `MemoryView.tsx` to real data
 
 ---
 
 ## 🔹 ACTIONABILITY & TASK CONTEXT
 
 ### 7. Action Item Detection
-**Status:** ✅ 85% COMPLETE  
-**Priority:** Medium  
+**Status:** ✅ 85% COMPLETE
 **Technologies:** Grok API, Node.js
 
 #### ✅ What's Working:
-- ✅ Action items extracted during AI insights generation (`ActionItemService.js` — 15KB)
-- ✅ Stored in database with structure, confidence scores, canonical keys
-- ✅ Displayed in UI with status tracking
-- ✅ Confirmation/rejection workflow
-- ✅ **Automatic task creation from confirmed action items**
-- ✅ Database link between action items and tasks (`Task.actionItemId`)
-
-#### ⚠️ What Needs Updates:
-- Not extracted in real-time during meeting (only post-meeting)
-- Assignee names extracted but not linked to workspace users
-- Due dates extracted but not parsed to datetime automatically
-
-#### 📋 To-Do List:
-
-**HIGH PRIORITY:**
-- [x] Add "Create Task" button in ActionItemsPanel for confirmed items
-  - Shows success toast when task created
-  - Shows "TASK CREATED" badge + disabled "Task Exists" button if task already linked
-  - **Completed: March 26, 2026**
-
-- [ ] Implement deadline parsing
-  - Use `dateparser` or `chrono-node` library
-  - Create helper `parseDeadline(text, meetingDate)` for relative dates ("next Friday", "in 2 days")
-  - Store parsed date in task.dueDate
-  - **Estimate: 2 days**
-
-- [ ] Improve assignee linking
-  - Match extracted assignee names to workspace users via fuzzy matching
-  - Allow manual assignee selection in UI
-  - **Estimate: 2 days**
-
-**MEDIUM PRIORITY:**
-- [ ] Implement real-time action item detection during meetings
-- [ ] Enhance action item classification (type, priority)
-- [ ] Add feedback loop for false positives
-
----
-
-### 8. Task Extraction and Deadline Parsing
-**Status:** ✅ 75% COMPLETE  
-**Priority:** Medium  
-**Technologies:** Node.js, Prisma
-
-#### ✅ What's Working:
-- ✅ `TaskCreationService.js` (16KB) — full CRUD operations for tasks
-- ✅ Task model with assignee, due date, status, priority fields
-- ✅ **Automatic task creation from confirmed action items**
-- ✅ Database link between `action_items` and `tasks` tables
-- ✅ Manual task creation with full form (title, description, assignee, due date, priority, tags)
-- ✅ Tags system fully implemented (create, assign, filter)
+- Action items extracted post-meeting via `ActionItemService.js`
+- Stored with structure, confidence scores, canonical keys
+- Confirmation/rejection workflow in UI
+- **Auto task creation from confirmed action items** (in `AIInsightsService.saveInsightsToDatabase()`)
+- DB link between `action_items` and `tasks` tables
+- "Create Task" button in ActionItemsPanel with `TASK CREATED` badge
 
 #### ⚠️ What's Missing:
-- Due dates not parsed automatically from natural language
-- No automatic priority classification from action item text
+- Due dates extracted as text strings, NOT parsed to datetime
+- Priority not auto-classified from action item text
+- Assignee names not matched to workspace users
 
-#### 📋 To-Do List:
+#### 📋 To-Do:
 
-**HIGH PRIORITY:**
-- [x] **"Create Task" button in ActionItemsPanel** — *Completed March 26, 2026*
-  - Confirmed action items now have a "Create Task" button
-  - Shows "TASK CREATED" badge + disabled state if task already linked
-  - Success/error toast feedback
-- [ ] **Implement basic deadline parsing** — *2-3 days*
-  - Install `chrono-node` or `dateparser`
-  - Handle: "by Friday", "next week", "in 2 days"
-- [ ] **Add basic priority classification** — *1-2 days*
-  - High: "urgent", "ASAP", "immediately", "critical"
-  - Medium: "important", "should", "need to"
-  - Low: "could", "maybe", "eventually"
+**COMPLETED:**
+- [x] **Deadline parsing** — `chrono-node` in `TaskCreationService.parseDeadline()` + `AIInsightsService` *(March 27, 2026)*
+- [x] **Priority auto-classification** — `_extractPriority()` in `TaskCreationService` *(already existed — confirmed March 27, 2026)*
 
 **MEDIUM PRIORITY:**
-- [ ] Display meeting context in task detail modal
-- [ ] Link to original action item from task
-- [ ] Add "View in Meeting" link in task view
+- [ ] Fuzzy-match assignee name to workspace users
+- [ ] Real-time action item detection during meetings
 
 ---
 
-### 9. Kanban Board Integration
-**Status:** ✅ 100% COMPLETE  
-**Priority:** Low — Core features complete  
+### 8. Kanban Board Integration
+**Status:** ✅ 100% COMPLETE
 **Technologies:** React, dnd-kit, PostgreSQL, Prisma
 
 #### ✅ What's Working:
-- ✅ Full Kanban board with real data (`KanbanBoard.tsx`)
-- ✅ Trello-inspired visual design with color-coded columns
-- ✅ Drag-and-drop functionality persisting to backend
-- ✅ Three default columns per workspace: To-Do, In-Progress, Complete
-- ✅ Custom column management (create, delete, rename) — owner/admin only
-- ✅ Task CRUD operations fully implemented (`taskRoutes.js` — 22KB)
-- ✅ Tags system with color coding, inline creation, filtering
-- ✅ Filtering & sorting by assignee, tags, priority, due date
-- ✅ TaskCreationService with automatic task creation from action items
-- ✅ Role-based permissions
+- Full Kanban board with drag-and-drop persisting to backend
+- 3 default columns: To-Do, In-Progress, Complete
+- Custom column management (owner/admin only)
+- Full task CRUD (`taskRoutes.js`)
+- Tags with color coding, filtering by assignee/tags/priority/due date
+- TaskDetailModal with inline editing (title, description, assignee, due date)
+- Auto task creation from confirmed action items
 
-#### 🎯 Remaining Tasks:
+---
+
+### 9. Auto Follow-Up Reminders
+**Status:** ✅ 85% COMPLETE
+**Technologies:** Node.js cron, NotificationService, PostgreSQL
+
+#### ✅ What's Working:
+- `ReminderService.js` — full deadline scheduling, deduplication via `SentReminder` table
+- Default intervals: 24h and 1h before deadline
+- `checkTaskReminders.js` cron runs every 15 minutes
+- `GET/PUT /api/reminders/preferences`, `GET /api/reminders/upcoming`
+- `RemindersTab.tsx` — full preferences UI in profile settings
+- `NotificationService.js` — in-app notification delivery
+
+#### ⚠️ What's Missing (code-verified):
+- **Quiet hours not enforced** — `quietHoursStart`/`quietHoursEnd` stored and shown in UI but `checkAndSendReminders()` never checks them before dispatching
+
+#### 📋 To-Do:
+
 **HIGH PRIORITY:**
-- [x] **Update TaskDetailModal** to show:
-  - Full task information with inline editing ✅
-  - Inline editing for title (click header to edit)
-  - Inline editing for description (click to edit, Ctrl+Enter to save)
-  - Inline editing for assignee (click to edit)
-  - Inline editing for due date (click to edit, date picker)
-  - Optimistic updates with revert on error
-  - Save/Cancel buttons with per-field error display
-  - Task tags display (read-only)
-  - Meeting context (if created from action item)
-  - **Completed: March 26, 2026**
+- [ ] **Enforce quiet hours in `ReminderService.checkAndSendReminders()`** — *~3 hours*
+  - After fetching preferences, check if current UTC hour falls within quiet window before adding to `remindersToSend`
+  - Handle overnight ranges (e.g. 22:00–07:00)
+
+**LOW PRIORITY:**
+- [ ] Email reminder channel (when `NotificationSettings.emailActionItems` is enabled)
+- [ ] Browser push notifications (Web Push API / Firebase)
 
 ---
 
 ### 10. Task Contextual Micro-Channels
-**Status:** ❌ 0% COMPLETE  
-**Priority:** Medium  
+**Status:** ❌ 0% COMPLETE
+**Priority:** Medium
 **Technologies:** PostgreSQL, React, WebSocket
 
-This feature links tasks to transcript contexts from meetings. Dependent on TaskDetailModal completion.
-
-#### 📋 To-Do List (after TaskDetailModal is complete):
-
-**PHASE 1:** Design TaskContext schema (meeting references, transcript excerpts, timestamps)
-**PHASE 2:** Build `TaskContextService.js` with `linkTaskToMeeting()` and `getTaskContext()`
-**PHASE 3:** Add "Meeting Context" tab to TaskDetailModal
-**PHASE 4:** Real-time WebSocket updates when task is mentioned in meeting
+#### 📋 To-Do (after Knowledge Graph is in progress):
+- **PHASE 1:** TaskContext schema (meeting refs, transcript excerpts, timestamps)
+- **PHASE 2:** `TaskContextService.js` — `linkTaskToMeeting()`, `getTaskContext()`
+- **PHASE 3:** "Meeting Context" tab in TaskDetailModal
+- **PHASE 4:** Real-time WS updates when task is mentioned in meeting
 
 ---
 
 ## 🔹 MULTIMODAL INTELLIGENCE
 
 ### 11. Multimodal Meeting Capture
-**Status:** 🔄 20% COMPLETE  
-**Priority:** Medium  
+**Status:** 🔄 20% COMPLETE
 **Technologies:** HTML5 Canvas, Tesseract.js (OCR)
 
 #### ✅ What's Working:
-- Audio recording during meetings
-- Screen sharing capability in Zoom/Meet
-- Video recording as part of meeting capture
-- Basic file upload for meeting attachments
+- Audio/video recording during meetings
 
-#### 📋 To-Do List:
-
-**HIGH PRIORITY:**
-- [ ] Implement manual "Capture Moment" button in live meeting UI
-- [ ] Build `MeetingCaptures` table in database
-- [ ] Implement visual moments sidebar in post-meeting view
-
-**MEDIUM PRIORITY:**
-- [ ] Add OCR for slide text extraction (Tesseract.js)
-- [ ] Implement automatic capture triggers (scene change detection)
+#### 📋 To-Do:
+- [ ] "Capture Moment" button in live meeting UI
+- [ ] `MeetingCaptures` table
+- [ ] OCR for slide text extraction
 
 ---
 
 ## 🔹 PRIVACY, COMPLIANCE & CONTROL
 
 ### 12. Privacy & Compliance Mode
-**Status:** ❌ 0% COMPLETE  
-**Priority:** High  
-**Technologies:** RBAC, PostgreSQL row-level security
+**Status:** ❌ 0% COMPLETE
+**Priority:** Medium
+**Technologies:** RBAC, PostgreSQL
 
-#### 📋 To-Do List:
-
-**PHASE 1:** Privacy mode controls
-- [ ] Add pause/resume transcription functionality in bot
-- [ ] Store privacy mode intervals with timestamps
-- [ ] Add "Privacy Mode" button in live meeting UI (React)
-
-**PHASE 2:** Access controls
-- [ ] Extend existing RBAC for meeting-level access
-- [ ] Implement "confidential" meeting flag
-- [ ] Restrict transcript/summary access based on role
-
-**PHASE 3:** Compliance
-- [ ] Configurable data retention policies
-- [ ] Audit logging (who accessed what, when)
-- [ ] Data export (GDPR compliance)
+#### 📋 Phases:
+- **PHASE 1:** Pause/resume transcription in bot + UI toggle in live meeting
+- **PHASE 2:** "Confidential" meeting flag + meeting-level access restrictions
+- **PHASE 3:** Data retention policies, audit logging, GDPR export
 
 ---
 
 ### 13. Role-Based Access Control (RBAC)
-**Status:** ✅ 100% COMPLETE  
-**Priority:** High  
-**Technologies:** PostgreSQL, Prisma, Node.js
+**Status:** ✅ 100% COMPLETE
 
-#### ✅ What's Working:
-- User roles: owner, admin, member, observer
-- Role-based API access checks in meeting endpoints
-- Frontend conditional rendering based on role
-- Workspace-level access control
+- Roles: owner, admin, member, observer
+- Role-based API middleware across all endpoints
+- Frontend conditional rendering per role
 
 ---
 
 ## 🔹 SEARCH & RETRIEVAL
 
 ### 14. Smart Search & Query
-**Status:** 🔄 60% COMPLETE *(Previously listed as 20%)*  
-**Priority:** Medium-High  
-**Technologies:** pgvector, Transformers.js, PostgreSQL full-text search
+**Status:** ✅ 75% COMPLETE *(previously under-reported as 60%)*
+**Technologies:** pgvector, Transformers.js, Node.js
 
-#### ✅ What's Working (verified in code):
-- `SmartSearchModal.tsx` — Frontend search modal component exists
-- `GET /api/workspaces/:id/memory/search` — Semantic search API endpoint (via `memoryRoutes.js`)
-- `MeetingEmbeddingService.searchWorkspaceMeetings()` — cosine similarity vector search implemented
-- Basic keyword search in meetings (title, description) in existing meeting filters
+#### ✅ What's Working (code-verified):
+- `SmartSearchModal.tsx` calls `apiService.searchMeetingMemory()` → real `GET /api/workspaces/:id/memory/search` *(verified — no mock)*
+- Semantic (cosine similarity) search via `MeetingEmbeddingService.searchWorkspaceMeetings()`
+- Keyboard navigation (↑↓, Enter, ESC), debounced 500ms
+- Results grouped by meeting with snippet preview
 
 #### ⚠️ What's Missing:
-- Hybrid search (semantic + keyword combined) not implemented
-- Speaker-based search ("Show me what John said about X")
-- Search result highlighting of relevant transcript segments
-- Advanced search UI filters (date range, speaker, meeting type)
-- Search query builder
+- Hybrid search (pgvector + PostgreSQL FTS)
+- Result highlighting of matching transcript excerpts
+- Speaker-based search filters
+- Date range / meeting type filters
 
-#### 📋 To-Do List:
+#### 📋 To-Do:
 
 **HIGH PRIORITY:**
-- [ ] **Connect SmartSearchModal to the real API** (verify frontend is calling correct endpoint, not mock)
-- [ ] Implement hybrid search combining pgvector similarity + PostgreSQL full-text search
-- [ ] Add result highlighting of matching transcript segments
-- [ ] **Estimate: 2-3 days**
-
-**MEDIUM PRIORITY:**
-- [ ] Add speaker-based search filters
-- [ ] Add date range and meeting type filters in search
-- [ ] Build advanced search query builder UI
+- [ ] **Implement hybrid search** in `memoryController.js` — combine vector similarity with `plainto_tsquery` FTS — *2 days*
+- [ ] **Add result highlighting** in `SmartSearchModal.tsx` — bold matching terms in snippet — *1 day*
 
 ---
 
 ## 🔹 INTEGRATIONS & ECOSYSTEM
 
 ### 15. Calendar Integrations
-**Status:** ❌ 0% COMPLETE (UI mockup exists)  
-**Priority:** High  
-**Technologies:** Google Calendar API, Microsoft Graph API, OAuth 2.0
-
-#### ✅ What Exists:
-- Calendar UI mockup in onboarding and settings
-- `CalendarIntegrations` and `CalendarEvents` tables designed in schema
-
-#### 📋 To-Do List:
-
-**PHASE 1: Google Calendar**
-- [ ] Set up Google Cloud Platform project and enable Calendar API
-- [ ] Create `backend/src/services/GoogleCalendarService.js`
-- [ ] Implement OAuth 2.0 flow (auth URL, token exchange, refresh)
-- [ ] Implement event listing, meeting link detection, auto-join creation
-- [ ] Build cron job or webhook for calendar sync
-
-**PHASE 2: Outlook Integration**
-- [ ] Set up Azure App Registration
-- [ ] Create `backend/src/services/OutlookCalendarService.js`
-- [ ] Implement Microsoft Graph API OAuth flow
-
-**PHASE 3: Frontend**
-- [ ] Update onboarding calendar step to trigger real OAuth
-- [ ] Build auto-join settings UI
-- [ ] Update `MyCalendar` page with real data
-
-**PHASE 4: Task-to-Calendar Sync**
-- [ ] When task created with due date, create calendar event
-- [ ] Update/delete calendar event when task changes
-
----
+**Status:** ❌ 0% COMPLETE (UI mockup exists)
+**Priority:** Low (optional for FYP)
 
 ### 16. Third-Party Tool Integrations
-**Status:** ❌ 0% COMPLETE (UI mockups exist)  
-**Priority:** Medium-Low  
-**Technologies:** REST APIs, OAuth 2.0, Webhooks
-
-#### 📋 To-Do List:
-
-**PHASE 1: Jira** — Build `JiraService.js`, OAuth flow, task-to-issue sync, "Push to Jira" button
-**PHASE 2: Slack** — Build `SlackService.js`, post meeting summaries, task assignment notifications
-**PHASE 3: Trello** — Build `TrelloService.js`, Kanban board sync
-**PHASE 4: Google Drive** — Auto-upload transcripts and recordings to Drive
-**PHASE 5: Export** — Build `ExportService.js` for PDF, Markdown, SRT, CSV exports
+**Status:** ❌ 0% COMPLETE (UI mockups exist)
+**Priority:** Low (optional for FYP)
 
 ---
 
 ## 🔹 ADDITIONAL FEATURES
 
 ### 17. Interactive Transcript Review & Timeline
-**Status:** ✅ 100% COMPLETE ✅  
-**Priority:** Complete
-
-#### ✅ What's Working:
-- Integrated audio/video player with click-to-play from transcript
-- Auto-highlight current transcript segment during playback
-- Keyboard shortcuts (Space, ←→, ↑↓, M, C, F)
-- Playback speed controls (0.5x–2x)
-- Visual timeline with speaker change markers
-- Event markers (yellow=action items, green=decisions, purple=questions)
-
----
+**Status:** ✅ 100% COMPLETE
+- Click-to-play from transcript, keyboard shortcuts, playback speed, visual timeline with event markers
 
 ### 18. Note-Taking
-**Status:** ✅ 100% COMPLETE  
-**Priority:** Complete
+**Status:** ✅ 100% COMPLETE
 
-#### ✅ What's Working:
-- In-meeting note-taking UI
-- Notes saved to database with timestamps
-- Notes displayed in post-meeting view
-- User attribution and real-time sync
+### 19. Analytics Dashboard
+**Status:** ✅ 100% COMPLETE
+- All 4 tabs (Overview, Participants, Action Items, Insights) wired to real backend data
+- Time range filters, multiple chart types
 
----
-
-### 19. Auto Follow-Up Reminders
-**Status:** ✅ ~85% COMPLETE  
-**Priority:** Medium
-
-**NOTE: Calendar Integration (Feature #15) is NOT a prerequisite — the reminder system is implemented independently via in-app notifications and a cron-based scheduler.**
-
-#### ✅ What's Working (verified in code):
-- `ReminderService.js` — fully implemented with task deadline scheduling
-  - `checkAndSendReminders()` — scans all tasks with upcoming due dates, checks per-user preferences, deduplicates via `SentReminder` table
-  - Default reminder intervals: 24h and 1h before deadline
-  - `getUserReminderPreferences(userId)` — fetches or auto-creates user preferences
-  - `updateReminderPreferences(userId, prefs)` — upserts custom intervals and quiet hours
-  - `getUpcomingReminders(userId)` — returns upcoming task deadlines with next reminder time
-  - `cleanupOldReminders()` — purges `SentReminder` records older than 30 days
-- `checkTaskReminders.js` cron job — registered in `cron.js`, runs every 15 minutes on server startup
-- `reminderRoutes.js` — registered at `/api/reminders` in `server.js`
-  - `GET /api/reminders/preferences` — fetch user preferences
-  - `PUT /api/reminders/preferences` — update intervals, quiet hours, enabled toggle
-  - `GET /api/reminders/upcoming` — list upcoming task reminders
-  - `POST /api/reminders/test` — dev-only trigger for manual testing
-- `NotificationService.js` — in-app notification delivery (database-backed, no external push service)
-- `ReminderPreferences` and `SentReminder` Prisma models — fully defined in schema
-- `RemindersTab.tsx` — full preferences UI in user profile settings
-  - Enable/disable toggle
-  - Customizable reminder intervals (add/remove hours)
-  - Quiet hours start/end selectors
-  - Connected to `GET/PUT /api/reminders/preferences` via `apiService`
-- `ProfileSettings.tsx` — `RemindersTab` wired in as a dedicated "reminders" tab
-
-#### ⚠️ What's Missing:
-- **Quiet hours not enforced at send time** — `quietHoursStart`/`quietHoursEnd` are stored and shown in UI but `checkAndSendReminders()` never checks them before dispatching a notification
-- **No push or email delivery** — reminders are in-app only (database notifications); no Firebase Cloud Messaging, browser push, or email channel implemented
-
-#### 📋 Remaining To-Do List:
-
-**HIGH PRIORITY:**
-- [ ] **Enforce quiet hours in `ReminderService.checkAndSendReminders()`** — *~half a day*
-  - After fetching `preferences`, check if current UTC hour falls within `quietHoursStart`–`quietHoursEnd` window before sending
-  - Handle overnight ranges (e.g. 22:00–07:00)
-
-**LOW PRIORITY:**
-- [ ] Add email reminder channel — send email via existing email service when `NotificationSettings.emailActionItems` is enabled
-- [ ] Add browser push notifications (Web Push API or Firebase Cloud Messaging) for users who want out-of-app alerts
-- [ ] Surface upcoming reminders widget on the Task Board or dashboard
-
----
-
-### 20. Analytics Dashboard
-**Status:** ✅ 100% COMPLETE  
-**Priority:** Complete
-
-#### ✅ What's Working:
-- Comprehensive `/api/workspaces/:id/analytics` endpoint
-- Time range filters (all/week/month/quarter/year)
-- Participant analytics, transcript coverage, action item trends
-- Meeting duration analysis, time patterns, platform distribution
-- 4 frontend tabs: Overview, Participants, Action Items, Insights
-- All charts connected to live backend data (LineChart, PieChart, BarChart)
-- Dark mode, responsive design
-
----
-
-### 21. Team and Workspace Management
-**Status:** ✅ 100% COMPLETE  
-
-#### ✅ What's Working:
-- Workspace creation, management, deletion, archiving
-- Multi-workspace support per user, color themes, activity logs
-- User invitation system (email-based)
-- Role assignment (Owner, Admin, Member), member removal
-- Workspace Activity Dashboard with real-time stats
+### 20. Team and Workspace Management
+**Status:** ✅ 100% COMPLETE
 
 ---
 
 ## MASTER TO-DO LIST
 
-### 🚨 CRITICAL PATH - Build Foundations
+### 🔥 HIGH PRIORITY (Do Now)
 
-**1. Basic Search Infrastructure**
-- [ ] Add PostgreSQL full-text search for meetings/transcripts
-- [ ] Build search API endpoints
-- [ ] Connect search UI to backend
-- **Why Critical:** Improves usability immediately, foundation for semantic search later
-
----
-
-### 🔥 HIGH PRIORITY
-
-**4. Memory Engine — Related Meetings & Context Routes** *(2-3 days)*
-- Add `GET /api/meetings/:id/related` and `GET /api/meetings/:id/context` routes
-- Build `MemoryContextService.js` for related meeting scoring
-
-**5. Basic Deadline Parsing in TaskCreationService** *(2 days)*
-- Install `chrono-node` library
-- Parse relative dates from action item text into `task.dueDate`
-
-**6. Smart Search — Connect Frontend to Real API** *(1-2 days)*
-- Verify `SmartSearchModal.tsx` calls `GET /api/workspaces/:id/memory/search`
-- Add result highlighting and hybrid search
-
-**7. Knowledge Graph Backend — Phase 1** *(3-4 days)*
-- Create `graph_nodes` + `graph_edges` tables
-- Build `GraphConstructionService.js` to populate from AI insights
-- Replace mock data in `memoryAPI.ts` with real API calls
-
----
+| # | Task | Effort | Owner | Status |
+|---|---|---|---|---|
+| 1 | **Quiet hours enforcement** in `ReminderService.checkAndSendReminders()` | ~3 hrs | You | ⬜ TODO |
+| 2 | **Hybrid search** — pgvector + FTS in `memoryController.js` | 2 days | You | ⬜ TODO |
+| 3 | **Deadline parsing** — `chrono-node` in `TaskCreationService.js` | 2 days | You | ✅ DONE |
+| 4 | **Priority auto-classification** — keyword-based for action items | — | You | ✅ DONE |
+| 5 | **Knowledge Graph backend** — schema + services + API routes | 3-4 days | Friend | 🔄 WIP |
+| 6 | **Related meetings routes** — `GET /api/meetings/:id/related` + `MemoryContextService.js` | 2-3 days | You | ⬜ TODO |
+| 7 | **Result highlighting** in `SmartSearchModal.tsx` | 1 day | You | ⬜ TODO |
 
 ### ⚡ MEDIUM PRIORITY
 
-**8. Priority Classification for Action Items** *(1-2 days)*
-- Keyword-based: urgent/ASAP → High, should/need → Medium, could/maybe → Low
+| # | Task | Effort |
+|---|---|---|
+| 8 | Privacy Mode (pause/resume transcription) | 3-4 days |
+| 9 | Task Contextual Micro-Channels | ~1 week |
+| 10 | Manual speaker assignment in transcript review | 2-3 days |
 
-**9. Privacy Mode Controls** *(3-4 days)*
-- Pause/resume transcription in bot
-- Add UI toggle in live meeting interface
+### 📊 LOW PRIORITY / POST-FYP
 
-**10. Whisper Mode (Micro-Recaps)** *(✅ DONE — March 26, 2026)*
-- [x] `MicroSummaryService.js` with scheduled recap generation
-- [x] `POST /api/meetings/:id/whisper/trigger` manual trigger endpoint
-- [x] `WebSocketServer.broadcastWhisperRecap()` real-time push
-- [x] `useWhisperRecaps.ts` hook (REST initial load + WebSocket subscription)
-- [x] `WhisperRecapTab.tsx` chat-like sidebar UI
-- [x] "Catch Me Up" button in Top Bar of Live Meeting page
-
-**11. Task Contextual Micro-Channels** *(1 week)*
-- Build `TaskContextService.js`
-- Add "Meeting Context" tab to TaskDetailModal
-
-**12. Speaker Identification** *(2-3 weeks)*
-- Voice profile database + speaker recognition model
-- Manual assignment in transcript review
-
----
-
-### 📊 LOW PRIORITY / FUTURE
-
-- [ ] Calendar Integration (Google/Outlook OAuth) — 3-4 weeks
-- [ ] Third-party integrations (Jira, Slack, Trello) — depends on calendar
-- [ ] Multimodal capture (slide screenshots + OCR)
-- [ ] Multilingual transcription
-- [ ] Migrate to Faster-Whisper
-- [ ] Advanced analytics enhancements (PDF export, comparison views)
+- Calendar Integration (Google/Outlook OAuth)
+- Third-party integrations (Jira, Slack, Trello)
+- Multimodal capture (slide screenshots + OCR)
+- Multilingual transcription
+- Migrate to Faster-Whisper
+- Email/push reminders
 
 ---
 
 ## CONCLUSION
 
-Kairo has made significant strides since January 2026, with the progress now estimated at **~76% complete**. The core intelligence pipeline, task management, analytics, the embedding layer for semantic search, and the Whisper Mode real-time recap system are all functional. The main remaining work is:
+Kairo is now **~82% complete** (code-verified, March 27, 2026). The core AI pipeline (bot → transcript → AI insights → embeddings → Smart Search) is fully end-to-end functional. Deadline parsing and priority classification are done. The main remaining work is:
 
-1. **Wiring existing components together** (embedding pipeline → post-meeting, Smart Search → frontend)
-2. **Completing the Knowledge Graph backend** (the UI shell exists but has no backend)
-3. **New features** (Privacy Controls, Calendar Integration)
+1. **Small plumbing fixes** (quiet hours, deadline parsing, priority classification) — 1 week total
+2. **Search improvements** (hybrid search, result highlighting) — ~3 days
+3. **Knowledge Graph backend** (being handled by teammate)
+4. **New features** (Privacy Mode, Calendar) — post-FYP or stretch goals
 
-**Note:** Microsoft Teams support is NOT in scope. Focus remains on Google Meet and Zoom.
+**Note:** Microsoft Teams support is NOT in scope. Focus is Google Meet and Zoom.
 
 ---
 
-*Last Updated: March 26, 2026*  
+*Last Updated: March 27, 2026*
+*Audited by: Antigravity — cross-checked against actual source code*
 *Maintained by: Kairo Team*
