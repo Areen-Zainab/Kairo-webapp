@@ -65,6 +65,12 @@ class ReminderService {
           
           if (!preferences.enabled) continue;
 
+          // Skip if currently within user's quiet hours
+          if (this._isInQuietHours(preferences.quietHoursStart, preferences.quietHoursEnd)) {
+            console.log(`[ReminderService] Skipping user ${userId} — quiet hours active (${preferences.quietHoursStart}–${preferences.quietHoursEnd} UTC)`);
+            continue;
+          }
+
           // Check if any reminder interval matches
           for (const interval of preferences.intervals) {
             const reminderTime = new Date(task.dueDate);
@@ -383,6 +389,27 @@ class ReminderService {
     }
     
     return 'Past due';
+  }
+  /**
+   * Check if the current UTC time falls within the user's configured quiet hours.
+   * Handles overnight ranges (e.g. quietHoursStart=22, quietHoursEnd=7).
+   *
+   * @param {number|null} start - Quiet hours start (UTC hour, 0–23), or null if not set
+   * @param {number|null} end   - Quiet hours end   (UTC hour, 0–23), or null if not set
+   * @returns {boolean} true if reminders should be suppressed right now
+   */
+  static _isInQuietHours(start, end) {
+    if (start == null || end == null) return false; // not configured — always allow
+
+    const currentHour = new Date().getUTCHours();
+
+    if (start <= end) {
+      // Normal range: e.g. 09:00–18:00
+      return currentHour >= start && currentHour < end;
+    } else {
+      // Overnight range: e.g. 22:00–07:00
+      return currentHour >= start || currentHour < end;
+    }
   }
 }
 
