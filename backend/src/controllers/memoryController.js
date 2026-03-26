@@ -2,7 +2,7 @@ const prisma = require("../lib/prisma");
 const meetingEmbeddingService = require("../services/MeetingEmbeddingService");
 
 /**
- * Perform a semantic search on the workspace's meeting memories
+ * Perform a hybrid (semantic + full-text) search on the workspace's meeting memories
  */
 exports.semanticSearch = async (req, res) => {
   try {
@@ -34,11 +34,18 @@ exports.semanticSearch = async (req, res) => {
       return res.status(403).json({ error: "You do not have access to this workspace." });
     }
 
-    // Call the embedding service to execute the vector search
-    const results = await meetingEmbeddingService.searchWorkspaceMeetings(
+    // Extract meaningful terms from query (strip stop words shorter than 3 chars)
+    const STOP_WORDS = new Set(['the','and','for','are','but','not','you','all','can','her','was','one','our','out','day','get','has','him','his','how','its','may','new','now','old','see','two','way','who','boy','did','had','let','put','say','she','too','use']);
+    const matchedTerms = effectiveQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .map(w => w.replace(/[^a-z0-9]/gi, ''))
+      .filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+
+    // Use hybrid search (pgvector + FTS)
+    const results = await meetingEmbeddingService.hybridSearchWorkspaceMeetings(
       parseInt(workspaceId),
       effectiveQuery,
-      // Pull more rows than requested since we dedupe by meeting below
       Math.max(parseInt(limit) * 5, parseInt(limit))
     );
 
@@ -54,8 +61,9 @@ exports.semanticSearch = async (req, res) => {
         meetingStartTime: r.start_time,
         contentType: r.content_type,
         snippet,
-        content, // keep full content for now (frontend can decide what to show)
-        distance: typeof r.distance === "number" ? r.distance : Number(r.distance)
+        content,
+        distance: typeof r.distance === "number" ? r.distance : Number(r.distance),
+        matchedTerms  // pass query terms so frontend can highlight without reparsing
       };
     });
 

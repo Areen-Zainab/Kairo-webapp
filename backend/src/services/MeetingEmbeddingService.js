@@ -189,6 +189,180 @@ class MeetingEmbeddingService {
       throw error;
     }
   }
+
+  /**
+   * Hybrid search: combines pgvector cosine similarity with PostgreSQL full-text search.
+   * - Semantic score (60% weight): vector distance via <=>
+   * - FTS score (40% weight): ts_rank from plainto_tsquery
+   * Results are ranked by a combined score so exact keyword matches AND semantic
+   * matches both surface correctly.
+   *
+   * Falls back to pure vector search if FTS fails (e.g. language config issues).
+   *
+   * @param {number} workspaceId
+   * @param {string} queryText
+   * @param {number} limit
+   */
+  async hybridSearchWorkspaceMeetings(workspaceId, queryText, limit = 10) {
+    if (!queryText) return [];
+
+    try {
+      const queryEmbedding = await embeddingService.generateEmbedding(queryText);
+      const embeddingStr = '[' + queryEmbedding.join(',') + ']';
+
+      // Pull more rows (5x limit) from each source then merge/rerank
+      const fetchLimit = Math.max(limit * 5, 20);
+
+      // Run vector search and FTS in parallel
+      const [vectorResults, ftsResults] = await Promise.all([
+        // 1. Pure semantic (vector) search
+        prisma.$queryRawUnsafe(
+          `SELECT me.id::text, me.meeting_id, me.content_type, me.content,
+                  me.embedding <=> $1::vector(384) AS distance,
+                  m.title AS meeting_title, m.start_time
+           FROM meeting_embeddings me
+           JOIN meetings m ON m.id = me.meeting_id
+           WHERE m.workspace_id = $2
+           ORDER BY me.embedding <=> $1::vector(384)
+           LIMIT $3`,
+          embeddingStr,
+          workspaceId,
+          fetchLimit
+        ),
+        // 2. Full-text search using PostgreSQL tsvector
+        prisma.$queryRawUnsafe(
+          `SELECT me.id::text, me.meeting_id, me.content_type, me.content,
+                  ts_rank(to_tsvector('english', me.content), plainto_tsquery('english', $1)) AS fts_rank,
+                  m.title AS meeting_title, m.start_time
+           FROM meeting_embeddings me
+           JOIN meetings m ON m.id = me.meeting_id
+           WHERE m.workspace_id = $2
+             AND to_tsvector('english', me.content) @@ plainto_tsquery('english', $1)
+           ORDER BY fts_rank DESC
+           LIMIT $3`,
+          queryText,
+          workspaceId,
+          fetchLimit
+        ).catch(() => []) // FTS can fail on empty query or missing config — fallback to empty
+      ]);
+
+      // Build score maps: lower distance = better for vector; higher rank = better for FTS
+      const scoreMap = new Map(); // id -> { row, vectorScore, ftsScore }
+
+      // Normalise vector distances (0 = perfect, 2 = worst) into 0–1 score
+      const maxDist = 2.0;
+      for (const r of vectorResults) {
+        const dist = typeof r.distance === 'number' ? r.distance : Number(r.distance);
+        const vectorScore = 1 - Math.min(dist / maxDist, 1); // higher = better
+        scoreMap.set(r.id, { row: r, vectorScore, ftsScore: 0 });
+      }
+
+      // Normalise FTS ranks (already 0–1 from ts_rank) and merge
+      const maxFts = ftsResults.reduce((m, r) => Math.max(m, Number(r.fts_rank) || 0), 1);
+      for (const r of ftsResults) {
+        const ftsScore = maxFts > 0 ? (Number(r.fts_rank) || 0) / maxFts : 0;
+        if (scoreMap.has(r.id)) {
+          scoreMap.get(r.id).ftsScore = ftsScore;
+        } else {
+          scoreMap.set(r.id, { row: r, vectorScore: 0, ftsScore });
+        }
+      }
+
+      // Combined score: 60% semantic + 40% FTS
+      const VECTOR_WEIGHT = 0.6;
+      const FTS_WEIGHT = 0.4;
+
+      const ranked = Array.from(scoreMap.values())
+        .map(({ row, vectorScore, ftsScore }) => ({
+          ...row,
+          // Expose distance as (1 - combinedScore) so existing dedup logic (lower = better) still works
+          distance: 1 - (VECTOR_WEIGHT * vectorScore + FTS_WEIGHT * ftsScore)
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, limit);
+
+      console.log(`[MeetingEmbeddingService] Hybrid search: ${vectorResults.length} vector + ${ftsResults.length} FTS → ${ranked.length} merged results`);
+      return ranked;
+    } catch (error) {
+      console.error(`[MeetingEmbeddingService] Hybrid search error — falling back to vector:`, error);
+      // Graceful fallback: pure vector
+      return this.searchWorkspaceMeetings(workspaceId, queryText, limit);
+    }
+  }
+  /**
+   * Find meetings in the same workspace that are semantically similar to a given meeting.
+   * Uses the meeting_memory_contexts.summary_embedding for comparison.
+   *
+   * @param {number} meetingId    - The source meeting to find relatives for
+   * @param {number} workspaceId  - Workspace scope for search
+   * @param {number} limit        - Max results to return (default 5)
+   * @returns {Array}  Array of related meeting objects with similarity score
+   */
+  async findRelatedMeetings(meetingId, workspaceId, limit = 5) {
+    try {
+      // 1. Get the summary embedding for the source meeting
+      const sourceContext = await prisma.$queryRawUnsafe(
+        `SELECT summary_embedding, key_topics, meeting_context
+         FROM meeting_memory_contexts
+         WHERE meeting_id = $1
+         LIMIT 1`,
+        meetingId
+      );
+
+      if (!sourceContext || sourceContext.length === 0 || !sourceContext[0].summary_embedding) {
+        console.log(`[MeetingEmbeddingService] No memory context/embedding found for meeting ${meetingId} — cannot find related meetings`);
+        return [];
+      }
+
+      // summary_embedding comes back as a string "[0.1,0.2,...]" from pgvector
+      const embeddingStr = sourceContext[0].summary_embedding;
+
+      // 2. Find top-N similar meetings in the same workspace (excluding self)
+      const related = await prisma.$queryRawUnsafe(
+        `SELECT
+           m.id,
+           m.title,
+           m.start_time,
+           m.end_time,
+           m.duration,
+           m.status,
+           m.platform,
+           mmc.key_topics,
+           mmc.participants,
+           mmc.meeting_context AS summary,
+           mmc.summary_embedding <=> $1::vector(384) AS distance
+         FROM meeting_memory_contexts mmc
+         JOIN meetings m ON m.id = mmc.meeting_id
+         WHERE m.workspace_id = $2
+           AND m.id <> $3
+           AND mmc.summary_embedding IS NOT NULL
+         ORDER BY mmc.summary_embedding <=> $1::vector(384)
+         LIMIT $4`,
+        embeddingStr,
+        workspaceId,
+        meetingId,
+        limit
+      );
+
+      // Convert distance (0=identical, 2=opposite) to a 0–100 similarity score
+      return related.map(r => ({
+        id: Number(r.id),
+        title: r.title,
+        startTime: r.start_time,
+        endTime: r.end_time,
+        duration: r.duration,
+        status: r.status,
+        platform: r.platform,
+        keyTopics: r.key_topics || [],
+        participants: r.participants || [],
+        summary: r.summary || null,
+        similarityScore: Math.round((1 - Math.min(Number(r.distance), 1)) * 100) // 0–100
+      }));
+    } catch (error) {
+      console.error(`[MeetingEmbeddingService] Error finding related meetings for ${meetingId}:`, error);
+      return []; // Non-fatal — callers should handle empty array
+    }
+  }
 }
 
 module.exports = new MeetingEmbeddingService();

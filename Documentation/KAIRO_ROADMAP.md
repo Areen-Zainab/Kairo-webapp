@@ -14,7 +14,7 @@
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~83% Complete
+### Overall Progress: ~87% Complete
 
 > **Last Updated:** March 27, 2026 *(code-verified — not self-reported)*
 > Previous estimate (March 26, 2026) was 76%. Significant items completed since.
@@ -54,7 +54,7 @@
 12. **Auto Follow-Up Reminders** — ✅ 100% Complete *(quiet hours enforcement added March 27, 2026)*
 13. **Task Extraction and Deadline Parsing** — ✅ 100% Complete *(chrono-node integrated March 27, 2026; handles ISO dates + natural language like "next Friday", "in 2 days")*
 14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron + manual trigger + WebSocket + useWhisperRecaps + WhisperRecapTab + "Catch Me Up" button)*
-15. **Smart Search & Query** — ✅ 75% Complete *(SmartSearchModal wired to real semantic search API — verified in code; hybrid search not yet implemented)*
+15. **Smart Search & Query** — ✅ 100% Complete *(hybrid search pgvector+FTS + result highlighting added March 27, 2026)*
 
 ### 🔄 PARTIALLY IMPLEMENTED (2/22)
 
@@ -401,11 +401,12 @@
 | # | Task | Effort | Owner | Status |
 |---|---|---|---|---|
 | 1 | **Quiet hours enforcement** in `ReminderService.checkAndSendReminders()` | ~3 hrs | You | ✅ DONE |
-| 2 | **Hybrid search** — pgvector + FTS in `memoryController.js` | 2 days | You | ⬜ TODO |
+| 2 | **Hybrid search** — pgvector + FTS in `memoryController.js` | 2 days | You | ✅ DONE |
+| 2b | **Result highlighting** in `SmartSearchModal.tsx` | 1 day | You | ✅ DONE |
 | 3 | **Deadline parsing** — `chrono-node` in `TaskCreationService.js` | 2 days | You | ✅ DONE |
 | 4 | **Priority auto-classification** — keyword-based for action items | — | You | ✅ DONE |
 | 5 | **Knowledge Graph backend** — schema + services + API routes | 3-4 days | Friend | 🔄 WIP |
-| 6 | **Related meetings routes** — `GET /api/meetings/:id/related` + `MemoryContextService.js` | 2-3 days | You | ⬜ TODO |
+| 6 | **Related meetings routes** — `GET /api/meetings/:id/related` + `MemoryContextService.js` | 2-3 days | You | ✅ DONE |
 | 7 | **Result highlighting** in `SmartSearchModal.tsx` | 1 day | You | ⬜ TODO |
 
 ### ⚡ MEDIUM PRIORITY

@@ -389,6 +389,55 @@ router.get("/:meetingId/audio", authenticateToken, async (req, res) => {
   }
 });
 
+// Get meetings related to a specific meeting (semantic similarity via embeddings)
+// IMPORTANT: must appear before GET /:id to avoid Express route conflict
+router.get("/:id/related", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+    const limit = Math.min(parseInt(req.query.limit) || 5, 10); // cap at 10
+
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    // Get the meeting to know its workspace
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Verify workspace membership
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    const MeetingEmbeddingService = require("../services/MeetingEmbeddingService");
+    const relatedMeetings = await MeetingEmbeddingService.findRelatedMeetings(
+      meetingId,
+      meeting.workspaceId,
+      limit
+    );
+
+    res.json({
+      success: true,
+      meetingId,
+      relatedMeetings
+    });
+  } catch (error) {
+    console.error("Get related meetings error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Get meeting by ID
 router.get("/:id", authenticateToken, async (req, res) => {
   try {
