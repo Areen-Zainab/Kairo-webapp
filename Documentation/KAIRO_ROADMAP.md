@@ -15,10 +15,10 @@
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~74% Complete
+### Overall Progress: ~76% Complete
 
 > **Last Audited:** March 26, 2026  
-> Previous estimate (Jan 15, 2026) was 52%. Significant work has been completed since — especially the Meeting Memory Engine, Smart Search, Analytics Dashboard, Kanban Board, and Notification System.
+> Previous estimate (Jan 15, 2026) was 52%. Significant work has been completed since — especially the Meeting Memory Engine, Smart Search, Analytics Dashboard, Kanban Board, Notification System, and Whisper Mode.
 
 Kairo has made substantial progress. The platform now has:
 - ✅ Functional meeting bot that joins Google Meet/Zoom
@@ -36,12 +36,12 @@ Kairo has made substantial progress. The platform now has:
 - ✅ **Memory API route** (`GET /api/workspaces/:id/memory/search`)
 - ✅ **NotificationService** (in-app notifications)
 - ✅ **MicroSummaryService** (whisper-mode backend)
+- ✅ **Whisper Mode UI** — `useWhisperRecaps` hook, `WhisperRecapTab`, "Catch Me Up" button, WebSocket broadcast
 
 ### Key Remaining Gaps:
 - ❌ **Knowledge Graph backend** — `memoryAPI.ts` still returns mock data; graph tables, `GraphConstructionService`, and `GraphQueryRoutes` not built
 - ❌ **PostMeetingProcessor.convertToTasks()** is a placeholder stub — embedding trigger after meeting completion not connected
 - ❌ `MeetingMemoryContext` and related-meetings retrieval not wired to any route
-- ❌ Whisper Mode (micro-recaps during meetings: frontend and web-socket left)
 - ❌ Calendar Integration (Google/Outlook OAuth)
 - ❌ Third-Party integrations (Jira, Slack, Trello)
 - ❌ Privacy & Compliance Mode controls
@@ -51,7 +51,7 @@ Kairo has made substantial progress. The platform now has:
 
 ## IMPLEMENTATION STATUS OVERVIEW
 
-### ✅ COMPLETED FEATURES (13/22)
+### ✅ COMPLETED FEATURES (14/22)
 
 1. **Team and Workspace Management** — 100% Complete
 2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom only)
@@ -66,12 +66,12 @@ Kairo has made substantial progress. The platform now has:
 11. **Meeting Memory Engine (Embedding Pipeline)** — 70% Complete
 12. **Auto Follow-Up Reminders** - 85% Complete (quiet hours enforcement + push/email channels missing)
 13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP missing)
+14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron job + manual trigger endpoint + WebSocket broadcast + `useWhisperRecaps` hook + `WhisperRecapTab` + "Catch Me Up" button)*
 
-### 🔄 PARTIALLY IMPLEMENTED (3/22)
+### 🔄 PARTIALLY IMPLEMENTED (2/22)
 
-14. **Smart Search & Query** - 60% Complete (basic search only)
-15. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
-16. **Whisper Mode (Micro-Recap During Meeting)** - 50% Complete (MicroSummaryService + guarded cron tick are now in place, while WebSocket/UI integration is still pending)
+15. **Smart Search & Query** - 60% Complete (basic search only)
+16. **Multimodal Meeting Capture** - 20% Complete (basic recording only)
 
 ### ❌ NOT IMPLEMENTED (4/22)
 
@@ -183,44 +183,23 @@ Kairo has made substantial progress. The platform now has:
 ---
 
 ### 4. Whisper Mode (Micro-Recap During Meeting)
-**Status:** 🔄 50%  (Backend cron + MicroSummaryService added (no WebSocket/UI integration yet)) 
+**Status:** ✅ 100% COMPLETE *(March 26, 2026)*  
 **Priority:** Medium-High  
-**Technologies:** LLMs (Grok), WebSocket, React
+**Technologies:** LLMs (Groq), WebSocket, React, Node.js
 
-#### 📋 Complete Implementation To-Do List:
+#### ✅ What's Working:
+- `MicroSummaryService.js` — Generates 2–3 sentence recaps via Groq API from recent live transcript chunks, with transcript-hash caching, rate limiting, and retry logic.
+- `runWhisperMode.js` — Cron job polls active meetings sequentially; gated by `WHISPER_MODE_ENABLED`.
+- **Manual trigger** — `POST /api/meetings/:id/whisper/trigger` bypasses interval constraints for on-demand recaps.
+- **WebSocket broadcast** — `WebSocketServer.broadcastWhisperRecap()` pushes new recaps to all connected clients via the `whisper_recap` event type.
+- **`useWhisperRecaps.ts`** — React hook fetches initial recaps from `meeting.metadata.whisperMode.microRecaps` and subscribes to real-time `whisper_recap` WebSocket events.
+- **`WhisperRecapTab.tsx`** — Chat-like sidebar tab displaying timestamped micro-recaps with auto-scroll and loading/error states.
+- **"Catch Me Up" button** — Added to the live meeting Top Bar; triggers `triggerCatchMeUp()` with animated loading feedback.
+- **Toast notification** — `toastSuccess` fires whenever a new recap arrives via WebSocket.
 
-**HIGH PRIORITY - Backend:**
-- [x] Build MicroSummaryService
-  - Implement micro-recap generation from recent live transcript chunks (`chunk_*_transcript.txt`)
-  - Use Grok API to generate 2-3 sentence recap
-  - Add caching to avoid duplicate generation (transcript hash + recap interval in `meeting.metadata.whisperMode`)
-  - Implement rate limiting + retries for API calls
-
-- [x] Add scheduled cron trigger
-  - Create `backend/src/jobs/runWhisperMode.js` (active meeting guard + sequential execution)
-  - Register in `backend/src/config/cron.js` and gate by `WHISPER_MODE_ENABLED`
-
-- [ ] Add real-time trigger mechanism
-  - Create scheduled task (every 5-10 minutes) per active meeting
-  - Make interval configurable per meeting
-  - Trigger on user request via WebSocket
-  - Queue micro-summary requests to avoid overload
-
-- [ ] Integrate with existing services
-  - Fetch recent transcript segments from TranscriptionService
-  - Broadcast micro-summaries via WebSocket (`WebSocketServer.js`)
-  - Store micro-summaries in database for history
-
-**HIGH PRIORITY - Frontend:**
-- [ ] Build micro-recap UI components
-  - Create floating panel for micro-recap display
-  - Add "Catch Me Up" button in live meeting interface
-  - Display timestamped recaps in chat-like interface
-  - Add visual indicator when new recap is generated
-
-**MEDIUM PRIORITY:**
-- [ ] Add smart triggering (new participant joins, topic changes)
-- [ ] Improve recap quality (include decisions, action items, participant contributions)
+#### 🔄 Optional Future Enhancements:
+- [ ] Smart triggering (new participant joins, topic changes)
+- [ ] Improved recap quality (include decisions, action items, participant contributions)
 
 ---
 
@@ -759,9 +738,13 @@ This feature links tasks to transcript contexts from meetings. Dependent on Task
 - Pause/resume transcription in bot
 - Add UI toggle in live meeting interface
 
-**10. Whisper Mode (Micro-Recaps)** *(1 week)*
-- Build `MicroSummaryService.js` with scheduled recap generation
-- Add "Catch Me Up" button in live meeting UI
+**10. Whisper Mode (Micro-Recaps)** *(✅ DONE — March 26, 2026)*
+- [x] `MicroSummaryService.js` with scheduled recap generation
+- [x] `POST /api/meetings/:id/whisper/trigger` manual trigger endpoint
+- [x] `WebSocketServer.broadcastWhisperRecap()` real-time push
+- [x] `useWhisperRecaps.ts` hook (REST initial load + WebSocket subscription)
+- [x] `WhisperRecapTab.tsx` chat-like sidebar UI
+- [x] "Catch Me Up" button in Top Bar of Live Meeting page
 
 **11. Task Contextual Micro-Channels** *(1 week)*
 - Build `TaskContextService.js`
@@ -786,11 +769,11 @@ This feature links tasks to transcript contexts from meetings. Dependent on Task
 
 ## CONCLUSION
 
-Kairo has made significant strides since January 2026, with the progress now estimated at **~72% complete**. The core intelligence pipeline, task management, analytics, and the embedding layer for semantic search are all functional. The main remaining work is:
+Kairo has made significant strides since January 2026, with the progress now estimated at **~76% complete**. The core intelligence pipeline, task management, analytics, the embedding layer for semantic search, and the Whisper Mode real-time recap system are all functional. The main remaining work is:
 
 1. **Wiring existing components together** (embedding pipeline → post-meeting, Smart Search → frontend)
 2. **Completing the Knowledge Graph backend** (the UI shell exists but has no backend)
-3. **New features** (Whisper Mode, Privacy Controls, Calendar Integration)
+3. **New features** (Privacy Controls, Calendar Integration)
 
 **Note:** Microsoft Teams support is NOT in scope. Focus remains on Google Meet and Zoom.
 

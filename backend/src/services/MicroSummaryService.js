@@ -162,7 +162,7 @@ class MicroSummaryService {
    * @param {object} meeting - Meeting row (id/status/endTime/metadata) to avoid extra DB reads.
    * @returns {Promise<{generated: boolean, skipped: boolean, reason?: string, recapText?: string}>}
    */
-  async maybeGenerateMicroRecap(meetingId, meeting) {
+  async maybeGenerateMicroRecap(meetingId, meeting, isManual = false) {
     const whisperEnabled = process.env.WHISPER_MODE_ENABLED === 'true';
     if (!whisperEnabled) {
       return { generated: false, skipped: true, reason: 'WHISPER_MODE_ENABLED=false' };
@@ -186,7 +186,7 @@ class MicroSummaryService {
 
     const lastRecapAt = whisperMeta.lastRecapAt ? new Date(whisperMeta.lastRecapAt).getTime() : null;
     const minIntervalMs = intervalMinutes * 60 * 1000;
-    if (lastRecapAt && (nowMs - lastRecapAt) < minIntervalMs) {
+    if (!isManual && lastRecapAt && (nowMs - lastRecapAt) < minIntervalMs) {
       return { generated: false, skipped: true, reason: 'Recap interval not reached' };
     }
 
@@ -268,6 +268,14 @@ class MicroSummaryService {
       where: { id: meetingId },
       data: { metadata: nextMetadata }
     });
+
+    // Broadcast via WebSocket
+    try {
+      const WebSocketServer = require('./WebSocketServer');
+      WebSocketServer.broadcastWhisperRecap(meetingId, newRecapEntry);
+    } catch (wsErr) {
+      console.warn(`⚠️ [WhisperMode] Failed to broadcast recap for meeting ${meetingId}:`, wsErr.message);
+    }
 
     // Optional file persistence for debugging / future UI.
     try {

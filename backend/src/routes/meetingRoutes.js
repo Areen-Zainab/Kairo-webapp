@@ -2162,5 +2162,53 @@ router.post("/:id/ai-insights/regenerate", authenticateToken, async (req, res) =
   }
 });
 
+// Trigger Whisper Mode Micro-Recap
+router.post("/:id/whisper/trigger", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: { id: true, status: true, endTime: true, metadata: true, workspaceId: true }
+    });
+
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Check access
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    const MicroSummaryService = require('../services/MicroSummaryService');
+    const svc = new MicroSummaryService();
+    
+    // Bypass the min interval check for manual triggers
+    const result = await svc.maybeGenerateMicroRecap(meetingId, meeting, true);
+    
+    if (result.generated && result.recapText) {
+      return res.json({ success: true, message: "Whisper recap generated", recapText: result.recapText });
+    } else {
+      return res.json({ success: false, message: result.reason || "Skipped generation", skipped: result.skipped });
+    }
+  } catch (error) {
+    console.error("Manual Whisper trigger error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 module.exports = router;
 

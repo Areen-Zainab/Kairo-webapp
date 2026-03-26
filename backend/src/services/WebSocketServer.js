@@ -191,6 +191,49 @@ function getConnectionCount(meetingId) {
 }
 
 /**
+ * Broadcast whisper recap to all connected clients for a meeting
+ * @param {number} meetingId - Meeting ID
+ * @param {object} recapData - Recap data {text, timestamp}
+ */
+function broadcastWhisperRecap(meetingId, recapData) {
+  const connections = meetingConnections.get(meetingId);
+  
+  if (!connections || connections.size === 0) {
+    return;
+  }
+
+  const message = JSON.stringify({
+    type: 'whisper_recap',
+    data: {
+      text: recapData.text,
+      timestamp: recapData.timestamp || new Date().toISOString()
+    }
+  });
+
+  let sentCount = 0;
+  connections.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(message);
+        sentCount++;
+      } catch (error) {
+        connections.delete(ws);
+      }
+    } else {
+      connections.delete(ws);
+    }
+  });
+
+  if (connections.size === 0) {
+    meetingConnections.delete(meetingId);
+  }
+
+  if (sentCount > 0) {
+    console.log(`📤 Broadcast whisper recap to ${sentCount} client(s) for meeting ${meetingId}`);
+  }
+}
+
+/**
  * Close all connections for a meeting
  * @param {number} meetingId - Meeting ID
  */
@@ -211,6 +254,7 @@ module.exports = {
   initializeWebSocketServer,
   broadcastTranscript,
   broadcastActionItems,
+  broadcastWhisperRecap,
   getConnectionCount,
   closeMeetingConnections
 };

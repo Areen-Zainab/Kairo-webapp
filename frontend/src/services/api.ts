@@ -744,6 +744,20 @@ class ApiService {
     });
   }
 
+  async triggerWhisperRecap(meetingId: number): Promise<ApiResponse<{ recapText: string; message: string; skipped?: boolean }>> {
+    // Ensure token is refreshed before making request
+    this.refreshToken();
+    if (!this.token) {
+      const tokenFromStorage = localStorage.getItem('authToken');
+      if (tokenFromStorage && tokenFromStorage.trim()) {
+        this.token = tokenFromStorage.trim();
+      }
+    }
+    return this.request<{ recapText: string; message: string; skipped?: boolean }>(`/meetings/${meetingId}/whisper/trigger`, {
+      method: 'POST',
+    });
+  }
+
   async updateMeetingStatus(meetingId: number, status: string): Promise<ApiResponse<{ meeting: any }>> {
     // Ensure token is refreshed before making request
     this.refreshToken();

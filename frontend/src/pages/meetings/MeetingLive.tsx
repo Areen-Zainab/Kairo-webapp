@@ -29,11 +29,13 @@ import NotesTab from '../../components/meetings/meetingslive/NotesTab';
 import TranscriptTab from '../../components/meetings/meetingslive/TranscriptTab';
 import InsightsTab from '../../components/meetings/meetingslive/InsightsTab';
 import LeaveMeetingConfirmationModal from '../../modals/LeaveMeetingConfirmationModal';
+import WhisperRecapTab from '../../components/meetings/meetingslive/WhisperRecapTab';
 import { useLiveTranscript } from '../../hooks/useLiveTranscript';
 import { useLiveAIInsights } from '../../hooks/useLiveAIInsights';
 import { useActionItems } from '../../hooks/useActionItems';
+import { useWhisperRecaps } from '../../hooks/useWhisperRecaps';
 
-type SidebarTab = 'notes' | 'actions' | 'chat' | 'memory' | 'transcript' | 'insights';
+type SidebarTab = 'notes' | 'actions' | 'chat' | 'memory' | 'transcript' | 'insights' | 'recaps';
 
 interface Participant {
   id: string;
@@ -68,7 +70,6 @@ interface Insight {
   category: 'decision' | 'question' | 'important';
 }
 
-type ActionStatus = 'confirmed' | 'removed' | 'undecided';
 
 const LiveMeetingView = () => {
   const { id, workspaceId } = useParams<{ id: string; workspaceId?: string }>();
@@ -257,11 +258,23 @@ const LiveMeetingView = () => {
 
   // Fetch live action items from database (extracted during meeting)
   const meetingIdNum = id ? parseInt(id, 10) : null;
-  const { actionItems: dbActionItems, loading: actionItemsLoading, confirmActionItem, rejectActionItem } = useActionItems(
+  const { actionItems: dbActionItems, confirmActionItem, rejectActionItem } = useActionItems(
     Number.isNaN(meetingIdNum) ? null : meetingIdNum,
     12000, // Poll every 12 seconds
     true   // Enable WebSocket
   );
+
+  // Whisper Recaps hook
+  const { recaps, loading: recapsLoading, error: recapsError, triggering, triggerCatchMeUp, newRecapEvent } = useWhisperRecaps(
+    Number.isNaN(meetingIdNum) ? null : meetingIdNum, 
+    isConnected
+  );
+
+  useEffect(() => {
+    if (newRecapEvent) {
+      toastSuccess('New meeting recap available', 'Whisper Mode');
+    }
+  }, [newRecapEvent, toastSuccess]);
 
   // Map database action items to UI format
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
@@ -796,6 +809,7 @@ const LiveMeetingView = () => {
     { id: 'actions' as SidebarTab, label: 'Actions', icon: CheckSquare, count: actionItems.filter(a => !a.isCompleted).length },
     { id: 'chat' as SidebarTab, label: 'Chat', icon: MessageSquare, count: memoryChat.length },
     { id: 'memory' as SidebarTab, label: 'Memory', icon: Brain, count: memoryItems.length },
+    { id: 'recaps' as SidebarTab, label: 'Recaps', icon: Activity, count: recaps.length },
   ];
 
   const mobileTabs = [
@@ -903,6 +917,15 @@ const LiveMeetingView = () => {
                   )}
                 </div>
               </div>
+
+              <button
+                onClick={triggerCatchMeUp}
+                disabled={triggering}
+                className={`hidden sm:flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-medium transition-all shadow-sm ${triggering ? 'bg-purple-100 text-purple-400 border-purple-200 cursor-not-allowed dark:bg-slate-700/50 dark:text-slate-400 dark:border-slate-600/50' : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 hover:shadow-md border border-transparent'}`}
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${triggering ? 'animate-pulse' : ''}`} />
+                {triggering ? 'Generating...' : 'Catch Me Up'}
+              </button>
 
               {/* Bot Controls Dropdown */}
               <div className="relative bot-controls-dropdown">
@@ -1034,6 +1057,15 @@ const LiveMeetingView = () => {
                     onAddNote={addNote}
                   />
                 )}
+
+                {activeTab === 'recaps' && (
+                  <WhisperRecapTab
+                    recaps={recaps}
+                    loading={recapsLoading}
+                    error={recapsError}
+                    triggering={triggering}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -1073,6 +1105,17 @@ const LiveMeetingView = () => {
                 onChangePrivacy={setNewNotePrivacy}
                 onAddNote={addNote}
               />
+            )}
+
+            {activeTab === 'recaps' && (
+              <div className="min-h-[40vh]">
+                <WhisperRecapTab
+                  recaps={recaps}
+                  loading={recapsLoading}
+                  error={recapsError}
+                  triggering={triggering}
+                />
+              </div>
             )}
 
             {activeTab === 'transcript' && (
