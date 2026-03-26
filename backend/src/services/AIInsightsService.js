@@ -1340,57 +1340,73 @@ print(result)
       // MEETING MEMORY ENGINE: Generate Embeddings
       try {
         console.log(`🧠 [Memory Engine] Starting embedding generation for meeting ${meetingId}...`);
-        
-        // 1. Embed the full transcript text (chunked automatically)
-        if (transcriptText) {
-          await MeetingEmbeddingService.embedTranscript(meetingIdInt, transcriptText);
-        }
 
-        // 2. Embed the summary and save memory context
-        if (insights.summary) {
-          const summaryCandidate =
-            insights.summary.paragraph_summary ||
-            insights.summary.overview ||
-            insights.summary.executive_summary ||
-            insights.summary.detailed_summary ||
-            insights.summary.bullet_summary ||
-            insights.summary.summary;
-
-          // Use the best available summary text; fallback to a truncated transcript.
-          const summaryText =
-            typeof summaryCandidate === 'string' && summaryCandidate.trim()
-              ? summaryCandidate.trim()
-              : (typeof transcriptText === 'string'
-                ? transcriptText.slice(0, 2000).trim()
-                : '');
-            
-          // Get topics list
-          const topics = insights.topics ? insights.topics.map(t => typeof t === 'string' ? t : (t.topic || JSON.stringify(t))) : [];
-          
-          // Get decision list
-          const decisions = insights.decisions || [];
-          
-          // Get participant list
-          let participants = [];
-          if (Array.isArray(insights.participants)) {
-            participants = insights.participants
-              .map((p) => (typeof p === 'string' ? p : p?.name))
-              .filter(Boolean);
+        // 1) Transcript embeddings (best-effort; must not block memory context)
+        try {
+          if (transcriptText) {
+            await MeetingEmbeddingService.embedTranscript(meetingIdInt, transcriptText);
           }
-
-          await MeetingEmbeddingService.generateMemoryContext(
-            meetingIdInt,
-            summaryText,
-            topics,
-            decisions,
-            participants
+        } catch (embTranscriptErr) {
+          console.error(
+            `⚠️ [Memory Engine] Transcript embedding failed for meeting ${meetingId}:`,
+            embTranscriptErr.message
           );
         }
-        
-        console.log(`✅ [Memory Engine] Embeddings successfully generated and stored.`);
+
+        // 2) Memory context (best-effort; must not block meeting completion)
+        try {
+          if (insights.summary) {
+            const summaryCandidate =
+              insights.summary.paragraph_summary ||
+              insights.summary.overview ||
+              insights.summary.executive_summary ||
+              insights.summary.detailed_summary ||
+              insights.summary.bullet_summary ||
+              insights.summary.summary;
+
+            // Use the best available summary text; fallback to a truncated transcript.
+            const summaryText =
+              typeof summaryCandidate === 'string' && summaryCandidate.trim()
+                ? summaryCandidate.trim()
+                : (typeof transcriptText === 'string'
+                  ? transcriptText.slice(0, 2000).trim()
+                  : '');
+                
+            // Get topics list
+            const topics = insights.topics
+              ? insights.topics.map(t => typeof t === 'string' ? t : (t.topic || JSON.stringify(t)))
+              : [];
+            
+            // Get decision list
+            const decisions = insights.decisions || [];
+            
+            // Get participant list
+            let participants = [];
+            if (Array.isArray(insights.participants)) {
+              participants = insights.participants
+                .map((p) => (typeof p === 'string' ? p : p?.name))
+                .filter(Boolean);
+            }
+
+            await MeetingEmbeddingService.generateMemoryContext(
+              meetingIdInt,
+              summaryText,
+              topics,
+              decisions,
+              participants
+            );
+          }
+        } catch (embContextErr) {
+          console.error(
+            `⚠️ [Memory Engine] Memory context generation failed for meeting ${meetingId}:`,
+            embContextErr.message
+          );
+        }
+
+        console.log(`✅ [Memory Engine] Embeddings/context processing finished for meeting ${meetingId}.`);
       } catch (embError) {
-        console.error(`⚠️ [Memory Engine] Failed to generate embeddings:`, embError.message);
-        // Non-fatal error, we still consider insights "completed"
+        // This should only catch unexpected errors outside the best-effort blocks.
+        console.error(`⚠️ [Memory Engine] Unexpected failure for meeting ${meetingId}:`, embError.message);
       }
 
       // Send notification that insights are ready

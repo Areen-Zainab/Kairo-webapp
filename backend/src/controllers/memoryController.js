@@ -1,5 +1,6 @@
 const prisma = require("../lib/prisma");
 const meetingEmbeddingService = require("../services/MeetingEmbeddingService");
+const memoryContextService = require("../services/MemoryContextService");
 
 /**
  * Perform a hybrid (semantic + full-text) search on the workspace's meeting memories
@@ -88,5 +89,97 @@ exports.semanticSearch = async (req, res) => {
   } catch (error) {
     console.error("Error in semantic search:", error);
     res.status(500).json({ error: "An error occurred while performing semantic search." });
+  }
+};
+
+/**
+ * Fetch the Memory Engine context for a single meeting.
+ * GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/context
+ */
+exports.getMeetingContext = async (req, res) => {
+  try {
+    const { workspaceId, meetingId } = req.params;
+    const workspaceIdInt = parseInt(workspaceId, 10);
+    const meetingIdInt = parseInt(meetingId, 10);
+
+    if (Number.isNaN(workspaceIdInt) || Number.isNaN(meetingIdInt)) {
+      return res.status(400).json({ error: "Valid workspaceId and meetingId are required." });
+    }
+
+    // Ensure the user is a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: workspaceIdInt, userId: req.user.id }
+      }
+    });
+
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    // Ensure the meeting belongs to the workspace
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingIdInt },
+      select: { id: true, workspaceId: true }
+    });
+
+    if (!meeting || meeting.workspaceId !== workspaceIdInt) {
+      return res.status(404).json({ error: "Meeting not found in this workspace." });
+    }
+
+    const context = await memoryContextService.getMeetingContext(meetingIdInt);
+    if (!context) {
+      return res.status(404).json({ error: "Meeting context not found." });
+    }
+
+    res.json({ success: true, meetingId: meetingIdInt, context });
+  } catch (error) {
+    console.error("Error in getMeetingContext:", error);
+    res.status(500).json({ error: "An error occurred while fetching meeting context." });
+  }
+};
+
+/**
+ * Fetch related meetings (if `meeting_relationships` is populated).
+ * GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/related
+ */
+exports.getRelatedMeetings = async (req, res) => {
+  try {
+    const { workspaceId, meetingId } = req.params;
+    const workspaceIdInt = parseInt(workspaceId, 10);
+    const meetingIdInt = parseInt(meetingId, 10);
+
+    if (Number.isNaN(workspaceIdInt) || Number.isNaN(meetingIdInt)) {
+      return res.status(400).json({ error: "Valid workspaceId and meetingId are required." });
+    }
+
+    // Ensure the user is a member of the workspace
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: workspaceIdInt, userId: req.user.id }
+      }
+    });
+
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    // Ensure the meeting belongs to the workspace
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingIdInt },
+      select: { id: true, workspaceId: true }
+    });
+
+    if (!meeting || meeting.workspaceId !== workspaceIdInt) {
+      return res.status(404).json({ error: "Meeting not found in this workspace." });
+    }
+
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 10;
+    const related = await memoryContextService.getRelatedMeetings(meetingIdInt, Number.isNaN(limit) ? 10 : limit);
+
+    res.json({ success: true, meetingId: meetingIdInt, relatedMeetings: related });
+  } catch (error) {
+    console.error("Error in getRelatedMeetings:", error);
+    res.status(500).json({ error: "An error occurred while fetching related meetings." });
   }
 };

@@ -154,8 +154,40 @@
 ## 🔹 KNOWLEDGE & MEMORY
 
 ### 5. Meeting Memory Engine
-**Status:** ✅ 90% COMPLETE *(verified in code — previously under-reported)*
-**Technologies:** PostgreSQL (pgvector), Sentence Transformers (all-MiniLM-L6-v2), Node.js
+**Status:** 🔄 90% COMPLETE  
+**Priority:** High  
+**Technologies:** PostgreSQL (pgvector), Sentence Transformers (Xenova/all-MiniLM-L6-v2), Node.js
+
+#### ✅ What's Working (verified in code):
+- `EmbeddingService.js` — Fully implemented using `@xenova/transformers` with all-MiniLM-L6-v2 (384-dim local model)
+  - `generateEmbedding(text)` — single text embedding
+  - `generateBatchEmbeddings(texts[])` — batch embedding with proper reshaping
+- `MeetingEmbeddingService.js` — Fully implemented:
+  - `chunkText(text, maxWords)` — sentence-aware chunking
+  - `embedTranscript(meetingId, transcriptText)` — chunks + stores to `meeting_embeddings` via raw pgvector SQL
+  - `embedSummary(meetingId, summaryText)` — stores summary embedding
+  - `generateMemoryContext(meetingId, ...)` — creates/updates `meeting_memory_contexts` with upsert
+  - `searchWorkspaceMeetings(workspaceId, queryText, limit)` — cosine similarity search using `<=>` operator
+- `AIInsightsService.js` — Memory Engine embedding/context work is best-effort and step-isolated (embedding failures no longer block memory-context creation)
+- `MeetingEmbeddingService.js` — Regeneration safety: transcript/summary embedding inserts are deterministic by deleting prior rows for the meeting/content type before insert
+- `MemoryContextService.js` — Implemented:
+  - `getMeetingContext(meetingId)` (loads `meeting_memory_contexts` + a short transcript snippet from `meeting_embeddings`)
+  - `getRelatedMeetings(meetingId, limit)` (prefers `meeting_relationships`, with on-demand fallback similarity when relationships are empty)
+- `memoryRoutes.js` — Routes exist:
+  - `GET /api/workspaces/:workspaceId/memory/search`
+  - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/context`
+  - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/related`
+- Database tables: `meeting_embeddings`, `meeting_memory_contexts`, `meeting_relationships` (in Prisma schema)
+- pgvector extension installed and HNSW indexes created
+
+#### ⚠️ What's Missing:
+- Manual embeddings/context regeneration endpoint is not implemented yet (only AI-insights regeneration exists today)
+- Notes and action item embeddings are not generated yet (currently only transcript + summary feed `meeting_memory_contexts`)
+- Result caching for frequent `/context` and `/related` queries is not implemented yet
+- `meeting_relationships` is not populated as a persistent step yet; `/related` works via on-demand fallback similarity when relationships are empty
+- No `EmbeddingRepository.js` (direct Prisma wrapper) — raw SQL used instead (acceptable but fragile)
+- Hybrid search (pgvector + PostgreSQL FTS) not implemented
+- No embedding for notes or action items (only transcript + summary)
 
 #### ✅ What's Working (code-verified):
 - `EmbeddingService.js` — local all-MiniLM-L6-v2 (384-dim), `generateEmbedding()` + `generateBatchEmbeddings()`
@@ -165,16 +197,31 @@
 - pgvector extension + HNSW indexes installed
 - `SmartSearchModal.tsx` calls real backend API *(verified — no mock)*
 
-#### ⚠️ What's Still Missing:
-- `GET /api/meetings/:id/related` — related meetings route not implemented
-- `GET /api/meetings/:id/context` — context route not implemented
-- `MemoryContextService.js` — not built
-- Hybrid search (pgvector + PostgreSQL FTS) not implemented
-- No embedding for notes or action items (only transcript + summary)
 
 #### 📋 Remaining To-Do:
 
 **HIGH PRIORITY:**
+- [x] **Wire embedding generation into the end-of-meeting intelligence pipeline**
+  - `TranscriptionService` triggers `AIInsightsService.generateInsights()` asynchronously after diarized transcript finalize
+  - `AIInsightsService` runs the Memory Engine embedding steps and upserts `meeting_memory_contexts`
+  - **Estimate: Completed**
+
+- [x] **Add related meetings + context routes**
+  - Implemented under `memoryRoutes.js`:
+    - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/context`
+    - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/related`
+  - `/related` works even if `meeting_relationships` is empty (on-demand fallback similarity)
+  - **Estimate: Completed**
+
+- [x] **Build MemoryContextService**
+  - Created `backend/src/services/MemoryContextService.js`
+  - Implemented `getMeetingContext()` and `getRelatedMeetings()` with fallback similarity
+  - **Estimate: Completed**
+
+**MEDIUM PRIORITY:**
+- [ ] Add manual embeddings-only regeneration endpoint (e.g. `POST /api/meetings/:id/regenerate-embeddings`)
+- [ ] Add embedding generation for notes and action items (currently only transcript + summary)
+- [ ] Implement result caching for frequent `/context` and `/related` queries
 - [ ] **Implement hybrid search** — combine `<=>` cosine similarity with `tsvector` FTS for better results — *2-3 days*
 - [ ] **Add related meetings routes** — `GET /api/meetings/:id/related` using existing `searchWorkspaceMeetings` — *1-2 days*
 - [ ] **Build MemoryContextService.js** — `findRelatedMeetings()`, `meeting_relationships` table — *2-3 days*
