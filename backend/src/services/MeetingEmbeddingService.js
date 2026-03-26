@@ -65,6 +65,14 @@ class MeetingEmbeddingService {
       // Generate embeddings in batches if there are many chunks to avoid rate limits, 
       // but for most meetings, generateBatchEmbeddings handles it.
       const embeddings = await embeddingService.generateBatchEmbeddings(chunks);
+
+      // Regeneration safety:
+      // - embedTranscript is insert-only today.
+      // - AIInsightsService can be called with forceRegenerate=true, which would otherwise create duplicates.
+      // Replace transcript embeddings deterministically per meeting.
+      await prisma.meetingEmbedding.deleteMany({
+        where: { meetingId, contentType: 'transcript' }
+      });
       
       console.log(`[MeetingEmbeddingService] Saving ${chunks.length} transcript embeddings to DB...`);
       
@@ -102,6 +110,11 @@ class MeetingEmbeddingService {
       console.log(`[MeetingEmbeddingService] Generating embedding for meeting ${meetingId} summary...`);
       const embedding = await embeddingService.generateEmbedding(summaryText);
       const embeddingStr = '[' + embedding.join(',') + ']';
+
+      // Regeneration safety for summary embeddings.
+      await prisma.meetingEmbedding.deleteMany({
+        where: { meetingId, contentType: 'summary' }
+      });
       
       await prisma.$executeRawUnsafe(
         `INSERT INTO meeting_embeddings (id, meeting_id, content_type, content, embedding, chunk_index, created_at, updated_at)

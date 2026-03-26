@@ -10,11 +10,11 @@
 
 This document covers two related but distinct features:
 
-1. **Memory Engine (Embedding Pipeline)** — Wiring the *already-built* embedding infrastructure into the post-meeting pipeline so that every completed meeting is automatically indexed for semantic search.
-2. **Knowledge Graph** — Building the backend schema, construction service, API routes, and wiring the frontend away from mock data to a real, queryable graph of meetings, participants, topics, and decisions.
+1. **Memory Engine (Embedding Pipeline)** — Confirming that the repo's existing embedding pipeline is reliably and safely triggered when meetings are completed or regenerated, and hardening it against duplicates.
+2. **Knowledge Graph (Memory Graph UI)** — Exposing a workspace-scoped backend graph API that replaces the current frontend mock graph with real nodes/edges derived from existing DB tables (`meetings`, `meeting_memory_contexts`, `ai_insights`, `action_items`, etc.).
 
 > [!IMPORTANT]
-> The Memory Engine must be completed **before** the Knowledge Graph, as the graph will consume the embedding relationships that the engine produces.
+> The Memory Engine part should be hardened first because the Knowledge Graph will depend on `meeting_embeddings` / `meeting_memory_contexts` being consistent and queryable.
 
 ---
 
@@ -34,15 +34,22 @@ This document covers two related but distinct features:
 | `MemoryView.tsx` | ✅ UI Shell | Graph canvas with filters, query bar, FAB |
 | `MemoryTab.tsx` | ✅ UI Shell | Sidebar tab in live meeting view |
 | `MemoryFAB.tsx`, `MemoryFilterBar.tsx`, `MemoryQueryBar.tsx` | ✅ UI Shell | UI wired to `memoryAPI.ts` |
-| `useQueryMemory.ts` | ✅ Hook | Wired to mock API |
-| `memoryAPI.ts` | ⚠️ Mock | All methods return hardcoded empty arrays / fake stats |
+| `useGraphData.ts` | ⚠️ Mock | Builds a hardcoded graph client-side; does not call backend |
+| `useQueryMemory.ts` | ⚠️ Mock | Simulates semantic search results; does not call backend |
+| `memoryAPI.ts` | ⚠️ Mock | Most methods are stubbed / hardcoded |
 
 ---
 
 ## Part 1: Memory Engine Completion
 
 ### Problem Statement
-`EmbeddingService` and `MeetingEmbeddingService` are fully built but **no code calls them after a meeting ends**. The `PostMeetingProcessor.convertToTasks()` is a stub. Embeddings are never generated for real meetings.
+In this repo, `AIInsightsService.generateInsights()` already runs the Memory Engine:
+it embeds meeting transcripts and upserts `meeting_memory_contexts` as part of the insights pipeline.
+
+What still needs hardening/completion for a production-safe Memory Engine:
+1) transcript embedding idempotency (regeneration currently risks duplicating `meeting_embeddings` rows)
+2) stronger step isolation (ensure failures in one embedding step do not block the rest of the engine)
+3) missing "context/related" read APIs and any optional population of `meeting_relationships` (needed for richer graph navigation)
 
 ### Estimated Effort: 3–5 days
 
@@ -52,24 +59,20 @@ This document covers two related but distinct features:
 
 **Target File:** `backend/src/services/AIInsightsService.js`
 
-After AI insights are successfully saved to the database (at the end of `generateInsights()`), add a non-blocking call:
+In the current repo, embedding generation is already implemented inside `AIInsightsService.generateInsights()` under the "MEETING MEMORY ENGINE" section:
+- `MeetingEmbeddingService.embedTranscript(...)`
+- `MeetingEmbeddingService.generateMemoryContext(...)`
 
-```js
-// at the bottom of AIInsightsService.generateInsights(), after saving insights
-try {
-  const MeetingEmbeddingService = require('./MeetingEmbeddingService');
-  // Fire and forget — do not await; do not block the insights response
-  MeetingEmbeddingService.generateMeetingEmbeddings(meetingId)
-    .then(() => console.log(`[Memory] Embeddings generated for meeting ${meetingId}`))
-    .catch(err => console.error(`[Memory] Embedding generation failed for meeting ${meetingId}:`, err.message));
-} catch (err) {
-  console.warn('[Memory] Could not load MeetingEmbeddingService:', err.message);
-}
-```
+**Goal (non-disruptive):**
+- Confirm embedding generation stays **non-fatal** for meeting completion (embedding errors should not break the API request / status updates).
+- Ensure embedding failures in one sub-step (e.g., transcript embedding) do not prevent memory-context generation.
+- Ensure both "normal completion" and the `POST /api/meetings/:id/ai-insights/regenerate` flow regenerate embeddings/context in a controlled way (see Step 1.2 for idempotency).
 
-**Risk:** `MeetingEmbeddingService.generateMeetingEmbeddings()` needs to be verified to handle partial data gracefully (e.g., meeting with no notes, no action items).
+**Risk:** If embedding errors bubble up, meeting completion/regeneration could be marked as failed.
 
-**Checkpoint:** After wiring, trigger AI insights for a test meeting and confirm `meeting_embeddings` rows are inserted.
+**Checkpoint:** Run one normal meeting completion and one force-regenerate; verify:
+1) `meeting_embeddings` and `meeting_memory_contexts` update
+2) no unbounded duplicate growth occurs after repeated regeneration
 
 ---
 
@@ -81,16 +84,17 @@ Verify the following before calling it from production:
 
 | Check | What to Verify |
 |---|---|
-| Idempotency | Does it skip re-embedding if embeddings already exist? Add a check: `if existing rows > 0 and !force, return early` |
-| Error isolation | Does a failure in `embedTranscript` prevent `embedSummary` from running? Wrap each step in its own try/catch |
-| Empty content | Does it crash if there's no transcript text? Add guards |
+| Idempotency | `embedTranscript()` is insert-only today. For regeneration, prevent unbounded growth by deleting existing `meeting_embeddings` rows for the meeting (at least `content_type='transcript'`) before re-inserting, or introduce a `force`/`upsert` option. |
+| Error isolation | Ensure transcript embedding failures do not prevent memory-context generation. Use separate try/catch blocks for transcript embedding vs memory-context upsert. |
+| Empty content | Confirm guards handle `null/undefined/empty` transcript text safely (should return without throwing). |
 | Dimension mismatch | Schema uses 384-dim; `EmbeddingService` produces 384-dim (✅ match) |
 
-**Add a manual regeneration endpoint:**
+**Manual regeneration (prefer reuse existing endpoint):**
 ```
-POST /api/meetings/:id/regenerate-embeddings
+POST /api/meetings/:id/ai-insights/regenerate
 ```
-Useful for back-filling older meetings and debugging.
+
+This already forces re-running `AIInsightsService.generateInsights()` (including the Memory Engine). If later you need "embeddings/context only" regeneration without re-generating insights, implement it as a thin wrapper around the embedding steps with the idempotency safeguards above.
 
 ---
 
@@ -98,90 +102,45 @@ Useful for back-filling older meetings and debugging.
 
 **New File:** `backend/src/services/MemoryContextService.js`
 
-This service aggregates a meeting's embedding data into a single queryable "memory context" and detects related meetings.
+This service provides **read/query** capabilities for the Memory Engine, so other services (notably the graph assembler) can fetch consistent "memory context" data without duplicating embedding/vector logic.
 
 **Methods to implement:**
 
-#### `buildMeetingContext(meetingId)`
-- Fetches all `meeting_embeddings` rows for the meeting.
-- Fetches AI insights (topics, decisions, participants).
-- Constructs a condensed plaintext context string.
-- Generates one summary embedding for the whole meeting.
-- Upserts a `meeting_memory_contexts` row.
-
-**Requires:** Add `meeting_memory_contexts` table to Prisma schema (see schema below).
+#### `getMeetingContext(meetingId)`
+- Load the existing `meeting_memory_contexts` row (key topics, key decisions, participants, meeting_context).
+- Load meeting metadata needed by the graph UI (title, start_time/end_time/duration).
+- Load a short transcript snippet from `meeting_embeddings` (`content_type='transcript'`) for the "Notes & Context" panel.
+- Return a normalized DTO that the graph assembly layer can use directly.
 
 #### `findRelatedMeetings(meetingId, options = { limit: 5, threshold: 0.75 })`
-- Reads this meeting's summary embedding from `meeting_memory_contexts`.
-- Runs a pgvector cosine similarity search against all other meetings in the same workspace.
-- Also scores by shared topics (from `ai_insights`) and shared participants.
-- Composite score = `0.5 × vectorSimilarity + 0.3 × topicOverlap + 0.2 × participantOverlap`
-- Upserts results into `meeting_relationships` table.
+- Optional enhancement: compute semantic similarity using `meeting_memory_contexts.summary_embedding`.
+- If implemented, persist results to `meeting_relationships` for later neighborhood expansion.
 
-**Requires:** Add `meeting_relationships` table (see schema below).
+**Requires:** No schema changes (tables already exist in `schema.prisma`); focus on query correctness + safe parsing.
 
 ---
 
 ### Step 1.4 — Database Schema Additions
 
-Add these two models to `schema.prisma`:
+No new models/migrations are required for the first iteration because `schema.prisma` already includes:
+- `MeetingMemoryContext`
+- `MeetingRelationship`
 
-```prisma
-model MeetingMemoryContext {
-  id               String   @id @default(uuid())
-  meetingId        Int      @unique @map("meeting_id")
-  keyTopics        String[] @map("key_topics")
-  keyDecisions     Json?    @map("key_decisions")
-  participants     String[]
-  meetingContext   String   @db.Text @map("meeting_context")
-  embeddingCount   Int      @default(0) @map("embedding_count")
-  // summary embedding stored via raw SQL (unsupported type in Prisma)
-  lastProcessedAt  DateTime @updatedAt @map("last_processed_at")
-  createdAt        DateTime @default(now()) @map("created_at")
-
-  meeting          Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-
-  @@map("meeting_memory_contexts")
-}
-
-model MeetingRelationship {
-  id                 String   @id @default(uuid())
-  sourceMeetingId    Int      @map("source_meeting_id")
-  targetMeetingId    Int      @map("target_meeting_id")
-  relationshipType   String   @map("relationship_type") // 'similar' | 'follow_up' | 'shared_participants'
-  similarityScore    Float    @map("similarity_score")
-  sharedTopics       String[] @map("shared_topics")
-  sharedParticipants String[] @map("shared_participants")
-  createdAt          DateTime @default(now()) @map("created_at")
-
-  sourceMeeting      Meeting  @relation("SourceMeeting", fields: [sourceMeetingId], references: [id], onDelete: Cascade)
-  targetMeeting      Meeting  @relation("TargetMeeting", fields: [targetMeetingId], references: [id], onDelete: Cascade)
-
-  @@unique([sourceMeetingId, targetMeetingId])
-  @@map("meeting_relationships")
-}
-```
-
-Also add the summary embedding column via raw SQL migration (Prisma does not support `vector` type natively):
-```sql
-ALTER TABLE meeting_memory_contexts 
-ADD COLUMN summary_embedding vector(384);
-
-CREATE INDEX meeting_memory_contexts_embed_idx 
-ON meeting_memory_contexts 
-USING hnsw (summary_embedding vector_cosine_ops);
-```
+Action items instead:
+1. Verify the DB has `meeting_memory_contexts.summary_embedding vector(384)` (Prisma treats it as an unsupported type and raw SQL writes it).
+2. Verify the vector index exists (or add it with a one-time raw SQL migration if missing).
+3. Ensure `MeetingEmbeddingService.generateMemoryContext()` and any future cosine similarity code use the same dimensionality (384).
 
 ---
 
 ### Step 1.5 — Related Meetings API Routes
 
-Add to `meetingRoutes.js` or a new `memoryRoutes.js`:
+Add these under the existing `memoryRoutes.js` router (it already uses workspace-scoped auth and matches the pattern used by `/memory/search`):
 
 ```
-GET  /api/meetings/:id/related          → list related meetings (from meeting_relationships)
-GET  /api/meetings/:id/context          → full memory context (MemoryContextService.getMeetingMemory)
-POST /api/meetings/:id/regenerate-embeddings  → force re-embed
+GET  /api/workspaces/:workspaceId/memory/meetings/:meetingId/context  -> full meeting context for node details
+GET  /api/workspaces/:workspaceId/memory/meetings/:meetingId/related -> related meetings (from meeting_relationships if populated; else on-demand fallback computation)
+POST /api/workspaces/:workspaceId/memory/meetings/:meetingId/embeddings/rebuild -> optional (if you later implement embeddings-only rebuild)
 ```
 
 **Route-level risk:** These are read-heavy. Add a simple in-memory LRU cache (5-minute TTL) for the `/related` and `/context` responses to avoid repeated pgvector scans.
@@ -191,17 +150,14 @@ POST /api/meetings/:id/regenerate-embeddings  → force re-embed
 ### Memory Engine Completion Checklist
 
 ```
-[ ] Audit MeetingEmbeddingService for idempotency + error isolation
-[ ] Wire MeetingEmbeddingService into AIInsightsService (fire-and-forget)
-[ ] Add meeting_memory_contexts Prisma model + raw-SQL vector column
-[ ] Add meeting_relationships Prisma model
-[ ] Run prisma migrate dev
-[ ] Build MemoryContextService (buildMeetingContext + findRelatedMeetings)
-[ ] Wire MemoryContextService into post-embedding step
-[ ] Add POST /api/meetings/:id/regenerate-embeddings
-[ ] Add GET /api/meetings/:id/related
-[ ] Add GET /api/meetings/:id/context
-[ ] Manual test: complete a meeting → check meeting_embeddings, meeting_memory_contexts, meeting_relationships rows
+[x] Audit MeetingEmbeddingService for idempotency + error isolation
+[x] Verify AIInsightsService "MEETING MEMORY ENGINE" wiring covers both normal completion and `POST /api/meetings/:id/ai-insights/regenerate`
+[x] Add transcript-embedding idempotency so force regeneration does not create unbounded duplicates
+[x] Implement MemoryContextService read helpers: `getMeetingContext` (incl. transcript snippet)
+[x] Add `memoryRoutes.js` endpoints for `/api/workspaces/:workspaceId/memory/meetings/:meetingId/context` and `/related`
+[x] Related endpoint: implemented with on-demand fallback computation when `meeting_relationships` is empty
+[ ] Optional: implement embeddings/context-only rebuild endpoint (otherwise rely on `ai-insights/regenerate`)
+[ ] Manual test: normal completion + force regenerate -> confirm tables update safely and context endpoints return correct payloads
 ```
 
 ---
@@ -209,15 +165,24 @@ POST /api/meetings/:id/regenerate-embeddings  → force re-embed
 ## Part 2: Knowledge Graph
 
 ### Problem Statement
-The frontend `MemoryView.tsx` (graph canvas) and its hook `useQueryMemory.ts` are fully built but connected to `memoryAPI.ts`, which returns empty arrays and hardcoded mock stats. No backend graph schema, construction logic, or routes exist.
+The frontend `MemoryView.tsx` renders the Memory Graph UI, but the current graph data source is mock-driven:
+- `useGraphData.ts` generates a hardcoded graph client-side
+- `useQueryMemory.ts` simulates search results
+- `memoryAPI.ts` remains mostly stubbed
+
+On the backend, only the semantic search route (`GET /api/workspaces/:workspaceId/memory/search`) exists. There is no backend graph assembly/graph-data route yet.
 
 ### Estimated Effort: 1–2 weeks
 
 ---
 
-### Step 2.1 — Graph Database Schema
+### Step 2.1 — Graph Data Strategy (Query-time Assembly First)
 
-**New Prisma models:**
+> [!NOTE]
+> For this repo, the first implementation should avoid a disruptive "graph persistence" Prisma migration.
+> Build the workspace graph response by assembling nodes/edges at query-time from existing tables (`meetings`, `meeting_memory_contexts`, `ai_insights`, `action_items`, etc.).
+>
+> The following Prisma schema is an optional later optimization, not required for the initial graph UI to work.
 
 ```prisma
 model GraphNode {
@@ -257,126 +222,117 @@ model GraphEdge {
 
 **Edge type semantics:**
 
-| Edge Type | Source → Target | Meaning |
+| Edge Type | Source -> Target | Meaning |
 |---|---|---|
-| `attended` | Participant → Meeting | User attended meeting |
-| `discussed` | Meeting → Topic | Meeting covered this topic |
-| `decided` | Meeting → Decision | Meeting produced this decision |
-| `assigned` | Participant → Task | User owns this action item |
-| `related_to` | Meeting → Meeting | Semantically similar meetings |
+| `meeting-topic` | Meeting -> Topic | Meeting covered this topic |
+| `meeting-member` | Meeting -> Member | Team member participated in this meeting |
+| `topic-decision` | Topic -> Decision | Decision associated with a topic (best-effort) |
+| `action-member` | Action -> Member | Assignee owns this action item |
 
 ---
 
-### Step 2.2 — GraphConstructionService
+### Step 2.2 — Memory Graph Assembly Service
 
-**New File:** `backend/src/services/GraphConstructionService.js`
+**New File:** `backend/src/services/MemoryGraphAssemblyService.js`
 
-Called once per meeting after AI insights complete (fire-and-forget, same pattern as embedding trigger).
+Called on-demand by the graph routes to assemble the workspace graph response from existing tables.
 
 ```
-GraphConstructionService.buildGraphForMeeting(meetingId)
-  │
-  ├── buildOrFetchMeetingNode(meeting)      → GraphNode (type: meeting)
-  ├── buildParticipantNodes(participants)   → GraphNode[] (type: participant)
-  ├── buildTopicNodes(topics)              → GraphNode[] (type: topic)
-  ├── buildDecisionNodes(decisions)        → GraphNode[] (type: decision)
-  ├── buildTaskNodes(actionItems)          → GraphNode[] (type: task)
-  │
-  └── createEdges()
-        ├── participant → meeting  (attended)
-        ├── meeting → topic        (discussed)
-        ├── meeting → decision     (decided)
-        ├── participant → task     (assigned)
-        └── meeting → relatedMeeting (related_to, from MeetingRelationship table)
+MemoryGraphAssemblyService.getWorkspaceGraph(workspaceId, filters)
+  ├── selectCandidateMeetings(workspaceId, caps)
+  ├── load meeting_memory_contexts (key_topics, key_decisions, meeting_context)
+  ├── load meeting_participants + workspace members
+  ├── load action_items (pending/confirmed) and resolve assignees
+  ├── build logical nodes:
+  │     meeting:${meetingId}, topic:${workspaceId}:${topicIndex}, decision:${meetingId}:${index}, action:${actionItemId}, member:${userId}
+  └── build edges compatible with `frontend/src/components/workspace/memory/types.ts`:
+        ├── meeting-topic
+        ├── meeting-member
+        ├── topic-decision (best-effort; may be omitted if mapping is unavailable)
+        └── action-member
 ```
 
 **Key design rules:**
-- **Upsert, never insert blindly.** Topics especially will recur across meetings. Match by `(workspaceId, nodeType, label)` and upsert.
-- **Edges are idempotent.** Use the `@@unique([sourceId, targetId, edgeType])` constraint.
-- **Participants:** Match by participant name against workspace users. If no match, create an anonymous participant node.
+- **Capping:** cap meetings and total returned nodes/edges so `GraphCanvas` stays responsive.
+- **Stable ids:** use deterministic ids so repeated calls produce consistent nodes/edges (important for filtering and focus mode).
+- **Best-effort edges:** if a mapping (e.g., topic-to-decision) is not reliably derivable from stored payloads, omit it rather than guessing wrong.
 
 ---
 
-### Step 2.3 — GraphQueryService
+### Step 2.3 — Memory Graph Query Helpers
 
-**New File:** `backend/src/services/GraphQueryService.js`
+**New File (optional):** `backend/src/services/MemoryGraphQueryService.js`
 
-Reads the graph for workspace-level display and drill-down exploration.
+Provides small read-only helpers used by the graph routes (stats, optional neighborhood expansion).
 
 ```js
 getWorkspaceGraph(workspaceId, filters)
-// Returns { nodes: GraphNode[], edges: GraphEdge[] }
-// filters: { nodeTypes?, startDate?, endDate?, participantIds? }
-
-getNodeNeighbours(nodeId, depth = 1)
-// Traverses up to `depth` hops and returns subgraph
-
-searchGraph(workspaceId, query)
-// Text search across node labels and data JSONB
-// Combines full-text search with the embedding layer (if available)
+// thin wrapper around MemoryGraphAssemblyService.getWorkspaceGraph()
 
 getGraphStats(workspaceId)
-// Returns { totalNodes, totalEdges, byType: { meeting, participant, topic, decision, task } }
+// Returns { totalNodes, totalEdges, byType: { meeting, topic, decision, action, member }, lastUpdate }
+
+// Optional (later):
+getNodeNeighbours(nodeId, depth = 1)
+// returns a subgraph for click-to-expand behavior
 ```
 
 **Performance note:** For large workspaces, `getWorkspaceGraph` should paginate or cap at ~200 nodes. Add a `limit` parameter and a `cursor`-based pagination option.
 
 ---
 
-### Step 2.4 — Graph API Routes
+### Step 2.4 — Graph API Routes (under `memoryRoutes.js`)
 
-**New File:** `backend/src/routes/graphRoutes.js`
+No disruptive graph-table schema is required for the first iteration. Add workspace-scoped graph endpoints alongside the existing semantic search route in `backend/src/routes/memoryRoutes.js`.
 
+Endpoints:
 ```
-GET  /api/graph/workspace/:id              → getWorkspaceGraph (with filter query params)
-GET  /api/graph/node/:nodeId               → getNodeNeighbours
-POST /api/graph/search                     → searchGraph({ query, workspaceId })
-GET  /api/graph/workspace/:id/stats        → getGraphStats
-POST /api/graph/workspace/:id/rebuild      → Re-run GraphConstructionService for all meetings (admin)
-```
+GET  /api/workspaces/:workspaceId/memory/graph
+  -> returns { nodes, edges } for Memory Graph (built at query-time)
 
-Register in `server.js`:
-```js
-app.use('/api/graph', require('./routes/graphRoutes'));
+GET  /api/workspaces/:workspaceId/memory/graph/stats
+  -> returns the `WorkspaceMemory` shape used by MemoryView.tsx
+
+// Optional later:
+GET  /api/workspaces/:workspaceId/memory/graph/node/:nodeId/neighbours?depth=2
+  -> returns a subgraph for click-to-expand
 ```
 
 ---
 
-### Step 2.5 — Frontend Wiring (`memoryAPI.ts`)
+### Step 2.5 — Frontend Wiring
 
-Replace every mock method in `memoryAPI.ts` with real `apiService` calls:
+In the current repo, the Memory Graph UI is powered by mocks:
+- `useGraphData.ts` (hardcoded graph data + client-side filters)
+- `useQueryMemory.ts` (simulated semantic search)
 
-| Mock Method | Replace With |
-|---|---|
-| `getGraphData(filters)` | `GET /api/graph/workspace/:id?nodeTypes=...&startDate=...` |
-| `searchMemory(query)` | `POST /api/graph/search` + `POST /api/memory/search` (composite) |
-| `getNodeDetails(nodeId)` | `GET /api/graph/node/:nodeId` |
-| `getWorkspaceStats(workspaceId)` | `GET /api/graph/workspace/:id/stats` |
-| `getRelatedNodes(nodeId, depth)` | `GET /api/graph/node/:nodeId?depth=2` |
+Update wiring to replace `useGraphData.ts` data source with backend endpoints:
 
-**`useQueryMemory.ts`** — No structural changes needed; it already calls `memoryAPI.ts`. Swapping the underlying implementation is sufficient.
+1. Update `useGraphData.ts` to fetch from:
+   - `GET /api/workspaces/:workspaceId/memory/graph`
+   - optionally apply the existing client-side filters (`nodeTypes`, keyword search, date range) to the returned logical nodes/edges.
+2. Update `MemoryView.tsx` to:
+   - use `workspaceId` from the URL (`/workspace/:workspaceId/memory`)
+   - fetch the top-right stats from `GET /api/workspaces/:workspaceId/memory/graph/stats` (replace the current hardcoded `workspaceMemory`)
+   - show loading/empty states based on the backend response (`nodes.length === 0`).
 
-**`MemoryView.tsx`** — Add:
-- Loading skeleton while graph data fetches.
-- Empty state when `nodes.length === 0` (guide user to complete a meeting first).
-- Click-to-expand node: call `getNodeNeighbours(nodeId)` and merge result into current graph state.
+For `useQueryMemory.ts`:
+ - keep mocked initially (UI can function without query-to-node focus)
+ - optionally integrate later with `GET /api/workspaces/:workspaceId/memory/search` and map search hits into the graph node ids.
 
 ---
 
 ### Knowledge Graph Checklist
 
 ```
-[ ] Add GraphNode and GraphEdge Prisma models
-[ ] Run prisma migrate dev
-[ ] Build GraphConstructionService (buildGraphForMeeting)
-[ ] Wire GraphConstructionService into AIInsightsService (after embeddings, fire-and-forget)
-[ ] Build GraphQueryService (getWorkspaceGraph, getNodeNeighbours, searchGraph, getGraphStats)
-[ ] Create graphRoutes.js and register in server.js
-[ ] Replace all mock methods in memoryAPI.ts with real API calls
-[ ] Add loading/empty states in MemoryView.tsx
-[ ] Add click-to-expand node behaviour in MemoryView.tsx
-[ ] Manual test: end a meeting → open Memory Graph → verify nodes and edges
-[ ] Stress test: workspace with 20+ meetings → verify getWorkspaceGraph performance
+[ ] Implement query-time graph assembly (no new graph-table Prisma migration required)
+[ ] Implement `GET /api/workspaces/:workspaceId/memory/graph` and `GET /api/workspaces/:workspaceId/memory/graph/stats`
+[ ] Implement `MemoryGraphAssemblyService` to build nodes/edges from existing tables (`meetings`, `meeting_memory_contexts`, `ai_insights`, `action_items`)
+[ ] Update `frontend/src/hooks/useGraphData.ts` to fetch backend graph and compute visual layout client-side
+[ ] Update `frontend/src/pages/workspace/MemoryView.tsx` to use real `workspaceId` + backend stats and show loading/empty states
+[ ] Optional: add `/memory/graph/node/:nodeId/neighbours?depth=2` for click-to-expand behavior
+[ ] Manual test: complete or regenerate a meeting -> open Memory Graph -> verify nodes and `ContextPanel` details
+[ ] Stress test: workspace with 20+ meetings -> verify endpoint caps and GraphCanvas remains responsive
 ```
 
 ---
@@ -385,25 +341,23 @@ Replace every mock method in `memoryAPI.ts` with real `apiService` calls:
 
 ```
 Week 1
-  ├── Audit MeetingEmbeddingService
-  ├── Wire embeddings into AIInsightsService
-  └── Add migration + MemoryContextService skeleton
+  ├── Audit existing AIInsightsService "MEETING MEMORY ENGINE" wiring
+  ├── Make transcript embeddings regeneration-safe (idempotency + error isolation)
+  └── Implement MemoryContextService read helper(s) and `/memory/meetings/:meetingId/context` route(s)
 
 Week 2
-  ├── Complete MemoryContextService (findRelatedMeetings)
-  ├── Add /related and /context routes
-  └── Manual end-to-end test of Memory Engine
+  ├── Optional: implement related-meetings computation (populate `meeting_relationships`)
+  ├── Implement query-time graph endpoints: `/memory/graph` + `/memory/graph/stats`
+  └── Manual end-to-end test: meeting completion -> graph endpoint returns nodes/edges
 
 Week 3
-  ├── Add GraphNode/GraphEdge schema + migration
-  ├── Build GraphConstructionService
-  └── Wire GraphConstructionService into post-meeting pipeline
+  ├── Replace `useGraphData.ts` mock with backend fetch + frontend layout adapter
+  ├── Replace `MemoryView.tsx` mock stats with backend stats + use real `workspaceId`
+  └── Manual test: nodes/edges render and `ContextPanel` details match stored data
 
 Week 4
-  ├── Build GraphQueryService
-  ├── Build graphRoutes.js
-  ├── Replace memoryAPI.ts mock data
-  └── Manual end-to-end test of Knowledge Graph
+  ├── Optional: connect query bar to backend semantic search and drive graph highlight/focus
+  └── Optional: implement click-to-expand neighbours + caching/pagination hardening
 ```
 
 ---
@@ -412,12 +366,12 @@ Week 4
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Embedding generation is slow (<30s for long meetings) | High | Medium | Already fire-and-forget; does not block API response |
-| pgvector similarity scan is slow on large workspaces | Medium | Medium | HNSW index already in place on `meeting_embeddings`; add one for `meeting_memory_contexts` too |
-| Participant name matching is fuzzy / unreliable | High | Low | Use exact match first; fall back to anonymous node creation; add manual link UI later |
-| Graph gets too large to render | Medium | High | Cap `getWorkspaceGraph` at 200 nodes by default; add paginated expansion |
-| `meeting_relationships` table grows stale | Low | Low | Re-run `findRelatedMeetings` on every embedding regeneration |
-| `memoryAPI.ts` replacement breaks existing UI | Low | Medium | Swap methods one at a time; keep mock as fallback behind a `USE_MOCK_MEMORY` flag during transition |
+| Transcript re-embedding can create duplicate `meeting_embeddings` rows | High | High | Make `embedTranscript()` regeneration-safe (delete old transcript chunks for `meeting_id` before insert, or add a force/upsert strategy) |
+| Graph assembly can be slow if it loads too much data per request | Medium | High | Cap meetings/nodes returned by `/memory/graph` and add server-side limits; consider short TTL caching per workspace |
+| Backend payload shape mismatch vs `MemoryNode`/`MemoryEdge` expectations | Medium | High | Keep a frontend adapter layer; validate required fields; fail gracefully with an empty graph instead of crashing |
+| Decision/topic mapping may not support `topic-decision` edges reliably | Medium | Medium | Treat `topic-decision` edges as best-effort; omit missing edges rather than inventing relationships |
+| Incomplete embedded data (meetings without `meeting_memory_contexts` yet) | Low | Medium | Filter graph candidates to meetings with `meeting_memory_contexts` (or handle missing context by showing only meeting/member/action nodes) |
+| Missing authorization checks on workspace-scoped graph endpoints | Low | High | Ensure endpoints reuse existing `authenticateToken` + workspace member validation patterns |
 
 ---
 
@@ -425,12 +379,12 @@ Week 4
 
 | File | Action | Notes |
 |---|---|---|
-| `backend/src/services/AIInsightsService.js` | **Modify** | Add embedding + graph construction triggers at end of `generateInsights()` |
-| `backend/src/services/MeetingEmbeddingService.js` | **Modify** | Add idempotency check + error isolation |
-| `backend/src/services/MemoryContextService.js` | **Create** | `buildMeetingContext`, `findRelatedMeetings` |
-| `backend/src/services/GraphConstructionService.js` | **Create** | `buildGraphForMeeting` and all sub-builders |
-| `backend/src/services/GraphQueryService.js` | **Create** | `getWorkspaceGraph`, `getNodeNeighbours`, `searchGraph`, `getGraphStats` |
-| `backend/src/routes/graphRoutes.js` | **Create** | All graph API endpoints |
-| `backend/prisma/schema.prisma` | **Modify** | Add `MeetingMemoryContext`, `MeetingRelationship`, `GraphNode`, `GraphEdge` |
-| `frontend/src/utils/memoryAPI.ts` | **Modify** | Replace all mocks with real API calls |
-| `frontend/src/pages/workspace/MemoryView.tsx` | **Modify** | Add loading states, empty state, node expansion |
+| `backend/src/services/AIInsightsService.js` | **Modify** | Ensure Memory Engine step isolation + non-fatal embedding generation |
+| `backend/src/services/MeetingEmbeddingService.js` | **Modify** | Make `embedTranscript()` regeneration-safe (avoid duplicate growth) |
+| `backend/src/services/MemoryContextService.js` | **Create** | `getMeetingContext` (+ optional transcript snippet) and optional `findRelatedMeetings` |
+| `backend/src/services/MemoryGraphAssemblyService.js` | **Create** | Query-time workspace graph assembly (logical nodes/edges) |
+| `backend/src/services/MemoryGraphQueryService.js` | **Create (optional)** | `getGraphStats` and optional neighbor expansion helpers |
+| `backend/src/routes/memoryRoutes.js` | **Modify** | Add `/memory/graph` and `/memory/graph/stats` endpoints |
+| `frontend/src/hooks/useGraphData.ts` | **Modify** | Replace mock graph with backend fetch + client-side layout/styling |
+| `frontend/src/pages/workspace/MemoryView.tsx` | **Modify** | Use `workspaceId` from route + show real stats/loading/empty states |
+| `frontend/src/hooks/useQueryMemory.ts` | **Modify (optional)** | Optionally wire query bar to backend semantic search later |

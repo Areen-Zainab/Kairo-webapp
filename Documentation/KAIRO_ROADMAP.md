@@ -40,8 +40,8 @@ Kairo has made substantial progress. The platform now has:
 
 ### Key Remaining Gaps:
 - ❌ **Knowledge Graph backend** — `memoryAPI.ts` still returns mock data; graph tables, `GraphConstructionService`, and `GraphQueryRoutes` not built
-- ❌ **PostMeetingProcessor.convertToTasks()** is a placeholder stub — embedding trigger after meeting completion not connected
-- ❌ `MeetingMemoryContext` and related-meetings retrieval not wired to any route
+- ⚠️ `PostMeetingProcessor.convertToTasks()` remains a placeholder for task conversion; Memory Engine embedding trigger is connected via `TranscriptionService.finalize()` -> `AIInsightsService.generateInsights()`
+- ✅ `MeetingMemoryContext` + related-meetings retrieval are now exposed via `memoryRoutes.js` context/related endpoints
 - ❌ Calendar Integration (Google/Outlook OAuth)
 - ❌ Third-Party integrations (Jira, Slack, Trello)
 - ❌ Privacy & Compliance Mode controls
@@ -63,7 +63,7 @@ Kairo has made substantial progress. The platform now has:
 8. **Interactive Transcript Review & Timeline** — 100% Complete
 9. **Analytics Dashboard** — 100% Complete (real backend data, charts, filters)
 10. **Kanban Board Integration** — 100% Complete
-11. **Meeting Memory Engine (Embedding Pipeline)** — 70% Complete
+11. **Meeting Memory Engine (Embedding Pipeline)** — 86% Complete
 12. **Auto Follow-Up Reminders** - 85% Complete (quiet hours enforcement + push/email channels missing)
 13. **Task Extraction and Deadline Parsing** - 75% Complete (TaskCreationService done; deadline NLP missing)
 14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron job + manual trigger endpoint + WebSocket broadcast + `useWhisperRecaps` hook + `WhisperRecapTab` + "Catch Me Up" button)*
@@ -206,7 +206,7 @@ Kairo has made substantial progress. The platform now has:
 ## 🔹 KNOWLEDGE & MEMORY
 
 ### 5. Meeting Memory Engine
-**Status:** 🔄 70% COMPLETE *(Previously listed as 10% — significantly updated)*  
+**Status:** 🔄 86% COMPLETE  
 **Priority:** High  
 **Technologies:** PostgreSQL (pgvector), Sentence Transformers (Xenova/all-MiniLM-L6-v2), Node.js
 
@@ -220,42 +220,49 @@ Kairo has made substantial progress. The platform now has:
   - `embedSummary(meetingId, summaryText)` — stores summary embedding
   - `generateMemoryContext(meetingId, ...)` — creates/updates `meeting_memory_contexts` with upsert
   - `searchWorkspaceMeetings(workspaceId, queryText, limit)` — cosine similarity search using `<=>` operator
-- `memoryRoutes.js` — Route exists: `GET /api/workspaces/:id/memory/search`
+- `AIInsightsService.js` — Memory Engine embedding/context work is best-effort and step-isolated (embedding failures no longer block memory-context creation)
+- `MeetingEmbeddingService.js` — Regeneration safety: transcript/summary embedding inserts are deterministic by deleting prior rows for the meeting/content type before insert
+- `MemoryContextService.js` — Implemented:
+  - `getMeetingContext(meetingId)` (loads `meeting_memory_contexts` + a short transcript snippet from `meeting_embeddings`)
+  - `getRelatedMeetings(meetingId, limit)` (prefers `meeting_relationships`, with on-demand fallback similarity when relationships are empty)
+- `memoryRoutes.js` — Routes exist:
+  - `GET /api/workspaces/:workspaceId/memory/search`
+  - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/context`
+  - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/related`
 - Database tables: `meeting_embeddings`, `meeting_memory_contexts`, `meeting_relationships` (in Prisma schema)
 - pgvector extension installed and HNSW indexes created
 
 #### ⚠️ What's Missing:
-- **Embedding generation is NOT triggered automatically after meetings end** — `PostMeetingProcessor.convertToTasks()` is still a stub; no call to `MeetingEmbeddingService` in the post-meeting pipeline
+- Manual embeddings/context regeneration endpoint is not implemented yet (only AI-insights regeneration exists today)
+- Notes and action item embeddings are not generated yet (currently only transcript + summary feed `meeting_memory_contexts`)
+- Result caching for frequent `/context` and `/related` queries is not implemented yet
+- `meeting_relationships` is not populated as a persistent step yet; `/related` works via on-demand fallback similarity when relationships are empty
 - No `EmbeddingRepository.js` (direct Prisma wrapper) — raw SQL used instead (acceptable but fragile)
-- No `MemoryContextService.js` for finding related meetings and scoring relationships
-- `memoryController.js` (behind memoryRoutes) — needs to be verified for completeness
-- No `GET /api/meetings/:id/related` or `GET /api/meetings/:id/context` routes
 
 #### 📋 Remaining To-Do List:
 
 **HIGH PRIORITY:**
-- [ ] **Wire embedding generation into post-meeting pipeline**
-  - In `PostMeetingProcessor.js`, replace the stub `convertToTasks()` or add a new step
-  - After AI insights complete in `AIInsightsService.js`, call `MeetingEmbeddingService.embedTranscript()` and `embedSummary()`
-  - Call `generateMemoryContext()` with AI insight data (topics, decisions, participants)
-  - **Estimate: 1 day**
+- [x] **Wire embedding generation into the end-of-meeting intelligence pipeline**
+  - `TranscriptionService` triggers `AIInsightsService.generateInsights()` asynchronously after diarized transcript finalize
+  - `AIInsightsService` runs the Memory Engine embedding steps and upserts `meeting_memory_contexts`
+  - **Estimate: Completed**
 
-- [ ] **Add related meetings routes**
-  - Add `GET /api/meetings/:id/related` to `memoryRoutes.js`
-  - Add `GET /api/meetings/:id/context` to `memoryRoutes.js`
-  - Implement `findRelatedMeetings(meetingId)` using existing `searchWorkspaceMeetings` as base
-  - **Estimate: 1-2 days**
+- [x] **Add related meetings + context routes**
+  - Implemented under `memoryRoutes.js`:
+    - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/context`
+    - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/related`
+  - `/related` works even if `meeting_relationships` is empty (on-demand fallback similarity)
+  - **Estimate: Completed**
 
-- [ ] **Build MemoryContextService**
-  - Create `backend/src/services/MemoryContextService.js`
-  - Implement `findRelatedMeetings(meetingId, options)` with scoring
-  - Implement relationship storage in `meeting_relationships` table
-  - **Estimate: 2-3 days**
+- [x] **Build MemoryContextService**
+  - Created `backend/src/services/MemoryContextService.js`
+  - Implemented `getMeetingContext()` and `getRelatedMeetings()` with fallback similarity
+  - **Estimate: Completed**
 
 **MEDIUM PRIORITY:**
-- [ ] Add manual regeneration endpoint (`POST /api/meetings/:id/regenerate-embeddings`)
+- [ ] Add manual embeddings-only regeneration endpoint (e.g. `POST /api/meetings/:id/regenerate-embeddings`)
 - [ ] Add embedding generation for notes and action items (currently only transcript + summary)
-- [ ] Implement result caching for frequent queries
+- [ ] Implement result caching for frequent `/context` and `/related` queries
 
 ---
 
