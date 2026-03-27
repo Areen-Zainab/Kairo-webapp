@@ -115,12 +115,12 @@ export const useWhisperRecaps = (meetingId: number | null, wsConnected: boolean)
     };
   }, [meetingId, wsConnected]);
 
-  const triggerCatchMeUp = async () => {
+  const triggerCatchMeUp = async (options?: { excludeTranscript?: boolean }) => {
     if (!meetingId) return;
     try {
       setTriggering(true);
       setError(null);
-      const res = await apiService.triggerWhisperRecap(meetingId);
+      const res = await apiService.triggerWhisperRecap(meetingId, options);
       if (res.error) {
          setError(res.error);
       } else if (res.data && res.data.recapText) {

@@ -162,10 +162,14 @@ class MicroSummaryService {
    * @param {object} meeting - Meeting row (id/status/endTime/metadata) to avoid extra DB reads.
    * @returns {Promise<{generated: boolean, skipped: boolean, reason?: string, recapText?: string}>}
    */
-  async maybeGenerateMicroRecap(meetingId, meeting, isManual = false) {
+  async maybeGenerateMicroRecap(meetingId, meeting, isManual = false, options = {}) {
     const whisperEnabled = process.env.WHISPER_MODE_ENABLED === 'true';
     if (!whisperEnabled) {
       return { generated: false, skipped: true, reason: 'WHISPER_MODE_ENABLED=false' };
+    }
+
+    if (options?.excludeTranscript) {
+      return { generated: false, skipped: true, reason: 'Transcript excluded for this recap request' };
     }
 
     const lastNMinutesDefault = parseInt(process.env.WHISPER_MODE_LAST_N_MINUTES || '5', 10);

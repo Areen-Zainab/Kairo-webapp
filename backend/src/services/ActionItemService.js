@@ -309,7 +309,7 @@ class ActionItemService {
           select: { id: true, name: true, email: true }
         },
         task: {
-          select: { id: true, title: true, status: true }
+          select: { id: true, title: true }
         }
       }
     });
@@ -433,7 +433,7 @@ class ActionItemService {
         }
         : null,
       task: item.task
-        ? { id: item.task.id, title: item.task.title, status: item.task.status }
+        ? { id: item.task.id, title: item.task.title }
         : null
     };
   }

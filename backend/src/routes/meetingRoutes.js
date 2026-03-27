@@ -13,6 +13,7 @@ const { saveMeetingFile, getFileBuffer, deleteMeetingFile, detectFileType, findC
 const { getMeetingStats } = require("../utils/meetingStats");
 const AIInsightsService = require("../services/AIInsightsService");
 const NotificationService = require("../services/NotificationService");
+const PrivacyModeService = require("../services/PrivacyModeService");
 
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -2219,6 +2220,8 @@ router.post("/:id/whisper/trigger", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Invalid meeting ID" });
     }
 
+    const excludeTranscript = !!req.body?.excludeTranscript;
+
     const meeting = await prisma.meeting.findUnique({
       where: { id: meetingId },
       select: { id: true, status: true, endTime: true, metadata: true, workspaceId: true }
@@ -2246,7 +2249,7 @@ router.post("/:id/whisper/trigger", authenticateToken, async (req, res) => {
     const svc = new MicroSummaryService();
     
     // Bypass the min interval check for manual triggers
-    const result = await svc.maybeGenerateMicroRecap(meetingId, meeting, true);
+    const result = await svc.maybeGenerateMicroRecap(meetingId, meeting, true, { excludeTranscript });
     
     if (result.generated && result.recapText) {
       return res.json({ success: true, message: "Whisper recap generated", recapText: result.recapText });
@@ -2255,6 +2258,50 @@ router.post("/:id/whisper/trigger", authenticateToken, async (req, res) => {
     }
   } catch (error) {
     console.error("Manual Whisper trigger error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Toggle privacy mode for live transcription (without disrupting audio/websocket)
+router.patch("/:id/privacy-mode", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id, 10);
+    const { enabled } = req.body || {};
+
+    if (Number.isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ error: "enabled must be a boolean" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this workspace" });
+    }
+
+    const state = await PrivacyModeService.setState(meetingId, enabled);
+    return res.json({
+      success: true,
+      privacyMode: {
+        enabled: state.enabled,
+        intervals: state.intervals
+      }
+    });
+  } catch (error) {
+    console.error("Update privacy mode error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

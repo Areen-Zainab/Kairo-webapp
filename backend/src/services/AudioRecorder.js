@@ -5,6 +5,7 @@ const path = require('path');
 const { exec } = require('child_process');
 const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 const TranscriptionService = require('./TranscriptionService');
+const PrivacyModeService = require('./PrivacyModeService');
 
 class AudioRecorder {
   constructor(page, meetingDataDir, chunksDir, meetingId, platform = 'zoom') {
@@ -18,6 +19,18 @@ class AudioRecorder {
     this.transcriptFilepath = null;
     this.transcriptionService = null; // Will be initialized when transcript file is created
     this.isRecording = false; // Track recording state for graceful cancellation
+  }
+
+  async shouldProcessTranscription() {
+    if (!this.meetingId) return true;
+    try {
+      const enabled = await PrivacyModeService.isEnabled(this.meetingId);
+      return !enabled;
+    } catch (error) {
+      // Fail open to avoid dropping valid transcript due transient DB/cache issues.
+      console.warn(`⚠️ Privacy mode check failed for meeting ${this.meetingId}: ${error.message}`);
+      return true;
+    }
   }
 
   /**
@@ -1395,7 +1408,7 @@ class AudioRecorder {
           // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
           console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} (${(chunkData.size / 1024).toFixed(1)} KB) - Saved: ${path.basename(chunkPath)}`);
 
-          if (this.transcriptionService && this.isRecording) {
+          if (this.transcriptionService && this.isRecording && await this.shouldProcessTranscription()) {
             // Check if request is already pending before creating new one
             const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
             if (pendingPromise) {
@@ -1508,7 +1521,7 @@ class AudioRecorder {
           // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
           console.log(`💾 Received chunk ${chunkData.startIndex} → ${chunkData.endIndex} - Saved: ${path.basename(chunkPath)}`);
 
-          if (this.transcriptionService && this.isRecording) {
+          if (this.transcriptionService && this.isRecording && await this.shouldProcessTranscription()) {
             // Check if request is already pending before creating new one
             const pendingPromise = this.transcriptionService.getPendingRequest(chunkPath, idx);
             if (pendingPromise) {
@@ -1664,7 +1677,7 @@ class AudioRecorder {
       // Use WebM directly for transcription (WhisperX supports WebM via load_audio)
       // CRITICAL FIX: Don't wait for transcription - do it in background
       // The transcription might hang and we need to proceed to save the complete recording
-      if (this.transcriptionService) {
+      if (this.transcriptionService && await this.shouldProcessTranscription()) {
         const finalChunkIdx = idx; // Capture idx for use in promise
         console.log(`💾 FINAL chunk ${chunkData.startIndex} → ${chunkData.endIndex} (extracting ~3s) - Saved: ${path.basename(chunkPath)}`);
         // Transcribe WebM directly in background

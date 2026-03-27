@@ -7,6 +7,7 @@ const prisma = require('../lib/prisma');
 const { findMeetingDirectory } = require('../utils/meetingFileStorage');
 const NotificationService = require('./NotificationService');
 const MeetingEmbeddingService = require('./MeetingEmbeddingService');
+const PrivacyModeService = require('./PrivacyModeService');
 
 // In-memory storage for generation status (not persisted to DB)
 // If backend restarts, these are cleared, preventing false "generating" states
@@ -22,6 +23,17 @@ const ROOT_VENV_PYTHON_WIN = path.resolve(__dirname, '../../../venv/Scripts/pyth
 const ROOT_VENV_PYTHON_UNIX = path.resolve(__dirname, '../../../venv/bin/python');
 
 class AIInsightsService {
+  _isInPrivacyInterval(isoTimestamp, intervals) {
+    if (!isoTimestamp) return false;
+    const point = new Date(isoTimestamp).getTime();
+    if (Number.isNaN(point)) return false;
+    return (intervals || []).some((interval) => {
+      const start = new Date(interval.start).getTime();
+      const end = interval.end ? new Date(interval.end).getTime() : Number.POSITIVE_INFINITY;
+      if (Number.isNaN(start) || Number.isNaN(end)) return false;
+      return point >= start && point <= end;
+    });
+  }
   /**
    * Get Python executable path
    */
@@ -255,9 +267,34 @@ class AIInsightsService {
         transcriptJson = JSON.parse(fs.readFileSync(transcriptPath, 'utf8'));
         console.log(`   JSON parsed successfully. Utterances: ${transcriptJson.utterances?.length || 0}`);
 
+        // Exclude any transcript generated while privacy mode was enabled.
+        const privacyState = await PrivacyModeService.getState(meetingId);
+        if (Array.isArray(transcriptJson.utterances) && privacyState.intervals.length > 0) {
+          const before = transcriptJson.utterances.length;
+          transcriptJson.utterances = transcriptJson.utterances.filter(
+            (u) => !this._isInPrivacyInterval(u.timestamp, privacyState.intervals)
+          );
+          const removed = before - transcriptJson.utterances.length;
+          if (removed > 0) {
+            console.log(`   🔒 Removed ${removed} privacy-window utterance(s) before insight generation`);
+          }
+        }
+
         // Convert to text format using Python converter
         console.log(`   Converting JSON to text format...`);
-        transcriptText = await this.convertJsonToText(transcriptPath);
+        // Convert filtered JSON through a temp file so summaries always exclude privacy intervals.
+        const tempDir = path.resolve(__dirname, '../../data/temp');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+        const filteredPath = path.join(tempDir, `filtered_transcript_${meetingId}_${Date.now()}.json`);
+        fs.writeFileSync(filteredPath, JSON.stringify(transcriptJson, null, 2), 'utf8');
+        transcriptText = await this.convertJsonToText(filteredPath);
+        try {
+          fs.unlinkSync(filteredPath);
+        } catch (_) {
+          // ignore temp cleanup failures
+        }
         console.log(`   Text conversion complete (${transcriptText.length} characters)`);
       } catch (error) {
         console.error(`❌ Error reading/parsing JSON transcript: ${error.message}`);
