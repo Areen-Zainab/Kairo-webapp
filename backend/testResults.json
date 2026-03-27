@@ -1,0 +1,314 @@
+﻿[parseDeadline] chrono-node parsed "next Friday" ΓåÆ 2026-04-03T07:00:00.000Z
+[parseDeadline] chrono-node parsed "in 2 days" ΓåÆ 2026-03-29T12:00:00.000Z
+[parseDeadline] chrono-node parsed "2026-04-15" ΓåÆ 2026-04-15T07:00:00.000Z
+{
+  "stats": {
+    "suites": 10,
+    "tests": 16,
+    "passes": 15,
+    "pending": 0,
+    "failures": 1,
+    "start": "2026-03-26T21:58:01.862Z",
+    "end": "2026-03-26T21:58:02.182Z",
+    "duration": 320
+  },
+  "tests": [
+    {
+      "title": "should generate a comprehensive Executive Summary",
+      "fullTitle": "AIInsightsService (Summarization Engine) Generating Multi-dimensional Insights should generate a comprehensive Executive Summary",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\aiInsights.test.js",
+      "duration": 4,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should accurately extract Key Decisions from meeting transcripts",
+      "fullTitle": "AIInsightsService (Summarization Engine) Generating Multi-dimensional Insights should accurately extract Key Decisions from meeting transcripts",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\aiInsights.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "err": {
+        "stack": "TypeError: Cannot stub non-existent property _extractDecisions\n    at Function.stub (node_modules\\sinon\\lib\\sinon\\stub.js:82:15)\n    at Sandbox.stub (node_modules\\sinon\\lib\\sinon\\sandbox.js:436:39)\n    at Context.<anonymous> (tests\\aiInsights.test.js:27:33)\n    at process.processImmediate (node:internal/timers:485:21)",
+        "message": "Cannot stub non-existent property _extractDecisions"
+      }
+    },
+    {
+      "title": "should trigger the Meeting Memory Engine automatically after insights complete",
+      "fullTitle": "AIInsightsService (Summarization Engine) Generating Multi-dimensional Insights should trigger the Meeting Memory Engine automatically after insights complete",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\aiInsights.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should generate a live micro-recap from recent 5-minute transcript chunks",
+      "fullTitle": "Whisper Mode (Live Micro-Recaps) MicroSummaryService should generate a live micro-recap from recent 5-minute transcript chunks",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\whisperMode.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should broadcast the real-time recap to all active WebSocket clients in the meeting room",
+      "fullTitle": "Whisper Mode (Live Micro-Recaps) MicroSummaryService should broadcast the real-time recap to all active WebSocket clients in the meeting room",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\whisperMode.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should skip generating recaps if the transcript chunk hasn't changed significantly",
+      "fullTitle": "Whisper Mode (Live Micro-Recaps) MicroSummaryService should skip generating recaps if the transcript chunk hasn't changed significantly",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\whisperMode.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should combine pgvector semantic search (60%) with PostgreSQL FTS (40%)",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) hybridSearchWorkspaceMeetings() should combine pgvector semantic search (60%) with PostgreSQL FTS (40%)",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should gracefully fallback to pure vector search if FTS syntax fails",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) hybridSearchWorkspaceMeetings() should gracefully fallback to pure vector search if FTS syntax fails",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should find contextually similar past meetings using summary_embeddings",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) findRelatedMeetings() should find contextually similar past meetings using summary_embeddings",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should return an empty array if generating vectors is still in progress",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) findRelatedMeetings() should return an empty array if generating vectors is still in progress",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should parse natural language deadlines via chrono-node (\"next Friday\")",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should parse natural language deadlines via chrono-node (\"next Friday\")",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 36,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should parse relative time expressions (\"in 2 days\")",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should parse relative time expressions (\"in 2 days\")",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 261,
+      "currentRetry": 0,
+      "speed": "slow",
+      "err": {}
+    },
+    {
+      "title": "should fallback to standard ISO Date parsing for valid strings (\"2026-04-15\")",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should fallback to standard ISO Date parsing for valid strings (\"2026-04-15\")",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 2,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should auto-classify priority based on urgency keywords in task description",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should auto-classify priority based on urgency keywords in task description",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should respect user's Quiet Hours (daytime shift) and delay notifications",
+      "fullTitle": "Task & Automation Center Reminder Service should respect user's Quiet Hours (daytime shift) and delay notifications",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 4,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should enforce overnight Quiet Hours (e.g. 10 PM - 7 AM)",
+      "fullTitle": "Task & Automation Center Reminder Service should enforce overnight Quiet Hours (e.g. 10 PM - 7 AM)",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    }
+  ],
+  "pending": [],
+  "failures": [
+    {
+      "title": "should accurately extract Key Decisions from meeting transcripts",
+      "fullTitle": "AIInsightsService (Summarization Engine) Generating Multi-dimensional Insights should accurately extract Key Decisions from meeting transcripts",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\aiInsights.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "err": {
+        "stack": "TypeError: Cannot stub non-existent property _extractDecisions\n    at Function.stub (node_modules\\sinon\\lib\\sinon\\stub.js:82:15)\n    at Sandbox.stub (node_modules\\sinon\\lib\\sinon\\sandbox.js:436:39)\n    at Context.<anonymous> (tests\\aiInsights.test.js:27:33)\n    at process.processImmediate (node:internal/timers:485:21)",
+        "message": "Cannot stub non-existent property _extractDecisions"
+      }
+    }
+  ],
+  "passes": [
+    {
+      "title": "should generate a comprehensive Executive Summary",
+      "fullTitle": "AIInsightsService (Summarization Engine) Generating Multi-dimensional Insights should generate a comprehensive Executive Summary",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\aiInsights.test.js",
+      "duration": 4,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should trigger the Meeting Memory Engine automatically after insights complete",
+      "fullTitle": "AIInsightsService (Summarization Engine) Generating Multi-dimensional Insights should trigger the Meeting Memory Engine automatically after insights complete",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\aiInsights.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should generate a live micro-recap from recent 5-minute transcript chunks",
+      "fullTitle": "Whisper Mode (Live Micro-Recaps) MicroSummaryService should generate a live micro-recap from recent 5-minute transcript chunks",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\whisperMode.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should broadcast the real-time recap to all active WebSocket clients in the meeting room",
+      "fullTitle": "Whisper Mode (Live Micro-Recaps) MicroSummaryService should broadcast the real-time recap to all active WebSocket clients in the meeting room",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\whisperMode.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should skip generating recaps if the transcript chunk hasn't changed significantly",
+      "fullTitle": "Whisper Mode (Live Micro-Recaps) MicroSummaryService should skip generating recaps if the transcript chunk hasn't changed significantly",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\whisperMode.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should combine pgvector semantic search (60%) with PostgreSQL FTS (40%)",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) hybridSearchWorkspaceMeetings() should combine pgvector semantic search (60%) with PostgreSQL FTS (40%)",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should gracefully fallback to pure vector search if FTS syntax fails",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) hybridSearchWorkspaceMeetings() should gracefully fallback to pure vector search if FTS syntax fails",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should find contextually similar past meetings using summary_embeddings",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) findRelatedMeetings() should find contextually similar past meetings using summary_embeddings",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should return an empty array if generating vectors is still in progress",
+      "fullTitle": "Meeting Memory Engine (Smart Search & Context) findRelatedMeetings() should return an empty array if generating vectors is still in progress",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\smartSearch.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should parse natural language deadlines via chrono-node (\"next Friday\")",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should parse natural language deadlines via chrono-node (\"next Friday\")",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 36,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should parse relative time expressions (\"in 2 days\")",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should parse relative time expressions (\"in 2 days\")",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 261,
+      "currentRetry": 0,
+      "speed": "slow",
+      "err": {}
+    },
+    {
+      "title": "should fallback to standard ISO Date parsing for valid strings (\"2026-04-15\")",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should fallback to standard ISO Date parsing for valid strings (\"2026-04-15\")",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 2,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should auto-classify priority based on urgency keywords in task description",
+      "fullTitle": "Task & Automation Center Kanban & Action Items should auto-classify priority based on urgency keywords in task description",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 0,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should respect user's Quiet Hours (daytime shift) and delay notifications",
+      "fullTitle": "Task & Automation Center Reminder Service should respect user's Quiet Hours (daytime shift) and delay notifications",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 4,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "should enforce overnight Quiet Hours (e.g. 10 PM - 7 AM)",
+      "fullTitle": "Task & Automation Center Reminder Service should enforce overnight Quiet Hours (e.g. 10 PM - 7 AM)",
+      "file": "A:\\FYP\\Kairo-webapp\\backend\\tests\\taskManagement.test.js",
+      "duration": 1,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    }
+  ]
+}
