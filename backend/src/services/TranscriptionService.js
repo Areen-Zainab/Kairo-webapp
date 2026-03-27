@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { broadcastTranscript } = require('./WebSocketServer');
+const PrivacyModeService = require('./PrivacyModeService');
 
 const PY_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/whisperX/transcribe-whisper.py');
 // Check for venv in root directory - support multiple Python versions
@@ -153,6 +154,21 @@ class TranscriptionService {
 
       // Process transcription result
       if (cleanedText && cleanedText.trim()) {
+        // Privacy mode hard gate: do not save, broadcast, or buffer transcript content.
+        // Audio capture remains uninterrupted; only transcription output is discarded.
+        if (this.meetingId) {
+          const meetingIdNum = typeof this.meetingId === 'string'
+            ? parseInt(this.meetingId, 10)
+            : this.meetingId;
+          if (!isNaN(meetingIdNum)) {
+            const privacyOn = await PrivacyModeService.isEnabled(meetingIdNum);
+            if (privacyOn) {
+              console.log(`🔒 Privacy mode active for meeting ${meetingIdNum}: dropping chunk ${finalChunkIndex}`);
+              return { success: true, text: '', chunk: finalChunkIndex, droppedByPrivacyMode: true };
+            }
+          }
+        }
+
         const timestamp = new Date().toISOString();
         const timestampDate = new Date(timestamp);
 

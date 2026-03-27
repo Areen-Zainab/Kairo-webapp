@@ -218,6 +218,7 @@ const LiveMeetingView = () => {
   const transcriptRef = useRef<HTMLDivElement>(null);
   const pollingActiveRef = useRef(false);
   const joinRequestInProgressRef = useRef(false); // Atomic flag to prevent duplicate join requests
+  const privacyToggleRequestIdRef = useRef(0);
 
   const participants: Participant[] = [
     { id: '1', name: 'Kairo Bot', avatar: 'KB', isMuted: false, isVideoOn: false, isSpeaking: false },
@@ -351,16 +352,36 @@ const LiveMeetingView = () => {
     }
   }, [transcript]);
 
-  const togglePrivacyMode = () => {
-    setIsPrivacyMode(prev => {
-      const next = !prev;
+  const togglePrivacyMode = async () => {
+    if (!meeting?.id) return;
+    const previousState = isPrivacyMode;
+    const next = !previousState;
+    const requestId = ++privacyToggleRequestIdRef.current;
+
+    // Optimistic UI update for immediate privacy effect on frontend.
+    setIsPrivacyMode(next);
+    setShowBotControls(false);
+
+    try {
+      const resp = await apiService.updateMeetingPrivacyMode(meeting.id, next);
+      // Ignore stale responses when user toggles rapidly.
+      if (requestId !== privacyToggleRequestIdRef.current) return;
+
+      if (resp.error) {
+        setIsPrivacyMode(previousState);
+        toastError(resp.error, 'Privacy Mode');
+        return;
+      }
+
+      const enabled = !!resp.data?.privacyMode?.enabled;
+      setIsPrivacyMode(enabled);
       const id = Date.now().toString();
       const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      const type = next ? 'privacy-on' : 'privacy-off' as const;
+      const type = (enabled ? 'privacy-on' : 'privacy-off') as const;
       setSystemMessages(prevMsgs => {
         const last = prevMsgs[prevMsgs.length - 1];
         if (last && last.isSystemMessage && last.systemMessageType === type) {
-          return prevMsgs; // prevent duplicate system line
+          return prevMsgs;
         }
         return [
           ...prevMsgs,
@@ -375,9 +396,11 @@ const LiveMeetingView = () => {
           }
         ];
       });
-      return next;
-    });
-    setShowBotControls(false);
+    } catch (e: any) {
+      if (requestId !== privacyToggleRequestIdRef.current) return;
+      setIsPrivacyMode(previousState);
+      toastError(e?.message || 'Failed to update Privacy Mode', 'Privacy Mode');
+    }
   };
 
   // Responsiveness: auto-collapse sidebar on small screens
@@ -437,6 +460,7 @@ const LiveMeetingView = () => {
         if (response.data?.meeting) {
           const fetchedMeeting = response.data.meeting;
           setMeeting(fetchedMeeting);
+          setIsPrivacyMode(!!fetchedMeeting?.metadata?.privacyMode?.enabled);
 
           // Load existing notes for this meeting
           try {
@@ -867,6 +891,12 @@ const LiveMeetingView = () => {
             </div>
 
             <div className="flex items-center gap-3">
+              {isPrivacyMode && (
+                <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded border border-red-400/40 bg-red-500/10">
+                  <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500" />
+                  <span className="text-[11px] text-red-600 dark:text-red-300">Privacy Mode ON</span>
+                </div>
+              )}
               <div className="hidden xs:flex items-center gap-1.5 text-slate-400">
                 <Clock className="w-3.5 h-3.5" />
                 <span className="text-xs font-medium tabular-nums">{formatDuration(meetingDuration)}</span>
@@ -919,7 +949,7 @@ const LiveMeetingView = () => {
               </div>
 
               <button
-                onClick={triggerCatchMeUp}
+                onClick={() => triggerCatchMeUp({ excludeTranscript: isPrivacyMode })}
                 disabled={triggering}
                 className={`hidden sm:flex items-center gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-medium transition-all shadow-sm ${triggering ? 'bg-purple-100 text-purple-400 border-purple-200 cursor-not-allowed dark:bg-slate-700/50 dark:text-slate-400 dark:border-slate-600/50' : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 hover:shadow-md border border-transparent'}`}
               >
@@ -1125,6 +1155,7 @@ const LiveMeetingView = () => {
                   transcript={transcript}
                   isLoading={transcriptLoading}
                   isConnected={isTranscriptConnected}
+                  isPrivacyMode={isPrivacyMode}
                   onRefer={(text) => {
                     const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
                     setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
@@ -1157,6 +1188,7 @@ const LiveMeetingView = () => {
               transcript={transcript}
               isLoading={transcriptLoading}
               isConnected={isTranscriptConnected}
+              isPrivacyMode={isPrivacyMode}
               onRefer={(text) => {
                 const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
                 setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);

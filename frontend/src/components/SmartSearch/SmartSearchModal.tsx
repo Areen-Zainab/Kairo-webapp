@@ -12,6 +12,7 @@ interface SearchResult {
   snippet: string;
   content?: string;
   distance?: number;
+  matchedTerms?: string[];
 }
 
 interface SmartSearchModalProps {
@@ -40,9 +41,33 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
       contentType: r.contentType ?? r.content_type ?? 'summary',
       snippet: r.snippet ?? (typeof r.content === 'string' ? r.content : ''),
       content: r.content,
-      distance: r.distance
+      distance: r.distance,
+      matchedTerms: Array.isArray(r.matchedTerms) ? r.matchedTerms : []
     }));
   }, [results]);
+
+  /**
+   * Renders a snippet with query terms bolded.
+   * Splits text on all matched terms simultaneously using a single regex.
+   */
+  const HighlightedSnippet: React.FC<{ text: string; terms: string[] }> = ({ text, terms }) => {
+    if (!terms || terms.length === 0) return <>{text}</>;
+
+    // Build a regex that matches any of the terms (case-insensitive)
+    const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
+    const parts = text.split(pattern);
+
+    return (
+      <>
+        {parts.map((part, i) =>
+          pattern.test(part)
+            ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-500/30 text-yellow-900 dark:text-yellow-200 rounded px-0.5 font-medium not-italic">{part}</mark>
+            : <span key={i}>{part}</span>
+        )}
+      </>
+    );
+  };
 
   // Handle ESC + keyboard navigation (↑↓ + Enter)
   useEffect(() => {
@@ -235,7 +260,7 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
                         </div>
                       </div>
                       <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 pl-6">
-                        {result.snippet}
+                        <HighlightedSnippet text={result.snippet} terms={result.matchedTerms || []} />
                       </p>
                     </button>
                   </li>

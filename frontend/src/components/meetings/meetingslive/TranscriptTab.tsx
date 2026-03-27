@@ -16,6 +16,7 @@ interface TranscriptTabProps {
   onRefer?: (text: string) => void;
   isLoading?: boolean;
   isConnected?: boolean;
+  isPrivacyMode?: boolean;
 }
 
 // Track which entries have been animated (shared across all AnimatedText instances)
@@ -68,13 +69,34 @@ const AnimatedText: React.FC<{ text: string; entryId: string }> = ({ text, entry
   return <span>{displayedText || text}</span>;
 };
 
-const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript, onRefer, isLoading = false, isConnected = false }) => {
+const TranscriptTab: React.FC<TranscriptTabProps> = ({
+  transcriptRef,
+  transcript,
+  onRefer,
+  isLoading = false,
+  isConnected = false,
+  isPrivacyMode = false
+}) => {
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full bg-gray-50 dark:bg-slate-900/20">
       <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Live Transcript</h2>
       </div>
       <div ref={transcriptRef} className="flex-1 overflow-y-auto p-4 min-h-0 scrollbar-hide">
+        {isPrivacyMode && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="flex gap-1 mb-3">
+              <div className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-slate-300">Privacy mode is enabled</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">Live transcription is hidden on this screen.</p>
+          </div>
+        )}
+
+        {!isPrivacyMode && (
+          <>
         {transcript.map((entry) => (
           entry.isSystemMessage ? (
             <div key={entry.id} className="relative my-8">
@@ -136,6 +158,8 @@ const TranscriptTab: React.FC<TranscriptTabProps> = ({ transcriptRef, transcript
             </div>
             <p className="text-sm text-gray-500 dark:text-slate-400">Connecting Audio</p>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

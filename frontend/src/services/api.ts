@@ -744,7 +744,10 @@ class ApiService {
     });
   }
 
-  async triggerWhisperRecap(meetingId: number): Promise<ApiResponse<{ recapText: string; message: string; skipped?: boolean }>> {
+  async triggerWhisperRecap(
+    meetingId: number,
+    options?: { excludeTranscript?: boolean }
+  ): Promise<ApiResponse<{ recapText: string; message: string; skipped?: boolean }>> {
     // Ensure token is refreshed before making request
     this.refreshToken();
     if (!this.token) {
@@ -755,6 +758,7 @@ class ApiService {
     }
     return this.request<{ recapText: string; message: string; skipped?: boolean }>(`/meetings/${meetingId}/whisper/trigger`, {
       method: 'POST',
+      body: JSON.stringify({ excludeTranscript: !!options?.excludeTranscript }),
     });
   }
 
@@ -773,6 +777,23 @@ class ApiService {
     return this.request<{ meeting: any }>(`/meetings/${meetingId}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    });
+  }
+
+  async updateMeetingPrivacyMode(
+    meetingId: number,
+    enabled: boolean
+  ): Promise<ApiResponse<{ success: boolean; privacyMode: { enabled: boolean; intervals: Array<{ start: string; end: string | null }> } }>> {
+    this.refreshToken();
+    if (!this.token) {
+      const tokenFromStorage = localStorage.getItem('authToken');
+      if (tokenFromStorage && tokenFromStorage.trim()) {
+        this.token = tokenFromStorage.trim();
+      }
+    }
+    return this.request(`/meetings/${meetingId}/privacy-mode`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
     });
   }
 
