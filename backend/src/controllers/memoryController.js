@@ -1,6 +1,7 @@
 const prisma = require("../lib/prisma");
 const meetingEmbeddingService = require("../services/MeetingEmbeddingService");
 const memoryContextService = require("../services/MemoryContextService");
+const memoryGraphAssemblyService = require("../services/MemoryGraphAssemblyService");
 
 /**
  * Perform a semantic search on the workspace's meeting memories
@@ -173,5 +174,122 @@ exports.getRelatedMeetings = async (req, res) => {
   } catch (error) {
     console.error("Error in getRelatedMeetings:", error);
     res.status(500).json({ error: "An error occurred while fetching related meetings." });
+  }
+};
+
+/**
+ * Memory Graph: workspace-scoped nodes/edges for the Memory Graph UI.
+ * GET /api/workspaces/:workspaceId/memory/graph
+ */
+exports.getWorkspaceGraph = async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const workspaceIdInt = parseInt(workspaceId, 10);
+
+    if (Number.isNaN(workspaceIdInt)) {
+      return res.status(400).json({ error: "Valid workspaceId is required." });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: workspaceIdInt, userId: req.user.id } }
+    });
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    const limitMeetings = req.query.limitMeetings ? parseInt(req.query.limitMeetings, 10) : undefined;
+    const limitNodes = req.query.limitNodes ? parseInt(req.query.limitNodes, 10) : undefined;
+    const limitActions = req.query.limitActions ? parseInt(req.query.limitActions, 10) : undefined;
+
+    const graphData = await memoryGraphAssemblyService.buildWorkspaceGraph(workspaceId, {
+      limitMeetings,
+      limitNodes,
+      limitActions
+    });
+
+    res.json({ success: true, workspaceId, graphData });
+  } catch (error) {
+    console.error("Error in getWorkspaceGraph:", error);
+    res.status(500).json({ error: "An error occurred while fetching workspace graph." });
+  }
+};
+
+/**
+ * Memory Graph: workspace stats used by MemoryView.
+ * GET /api/workspaces/:workspaceId/memory/graph/stats
+ */
+exports.getWorkspaceGraphStats = async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const workspaceIdInt = parseInt(workspaceId, 10);
+
+    if (Number.isNaN(workspaceIdInt)) {
+      return res.status(400).json({ error: "Valid workspaceId is required." });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: workspaceIdInt, userId: req.user.id } }
+    });
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    // Build graph with the same caps as /graph so the cache is shared.
+    const graphData = await memoryGraphAssemblyService.buildWorkspaceGraph(workspaceId, {
+      limitMeetings: req.query.limitMeetings ? parseInt(req.query.limitMeetings, 10) : 10,
+      limitNodes: req.query.limitNodes ? parseInt(req.query.limitNodes, 10) : 220,
+      limitActions: req.query.limitActions ? parseInt(req.query.limitActions, 10) : 30
+    });
+
+    const stats = await memoryGraphAssemblyService.getWorkspaceStats(workspaceId, graphData);
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error("Error in getWorkspaceGraphStats:", error);
+    res.status(500).json({ error: "An error occurred while fetching workspace graph stats." });
+  }
+};
+
+/**
+ * Memory Graph: subgraph centred on a single node up to `depth` hops.
+ * GET /api/workspaces/:workspaceId/memory/graph/node/:nodeId/neighbours?depth=1
+ */
+exports.getNodeNeighbours = async (req, res) => {
+  try {
+    const { workspaceId, nodeId } = req.params;
+    const workspaceIdInt = parseInt(workspaceId, 10);
+
+    if (Number.isNaN(workspaceIdInt)) {
+      return res.status(400).json({ error: "Valid workspaceId is required." });
+    }
+
+    if (!nodeId || typeof nodeId !== "string" || nodeId.trim().length === 0) {
+      return res.status(400).json({ error: "Valid nodeId is required." });
+    }
+
+    // Cap depth at 3 to prevent runaway BFS on large graphs.
+    const rawDepth = req.query.depth ? parseInt(req.query.depth, 10) : 1;
+    const depth = Number.isNaN(rawDepth) ? 1 : Math.min(Math.max(rawDepth, 1), 3);
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: workspaceIdInt, userId: req.user.id } }
+    });
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    const result = await memoryGraphAssemblyService.getNodeNeighbours(
+      workspaceId,
+      nodeId,
+      depth
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: "Node not found in workspace graph." });
+    }
+
+    res.json({ success: true, workspaceId, nodeId, ...result });
+  } catch (error) {
+    console.error("Error in getNodeNeighbours:", error);
+    res.status(500).json({ error: "An error occurred while fetching node neighbours." });
   }
 };

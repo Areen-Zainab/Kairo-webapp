@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import GraphCanvas from '../../components/workspace/memory/GraphCanvas';
 import ContextPanel from '../../components/workspace/memory/ContextPanel';
@@ -11,9 +11,11 @@ import { useGraphData } from '../../hooks/useGraphData';
 import { useQueryMemory } from '../../hooks/useQueryMemory';
 import { useUser } from '../../context/UserContext';
 import type { MemoryNode, MemoryFilter, GraphViewport, FocusMode, WorkspaceMemory } from '../../components/workspace/memory/types';
+import apiService from '../../services/api';
 
 const MemoryView: React.FC = () => {
   const navigate = useNavigate();
+  const { workspaceId } = useParams<{ workspaceId: string }>();
   const { isAuthenticated, loading } = useUser();
   const [selectedNode, setSelectedNode] = useState<MemoryNode | null>(null);
   const [filters, setFilters] = useState<MemoryFilter>({});
@@ -35,19 +37,18 @@ const MemoryView: React.FC = () => {
   const [highlightQuery, setHighlightQuery] = useState('');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Mock workspace memory data
-  const workspaceMemory: WorkspaceMemory = {
-    id: '1',
-    name: 'Product Team Alpha',
-    lastUpdate: '2024-01-15T10:30:00Z',
-    totalNodes: 47,
-    totalEdges: 89,
-    topics: 12,
-    meetings: 18,
-    decisions: 8,
-    actions: 15,
-    members: 12
-  };
+  const [workspaceMemory, setWorkspaceMemory] = useState<WorkspaceMemory>({
+    id: '',
+    name: '',
+    lastUpdate: '',
+    totalNodes: 0,
+    totalEdges: 0,
+    topics: 0,
+    meetings: 0,
+    decisions: 0,
+    actions: 0,
+    members: 0
+  });
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -56,8 +57,49 @@ const MemoryView: React.FC = () => {
     }
   }, [isAuthenticated, loading, navigate]);
 
-  const { graphData, loading: graphLoading, error } = useGraphData(filters);
-  const { queryMemory, isQuerying } = useQueryMemory();
+  const { graphData, loading: graphLoading, error } = useGraphData(workspaceId || '', filters);
+  const { queryMemory, isQuerying } = useQueryMemory(workspaceId || '');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (!workspaceId) return;
+      const wid = parseInt(workspaceId, 10);
+      if (Number.isNaN(wid)) return;
+
+      const resp = await apiService.getMemoryGraphStats(wid, {
+        limitMeetings: 10,
+        limitNodes: 220,
+        limitActions: 30
+      });
+
+      if (cancelled) return;
+      if (resp.error) return;
+
+      const stats = resp.data?.stats;
+      if (!stats) return;
+
+      setWorkspaceMemory({
+        id: stats.id,
+        name: stats.name,
+        lastUpdate: stats.lastUpdate,
+        totalNodes: stats.totalNodes,
+        totalEdges: stats.totalEdges,
+        topics: stats.topics,
+        meetings: stats.meetings,
+        decisions: stats.decisions,
+        actions: stats.actions,
+        members: stats.members
+      });
+    };
+
+    run().catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   const handleNodeClick = (node: MemoryNode) => {
     setSelectedNode(node);
@@ -103,9 +145,19 @@ const MemoryView: React.FC = () => {
 
   const handleAIQuery = async (query: string) => {
     const results = await queryMemory(query);
-    if (results) {
-      // Animate to relevant nodes
-      // Implementation for animating to nodes would go here
+    if (results && results.results.nodes.length > 0) {
+      const matchingIds = results.results.nodes;
+      // Highlight the matching nodes and dim everything else in the graph.
+      const dimmedNodes = graphData.nodes
+        .filter((node) => !matchingIds.includes(node.id))
+        .map((node) => node.id);
+
+      setFocusMode({
+        enabled: true,
+        centerNode: matchingIds[0],
+        relatedNodes: matchingIds,
+        dimmedNodes
+      });
     }
   };
 
@@ -167,6 +219,19 @@ const MemoryView: React.FC = () => {
     );
   }
 
+  if (graphLoading && graphData.nodes.length === 0) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+            <p className="text-slate-600 dark:text-slate-400">Loading workspace graph...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout {...(isQueryPanelOpen && { forceSidebarCollapsed: true })}>
       <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 dark:from-slate-900 dark:via-indigo-950 dark:to-slate-900">
@@ -182,7 +247,9 @@ const MemoryView: React.FC = () => {
                   Memory Graph
                 </h1>
                 <p className="text-sm text-slate-600 dark:text-slate-400">
-                  {workspaceMemory.name} • Last updated {formatLastUpdate(workspaceMemory.lastUpdate)}
+                  {workspaceMemory.name
+                    ? `${workspaceMemory.name} • Last updated ${workspaceMemory.lastUpdate ? formatLastUpdate(workspaceMemory.lastUpdate) : '—'}`
+                    : 'Loading workspace memory...'}
                 </p>
               </div>
             </div>

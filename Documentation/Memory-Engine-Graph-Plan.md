@@ -326,10 +326,11 @@ For `useQueryMemory.ts`:
 
 ```
 [ ] Implement query-time graph assembly (no new graph-table Prisma migration required)
-[ ] Implement `GET /api/workspaces/:workspaceId/memory/graph` and `GET /api/workspaces/:workspaceId/memory/graph/stats`
-[ ] Implement `MemoryGraphAssemblyService` to build nodes/edges from existing tables (`meetings`, `meeting_memory_contexts`, `ai_insights`, `action_items`)
-[ ] Update `frontend/src/hooks/useGraphData.ts` to fetch backend graph and compute visual layout client-side
-[ ] Update `frontend/src/pages/workspace/MemoryView.tsx` to use real `workspaceId` + backend stats and show loading/empty states
+[x] Implement query-time graph assembly (no new graph-table Prisma migration required)
+[x] Implement `GET /api/workspaces/:workspaceId/memory/graph` and `GET /api/workspaces/:workspaceId/memory/graph/stats`
+[x] Implement `MemoryGraphAssemblyService` to build nodes/edges from existing tables (`meetings`, `meeting_memory_contexts`, `action_items`)
+[x] Update `frontend/src/hooks/useGraphData.ts` to fetch backend graph and apply client-side filters
+[x] Update `frontend/src/pages/workspace/MemoryView.tsx` to use real `workspaceId` + backend stats and show loading/empty states
 [ ] Optional: add `/memory/graph/node/:nodeId/neighbours?depth=2` for click-to-expand behavior
 [ ] Manual test: complete or regenerate a meeting -> open Memory Graph -> verify nodes and `ContextPanel` details
 [ ] Stress test: workspace with 20+ meetings -> verify endpoint caps and GraphCanvas remains responsive

@@ -35,36 +35,33 @@ const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
 
   const [currentExampleIndex, setCurrentExampleIndex] = useState(0);
 
-  // Generate contextual replies based on user queries
+  // Generate contextual replies based on user queries.
+  // Matching meeting nodes are highlighted in the graph automatically via the
+  // real semantic search — these replies are supplementary guidance only.
   const getDefaultReply = (query: string): string => {
     const lowerQuery = query.toLowerCase();
-    
+
     if (lowerQuery.includes('decision') || lowerQuery.includes('decide')) {
-      return "I found 3 key decisions in your workspace memory:\n\n• Product roadmap prioritization (Dec 15, 2024)\n• Budget allocation for Q1 2025 (Dec 10, 2024)\n• Team restructuring proposal (Dec 5, 2024)\n\nWould you like me to show you the details of any specific decision?";
+      return "Searching your workspace for decisions related to this topic.\n\nMatching meeting nodes will be highlighted in the graph. Click any highlighted meeting node to see the full decision record and rationale in the context panel.";
     }
-    
-    if (lowerQuery.includes('meeting') || lowerQuery.includes('discuss')) {
-      return "Here are the recent meetings related to your query:\n\n• Sprint Planning - Dec 12, 2024 (8 participants)\n• Client Review - Dec 8, 2024 (5 participants)\n• Team Standup - Dec 6, 2024 (12 participants)\n\nI can show you transcripts, action items, or key insights from any of these meetings.";
+
+    if (lowerQuery.includes('meeting') || lowerQuery.includes('discuss') || lowerQuery.includes('session')) {
+      return "Searching your workspace meetings for discussions related to this topic.\n\nAny matching meetings will be highlighted in the graph. Click a node to see transcripts, action items, and key insights from that meeting.";
     }
-    
-    if (lowerQuery.includes('action') || lowerQuery.includes('task') || lowerQuery.includes('pending')) {
-      return "I found 7 pending action items in your workspace:\n\n• Complete user research analysis (Due: Dec 20)\n• Update project documentation (Due: Dec 18)\n• Schedule client follow-up call (Due: Dec 16)\n• Review budget proposal (Due: Dec 15)\n\nWould you like me to show you the full list with details and assignees?";
+
+    if (lowerQuery.includes('action') || lowerQuery.includes('task') || lowerQuery.includes('todo') || lowerQuery.includes('pending')) {
+      return "Searching for meetings with action items or tasks related to your query.\n\nMatching meetings will be highlighted in the graph. Action item nodes connected to those meetings will also be visible — click them to see assignee and due date details.";
     }
-    
-    if (lowerQuery.includes('budget') || lowerQuery.includes('cost') || lowerQuery.includes('financial')) {
-      return "Here's what I found about budget discussions:\n\n• Q1 2025 budget approved: $150,000\n• Marketing allocation: 30%\n• Development resources: 45%\n• Operational costs: 25%\n\nI can show you the detailed breakdown and any related decisions.";
+
+    if (lowerQuery.includes('team') || lowerQuery.includes('member') || lowerQuery.includes('people') || lowerQuery.includes('who')) {
+      return "Looking up team members and their participation patterns in your workspace.\n\nMember nodes in the graph are connected to the meetings they participated in. Highlighted nodes indicate the closest matches to your query.";
     }
-    
-    if (lowerQuery.includes('team') || lowerQuery.includes('member') || lowerQuery.includes('people')) {
-      return "Your workspace has 12 active members:\n\n• 4 Developers\n• 3 Designers\n• 2 Product Managers\n• 2 Marketing Specialists\n• 1 Project Coordinator\n\nI can show you their recent contributions, meeting participation, or specific project involvement.";
+
+    if (lowerQuery.includes('topic') || lowerQuery.includes('subject') || lowerQuery.includes('theme')) {
+      return "Searching your workspace for meetings grouped around this topic.\n\nTopic nodes in the graph cluster related meetings. Matching nodes will be highlighted — click any topic node to see which meetings discussed it.";
     }
-    
-    if (lowerQuery.includes('feature') || lowerQuery.includes('launch') || lowerQuery.includes('release')) {
-      return "I found information about upcoming features:\n\n• User Dashboard v2.0 (Target: Jan 15, 2025)\n• Mobile App Integration (Target: Feb 1, 2025)\n• Advanced Analytics (Target: Mar 1, 2025)\n\nWould you like details about development progress, timelines, or stakeholder discussions?";
-    }
-    
-    // Default response for other queries
-    return "I'm analyzing your workspace memory to find relevant information. Based on your query, I can help you explore:\n\n• Meeting transcripts and insights\n• Decision records and rationale\n• Action items and progress tracking\n• Team collaboration patterns\n• Project timelines and milestones\n\nWhat specific aspect would you like to dive deeper into?";
+
+    return "Searching your workspace memory for relevant meetings and context.\n\nMatching meeting nodes will be highlighted in the graph. Click any highlighted node to open the context panel with full details, participants, and linked action items.";
   };
 
   useEffect(() => {

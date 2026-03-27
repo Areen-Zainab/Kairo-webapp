@@ -14,10 +14,10 @@
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~82% Complete
+### Overall Progress: ~87% Complete
 
 > **Last Updated:** March 27, 2026 *(code-verified — not self-reported)*
-> Previous estimate (March 26, 2026) was 76%. Significant items completed since.
+> Previous estimate was 85%. Knowledge Graph hardening completed since.
 
 **Completed Since Last Audit:**
 - ✅ Embeddings auto-triggered in `AIInsightsService.generateInsights()` after insights complete
@@ -25,9 +25,16 @@
 - ✅ `PostMeetingProcessor.convertToTasks()` is a harmless stub — task creation handled in `AIInsightsService`
 - ✅ **Deadline parsing** — `chrono-node` integrated in `TaskCreationService.parseDeadline()` + wired into `AIInsightsService` (March 27, 2026)
 - ✅ **Priority auto-classification** — `_extractPriority()` already existed in `TaskCreationService` (confirmed March 27, 2026)
+- ✅ Memory Graph backend baseline: `/memory/graph` + `/memory/graph/stats` endpoints implemented
+- ✅ `MemoryView.tsx` now uses real workspace graph/stats data instead of full local mock graph generation
+- ✅ **Graph caching** — 60s TTL in-memory cache in `MemoryGraphAssemblyService`; `/graph` and `/graph/stats` now share one DB build per window
+- ✅ **Auth guards on graph endpoints** — `getWorkspaceGraph` and `getWorkspaceGraphStats` now verify workspace membership (security fix)
+- ✅ **Node-neighbour expansion** — `GET /memory/graph/node/:nodeId/neighbours?depth=N` endpoint implemented; `getNodeNeighbours` exposed in `api.ts`
+- ✅ **Query bar wired to real API** — `useQueryMemory` calls `/memory/search`, maps results to real node IDs; `MemoryView.handleAIQuery` uses them to focus/dim graph nodes
+- ✅ **MemoryQueryBar fake data removed** — `getDefaultReply` no longer returns hardcoded names and numbers
 
 **Key Remaining Gaps (verified):**
-- ❌ **Knowledge Graph backend** — `memoryAPI.ts` is 100% mock/hardcoded; no `graph_nodes`/`graph_edges` tables; no `GraphConstructionService` or `GraphQueryService`
+- ⚠️ **Knowledge Graph — no persistent storage** — graph is regenerated per request (with 60s cache); no dedicated `graph_nodes`/`graph_edges` tables yet
 - ❌ **ReminderService quiet hours** — `quietHoursStart`/`quietHoursEnd` stored and shown in UI but never checked in `checkAndSendReminders()` before dispatching
 - ❌ **Privacy & Compliance Mode** — 0% implemented
 - ❌ **Speaker identification by name** — Pyannote diarization works post-meeting but produces `Speaker_0`/`Speaker_1` labels only (no name mapping)
@@ -56,14 +63,14 @@
 14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron + manual trigger + WebSocket + useWhisperRecaps + WhisperRecapTab + "Catch Me Up" button)*
 15. **Smart Search & Query** — ✅ 75% Complete *(SmartSearchModal wired to real semantic search API — verified in code; hybrid search not yet implemented)*
 
-### 🔄 PARTIALLY IMPLEMENTED (2/22)
+### 🔄 PARTIALLY IMPLEMENTED (3/22)
 
 16. **Multimodal Meeting Capture** — 20% Complete (audio/video only)
 17. **Speaker Diarization** — 30% Complete *(Pyannote diarization runs post-meeting; produces Speaker_0/Speaker_1 labels; no name mapping to real users)*
+18. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion, and real query-bar integration now implemented; only persistent storage remains pending)*
 
-### ❌ NOT IMPLEMENTED (5/22)
+### ❌ NOT IMPLEMENTED (4/22)
 
-18. **Meeting Memory Graph (Knowledge Graph)** — 0% Complete *(UI mockup + mock data ONLY — verified)*
 19. **Task Contextual Micro-Channels** — 0% Complete
 20. **Privacy & Compliance Mode** — 0% Complete
 21. **Calendar Integrations** — 0% Complete (UI mockup exists)
@@ -233,28 +240,37 @@
 ---
 
 ### 6. Meeting Memory Graph (Knowledge Graph)
-**Status:** ❌ 0% COMPLETE *(UI shell + 100% mock data — verified in code)*
-**Priority:** High (friend's assignment)
-**Technologies:** PostgreSQL (adjacency lists), D3.js/vis-network, React
+**Status:** 🔄 80% COMPLETE *(caching, auth, neighbour expansion, real query-bar integration complete; only persistent storage pending)*
+**Priority:** High
+**Technologies:** PostgreSQL (adjacency lists), React Canvas
 
-#### ✅ What Exists (frontend only):
-- `frontend/src/pages/workspace/MemoryView.tsx` — full UI shell
-- `frontend/src/utils/memoryAPI.ts` — **ALL MOCK DATA** (hardcoded nodes, edges, stats)
-- `useQueryMemory.ts` hook wired to mock API
+#### ✅ What's Working (code-verified):
+- Backend query-time graph assembly service `MemoryGraphAssemblyService.js`:
+  - Builds `nodes`/`edges` from `meeting_memory_contexts`, `meetings`, `action_items`, participants
+  - 60-second TTL in-memory cache — `/graph` and `/graph/stats` share one DB build per window
+  - `getNodeNeighbours(workspaceId, nodeId, depth)` method for BFS subgraph expansion
+- Backend graph endpoints (all require active workspace membership):
+  - `GET /api/workspaces/:workspaceId/memory/graph`
+  - `GET /api/workspaces/:workspaceId/memory/graph/stats`
+  - `GET /api/workspaces/:workspaceId/memory/graph/node/:nodeId/neighbours?depth=N`
+- Frontend wiring uses real backend data:
+  - `useGraphData.ts` fetches `/memory/graph`; `MemoryView.tsx` fetches `/memory/graph/stats`
+  - `useQueryMemory.ts` calls `/memory/search`, maps results to real graph node IDs (`meeting:N`)
+  - `MemoryView.handleAIQuery` uses returned node IDs to focus/dim matching nodes in the graph
+  - `MemoryQueryBar.tsx` no longer returns hardcoded fake names and numbers
+- `api.ts` exposes `getNodeNeighbours(workspaceId, nodeId, depth)` for future click-to-expand UI
 
-#### ❌ What's Missing:
-- `graph_nodes` and `graph_edges` tables (not in Prisma schema)
-- `GraphConstructionService.js`
-- `GraphQueryService.js`
-- `graphRoutes.js`
-- Real API calls in `memoryAPI.ts`
+#### ⚠️ What's Missing:
+- No persisted graph storage (`graph_nodes`/`graph_edges` tables) — graph is always regenerated (with 60s cache)
+- Frontend click-to-expand using `/neighbours` endpoint is not yet wired to any UI interaction
+- `meeting_relationships` table is not yet populated (on-demand vector fallback in `MemoryContextService` compensates)
 
 #### 📋 Implementation Phases:
 
-**PHASE 1: Schema** — `graph_nodes`, `graph_edges` Prisma models
-**PHASE 2: Construction** — `GraphConstructionService.js` (buildMeetingNode, buildTopicNodes, buildDecisionNodes, buildTaskNodes, detectRelationships)
-**PHASE 3: API** — `GET /api/graph/workspace/:id`, `GET /api/graph/node/:id`, `POST /api/graph/search`
-**PHASE 4: Frontend** — Replace all mock in `memoryAPI.ts`, wire `MemoryView.tsx` to real data
+**PHASE 1: Baseline (Completed)** — query-time assembly + `/memory/graph` + `/memory/graph/stats` + frontend wiring
+**PHASE 2: Interaction + Hardening (Completed)** — caching, auth guards, neighbour expansion endpoint, real query-bar wiring
+**PHASE 3: UI Expansion (Pending)** — wire `/neighbours` to node click-to-expand in `GraphCanvas`
+**PHASE 4: Persistence (Optional)** — add `graph_nodes`/`graph_edges` tables for faster reads on large workspaces
 
 ---
 
@@ -451,8 +467,8 @@
 | 2 | **Hybrid search** — pgvector + FTS in `memoryController.js` | 2 days | You | ⬜ TODO |
 | 3 | **Deadline parsing** — `chrono-node` in `TaskCreationService.js` | 2 days | You | ✅ DONE |
 | 4 | **Priority auto-classification** — keyword-based for action items | — | You | ✅ DONE |
-| 5 | **Knowledge Graph backend** — schema + services + API routes | 3-4 days | Friend | 🔄 WIP |
-| 6 | **Related meetings routes** — `GET /api/meetings/:id/related` + `MemoryContextService.js` | 2-3 days | You | ⬜ TODO |
+| 5 | **Knowledge Graph backend hardening** — caching + neighbour expansion + search/focus integration | 3-4 days | Friend | ✅ DONE |
+| 6 | **Related meetings routes + MemoryContextService** | 2-3 days | You | ✅ DONE |
 | 7 | **Result highlighting** in `SmartSearchModal.tsx` | 1 day | You | ⬜ TODO |
 
 ### ⚡ MEDIUM PRIORITY
@@ -476,11 +492,11 @@
 
 ## CONCLUSION
 
-Kairo is now **~82% complete** (code-verified, March 27, 2026). The core AI pipeline (bot → transcript → AI insights → embeddings → Smart Search) is fully end-to-end functional. Deadline parsing and priority classification are done. The main remaining work is:
+Kairo is now **~87% complete** (code-verified, March 27, 2026). The core AI pipeline (bot -> transcript -> AI insights -> embeddings -> Smart Search) is fully end-to-end functional. Deadline parsing, priority classification, and Knowledge Graph hardening (caching, auth guards, neighbour expansion, real query-bar integration) are all done. The main remaining work is:
 
-1. **Small plumbing fixes** (quiet hours, deadline parsing, priority classification) — 1 week total
+1. **Small plumbing fixes** (quiet hours enforcement in `ReminderService`) — ~3 hrs
 2. **Search improvements** (hybrid search, result highlighting) — ~3 days
-3. **Knowledge Graph backend** (being handled by teammate)
+3. **Knowledge Graph UI expansion** (wire `/neighbours` to node click-to-expand in `GraphCanvas`) — ~1 day
 4. **New features** (Privacy Mode, Calendar) — post-FYP or stretch goals
 
 **Note:** Microsoft Teams support is NOT in scope. Focus is Google Meet and Zoom.

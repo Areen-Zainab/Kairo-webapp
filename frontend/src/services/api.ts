@@ -1330,6 +1330,62 @@ class ApiService {
     
     return this.request(`/workspaces/${workspaceId}/memory/search?${params.toString()}`);
   }
+
+  /**
+   * Fetch workspace-scoped Memory Graph (nodes/edges).
+   */
+  async getMemoryGraph(
+    workspaceId: number,
+    options: { limitMeetings?: number; limitNodes?: number; limitActions?: number } = {}
+  ): Promise<ApiResponse<{
+    success: boolean;
+    workspaceId: string;
+    graphData: any;
+  }>> {
+    const params = new URLSearchParams();
+    if (options.limitMeetings != null) params.append("limitMeetings", options.limitMeetings.toString());
+    if (options.limitNodes != null) params.append("limitNodes", options.limitNodes.toString());
+    if (options.limitActions != null) params.append("limitActions", options.limitActions.toString());
+    return this.request(`/workspaces/${workspaceId}/memory/graph?${params.toString()}`);
+  }
+
+  /**
+   * Fetch workspace-scoped Memory Graph stats.
+   */
+  async getMemoryGraphStats(
+    workspaceId: number,
+    options: { limitMeetings?: number; limitNodes?: number; limitActions?: number } = {}
+  ): Promise<ApiResponse<{
+    success: boolean;
+    stats: any;
+  }>> {
+    const params = new URLSearchParams();
+    if (options.limitMeetings != null) params.append("limitMeetings", options.limitMeetings.toString());
+    if (options.limitNodes != null) params.append("limitNodes", options.limitNodes.toString());
+    if (options.limitActions != null) params.append("limitActions", options.limitActions.toString());
+    return this.request(`/workspaces/${workspaceId}/memory/graph/stats?${params.toString()}`);
+  }
+
+  /**
+   * Fetch a subgraph centred on a single node up to `depth` hops away.
+   * nodeId uses the format produced by the backend (e.g. "meeting:123", "topic:1:keyword").
+   */
+  async getNodeNeighbours(
+    workspaceId: number,
+    nodeId: string,
+    depth: number = 1
+  ): Promise<ApiResponse<{
+    success: boolean;
+    node: any;
+    depth: number;
+    neighbours: { nodes: any[]; edges: any[] };
+  }>> {
+    const params = new URLSearchParams();
+    params.append("depth", depth.toString());
+    return this.request(
+      `/workspaces/${workspaceId}/memory/graph/node/${encodeURIComponent(nodeId)}/neighbours?${params.toString()}`
+    );
+  }
 }
 
 export type { Notification, NotificationsResponse, Tag };
