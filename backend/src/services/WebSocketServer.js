@@ -205,8 +205,8 @@ function broadcastWhisperRecap(meetingId, recapData) {
   const message = JSON.stringify({
     type: 'whisper_recap',
     data: {
-      text: recapData.text,
-      timestamp: recapData.timestamp || new Date().toISOString()
+      text: recapData.recapText,
+      timestamp: recapData.at || new Date().toISOString()
     }
   });
 

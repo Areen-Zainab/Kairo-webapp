@@ -5,7 +5,6 @@ export interface WhisperRecap {
   id: string;
   text: string;
   timestamp: string;
-  lastNMinutes?: number;
 }
 
 export const useWhisperRecaps = (meetingId: number | null, wsConnected: boolean) => {
@@ -34,8 +33,7 @@ export const useWhisperRecaps = (meetingId: number | null, wsConnected: boolean)
           setRecaps(initialRecaps.map((r, i) => ({
              id: r.at || `recap-${i}`,
              text: r.recapText,
-             timestamp: new Date(r.at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-             lastNMinutes: r.lastNMinutes
+             timestamp: new Date(r.at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
           })));
         }
       } catch (err: any) {

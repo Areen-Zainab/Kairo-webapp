@@ -34,16 +34,16 @@ function normalizeRecapText(text) {
   return sentences.slice(0, 3).join(' ');
 }
 
-function buildMicroRecapPrompt(transcriptText, lastNMinutes) {
+function buildMicroRecapPrompt(transcriptText) {
   // Keep instructions explicit to reduce hallucinated structure.
-  return `Generate a concise micro-recap (exactly 2-3 sentences) of what was discussed in the last ${lastNMinutes} minutes of this meeting.
+  return `Generate a concise micro-recap (exactly 2-3 sentences) of what was discussed most recently in this meeting.
 
 Requirements:
 - Focus on key topics and any decisions or action items mentioned.
 - Be faithful to the transcript (do not invent details).
 - Output ONLY the recap text (no bullet points, no headings).
 
-Transcript (most recent first where possible):
+Transcript (most recent content):
 ${transcriptText}`;
 }
 
@@ -172,14 +172,10 @@ class MicroSummaryService {
       return { generated: false, skipped: true, reason: 'Transcript excluded for this recap request' };
     }
 
-    const lastNMinutesDefault = parseInt(process.env.WHISPER_MODE_LAST_N_MINUTES || '5', 10);
-    const intervalMinutesDefault = parseInt(process.env.WHISPER_MODE_RECAP_INTERVAL_MINUTES || '10', 10);
     const maxMeetingsStored = parseInt(process.env.WHISPER_MODE_MAX_STORED_RECAPS || '10', 10);
     const transcriptMaxChars = parseInt(process.env.WHISPER_MODE_TRANSCRIPT_MAX_CHARS || '3000', 10);
 
     const whisperMeta = meeting?.metadata?.whisperMode || {};
-    const lastNMinutes = parseInt(whisperMeta.lastNMinutes || lastNMinutesDefault, 10);
-    const intervalMinutes = parseInt(whisperMeta.recapIntervalMinutes || intervalMinutesDefault, 10);
 
     // Active meeting guard: cron already filters, but this prevents ended meetings during status lag.
     const nowMs = Date.now();
@@ -188,14 +184,8 @@ class MicroSummaryService {
       return { generated: false, skipped: true, reason: 'Meeting appears ended (endTime < now)' };
     }
 
-    const lastRecapAt = whisperMeta.lastRecapAt ? new Date(whisperMeta.lastRecapAt).getTime() : null;
-    const minIntervalMs = intervalMinutes * 60 * 1000;
-    if (!isManual && lastRecapAt && (nowMs - lastRecapAt) < minIntervalMs) {
-      return { generated: false, skipped: true, reason: 'Recap interval not reached' };
-    }
-
-    const sinceIso = new Date(nowMs - lastNMinutes * 60 * 1000).toISOString();
-    const entries = getLiveTranscriptEntries(meetingId, sinceIso);
+    // Fetch all available transcript entries (no time window); TRANSCRIPT_MAX_CHARS caps input size.
+    const entries = getLiveTranscriptEntries(meetingId, null);
     if (!entries || entries.length === 0) {
       return { generated: false, skipped: true, reason: 'No live transcript entries found' };
     }
@@ -226,7 +216,7 @@ class MicroSummaryService {
     const maxRetries = parseInt(process.env.WHISPER_MODE_GROQ_MAX_RETRIES || '2', 10);
     const groqMinIntervalMs = parseInt(process.env.WHISPER_MODE_GROQ_MIN_INTERVAL_MS || '12000', 10);
 
-    const prompt = buildMicroRecapPrompt(transcriptText, lastNMinutes);
+    const prompt = buildMicroRecapPrompt(transcriptText);
     const { recapText, skipped, reason } = await callGroqWithRetries({
       model,
       prompt,
@@ -247,7 +237,6 @@ class MicroSummaryService {
     const existingRecaps = Array.isArray(whisperMeta.microRecaps) ? whisperMeta.microRecaps : [];
     const newRecapEntry = {
       at: recapAtIso,
-      lastNMinutes,
       recapText,
       transcriptHash
     };
@@ -256,8 +245,6 @@ class MicroSummaryService {
 
     const nextWhisperMeta = {
       ...whisperMeta,
-      lastNMinutes,
-      recapIntervalMinutes: intervalMinutes,
       lastRecapAt: recapAtIso,
       lastRecapTranscriptHash: transcriptHash,
       microRecaps: nextRecaps
