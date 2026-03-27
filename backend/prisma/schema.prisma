@@ -357,7 +357,7 @@ model MeetingEmbedding {
   contentType     String   @map("content_type") // 'transcript', 'summary', 'note', 'action_item', 'decision', 'topic'
   contentId       String?  @map("content_id")   // Reference to specific content
   content         String   @db.Text             // Original text content
-  // embedding       Unsupported("vector(1536)")   // OpenAI ada-002 embedding
+  embedding       Unsupported("vector(384)")?  // all-MiniLM-L6-v2 embedding (384 dims)
   metadata        Json?                         // Additional context
   chunkIndex      Int?     @map("chunk_index")  // For chunked content
   createdAt       DateTime @default(now()) @map("created_at")
@@ -374,7 +374,7 @@ model MeetingEmbedding {
 model MeetingMemoryContext {
   id                String   @id @default(uuid())
   meetingId         Int      @unique @map("meeting_id")
- // summaryEmbedding  Unsupported("vector(1536)") @map("summary_embedding")
+  summaryEmbedding  Unsupported("vector(384)")? @map("summary_embedding")  // all-MiniLM-L6-v2 (384 dims)
   keyTopics         String[] @map("key_topics")
   keyDecisions      Json?    @map("key_decisions")
   keyActionItems    Json?    @map("key_action_items")
