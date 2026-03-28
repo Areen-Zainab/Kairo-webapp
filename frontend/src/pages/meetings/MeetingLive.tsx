@@ -1050,7 +1050,10 @@ const LiveMeetingView = () => {
             {!isSidebarCollapsed && (
               <div className={`flex-1 overflow-y-auto p-3`}>
                 {activeTab === 'memory' && (
-                  <MemoryTab memoryItems={memoryItems as any} />
+                  <MemoryTab
+                    transcriptEntries={liveTranscriptEntries}
+                    workspaceId={meeting?.workspaceId ?? workspaceId}
+                  />
                 )}
 
                 {activeTab === 'chat' && (
@@ -1099,7 +1102,10 @@ const LiveMeetingView = () => {
           {/* Mobile Tab Content (full width, above transcript) */}
           <div className="md:hidden px-3 py-2 border-b bg-gray-50 border-gray-200 dark:border-slate-700/50 dark:bg-slate-900/30">
             {activeTab === 'memory' && (
-              <MemoryTab memoryItems={memoryItems as any} />
+              <MemoryTab
+                transcriptEntries={liveTranscriptEntries}
+                workspaceId={meeting?.workspaceId ?? workspaceId}
+              />
             )}
 
             {activeTab === 'chat' && (
