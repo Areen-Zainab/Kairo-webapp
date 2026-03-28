@@ -267,7 +267,7 @@ const LiveMeetingView = () => {
 
   // Whisper Recaps hook
   const { recaps, loading: recapsLoading, error: recapsError, triggering, triggerCatchMeUp, newRecapEvent } = useWhisperRecaps(
-    Number.isNaN(meetingIdNum) ? null : meetingIdNum, 
+    Number.isNaN(meetingIdNum) ? null : meetingIdNum,
     isConnected
   );
 
@@ -340,11 +340,7 @@ const LiveMeetingView = () => {
   const [notes, setNotes] = useState<any[]>([]);
   const [newNotePrivacy, setNewNotePrivacy] = useState<'public' | 'private'>('public');
 
-  const memoryItems = [
-    { id: '1', topic: 'Q3 Planning Meeting', relevance: 'High', linkedDate: 'Sep 15, 2024' },
-    { id: '2', topic: 'Design System Discussion', relevance: 'Medium', linkedDate: 'Oct 2, 2024' },
-    { id: '3', topic: 'Resource Planning', relevance: 'High', linkedDate: 'Oct 8, 2024' },
-  ];
+  const memoryItems: { id: string; topic: string; relevance: 'High' | 'Medium' | 'Low'; linkedDate: string }[] = [];
 
   useEffect(() => {
     if (transcriptRef.current) {
@@ -873,7 +869,7 @@ const LiveMeetingView = () => {
                 <Circle className="w-1.5 h-1.5 fill-red-500 text-red-500 animate-pulse" />
                 <span className="hidden sm:inline text-xs font-medium text-red-400">REC</span>
               </div>
-              <h1 className="text-sm font-semibold text-black truncate max-w-[40vw] sm:max-w-none dark:text-white">Sprint Planning – Team Kairo</h1>
+              <h1 className="text-sm font-semibold text-black truncate max-w-[40vw] sm:max-w-none dark:text-white">{meeting?.title || 'Live Meeting'}</h1>
               <button
                 type="button"
                 aria-pressed={isSidebarCollapsed}

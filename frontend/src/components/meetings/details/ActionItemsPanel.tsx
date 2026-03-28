@@ -72,10 +72,20 @@ const ActionItemsPanel: React.FC<ActionItemsPanelProps> = ({ meeting }) => {
   };
 
   const isPlaceholderActionItem = (item: ActionItem): boolean => {
-    return (
-      item.title === 'No action items detected' ||
-      item.title === 'No action items detected.' ||
-      item.description === 'No actionable items were identified in this meeting.'
+    const title = (item.title || '').toLowerCase().trim();
+    const description = (item.description || '').toLowerCase().trim();
+    const placeholderPatterns = [
+      'no action items detected',
+      'no actionable items',
+      'no action items found',
+      'no tasks identified',
+      'no follow-up items',
+      'no action items were identified',
+      'no specific action items',
+      'no action items identified',
+    ];
+    return placeholderPatterns.some(
+      (pattern) => title.includes(pattern) || description.includes(pattern)
     );
   };
 
