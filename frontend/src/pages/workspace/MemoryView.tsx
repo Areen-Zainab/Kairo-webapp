@@ -346,6 +346,7 @@ const MemoryView: React.FC = () => {
 
         {/* Memory Query Bar */}
         <MemoryQueryBar
+          workspaceId={workspaceId}
           isOpen={isQueryPanelOpen}
           onClose={() => setIsQueryPanelOpen(false)}
           onQuery={handleAIQuery}

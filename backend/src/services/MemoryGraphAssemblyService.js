@@ -321,6 +321,17 @@ class MemoryGraphAssemblyService {
             }
           });
         }
+
+        edges.push({
+          id: `e:${meetingNodeId}:${decisionNodeId}:meeting-decision`,
+          source: meetingNodeId,
+          target: decisionNodeId,
+          type: "meeting-decision",
+          weight: 0.85,
+          color: "#64748B",
+          opacity: 0.6,
+          curved: true
+        });
       }
 
       // meeting -> member edges (participants)
@@ -356,6 +367,7 @@ class MemoryGraphAssemblyService {
       const ai = rawActionItems[i];
       if (!ai) continue;
       const actionNodeId = nodeIdAction(ai.id);
+      const meetingNodeId = nodeIdMeeting(ai.meetingId);
 
       const dueDate = ai.dueDate ? new Date(ai.dueDate).toISOString() : undefined;
       const assignee = ai.assignee ? String(ai.assignee) : undefined;
@@ -371,6 +383,17 @@ class MemoryGraphAssemblyService {
           priority: "medium",
           actionStatus: ai.status === "pending" ? "todo" : "todo"
         }
+      });
+
+      edges.push({
+        id: `e:${meetingNodeId}:${actionNodeId}:meeting-action`,
+        source: meetingNodeId,
+        target: actionNodeId,
+        type: "meeting-action",
+        weight: 0.9,
+        color: "#64748B",
+        opacity: 0.65,
+        curved: true
       });
 
       if (assignee) {
@@ -407,10 +430,22 @@ class MemoryGraphAssemblyService {
 
     const limitedEdges = edges.filter((e) => limitedNodeIds.has(e.source) && limitedNodeIds.has(e.target));
 
-    // Add visual layout properties (position/size/color/opacity)
-    const visualNodes = this.buildPositions(limitedNodes);
+    // Remove isolated non-meeting nodes so the rendered graph does not show
+    // disconnected fragments after limit-based truncation.
+    const connectedNodeIds = new Set();
+    for (const e of limitedEdges) {
+      connectedNodeIds.add(e.source);
+      connectedNodeIds.add(e.target);
+    }
 
-    const result = { nodes: visualNodes, edges: limitedEdges };
+    const prunedNodes = limitedNodes.filter((n) => connectedNodeIds.has(n.id) || n.type === "meeting");
+    const prunedNodeIds = new Set(prunedNodes.map((n) => n.id));
+    const prunedEdges = limitedEdges.filter((e) => prunedNodeIds.has(e.source) && prunedNodeIds.has(e.target));
+
+    // Add visual layout properties (position/size/color/opacity)
+    const visualNodes = this.buildPositions(prunedNodes);
+
+    const result = { nodes: visualNodes, edges: prunedEdges };
     this._setCache(cacheKey, result);
     return result;
   }

@@ -7,6 +7,7 @@ const router = express.Router({ mergeParams: true });
 
 // Search route: GET /api/workspaces/:workspaceId/memory/search?q=query
 router.get("/search", authenticateToken, controller.semanticSearch);
+router.post("/chat", authenticateToken, controller.chatAnswer);
 
 // Memory Graph routes
 router.get("/graph", authenticateToken, controller.getWorkspaceGraph);

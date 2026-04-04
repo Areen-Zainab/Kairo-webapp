@@ -2,6 +2,8 @@ const prisma = require("../lib/prisma");
 const meetingEmbeddingService = require("../services/MeetingEmbeddingService");
 const memoryContextService = require("../services/MemoryContextService");
 const memoryGraphAssemblyService = require("../services/MemoryGraphAssemblyService");
+const meetingMemoryChatService = require("../services/MeetingMemoryChatService");
+const { getLiveTranscriptEntries } = require("../utils/meetingFileStorage");
 
 /**
  * Perform a hybrid (semantic + full-text) search on the workspace's meeting memories
@@ -90,6 +92,95 @@ exports.semanticSearch = async (req, res) => {
   } catch (error) {
     console.error("Error in semantic search:", error);
     res.status(500).json({ error: "An error occurred while performing semantic search." });
+  }
+};
+
+/**
+ * Ask a memory-aware chat question for this workspace.
+ * POST /api/workspaces/:workspaceId/memory/chat
+ */
+exports.chatAnswer = async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const workspaceIdInt = parseInt(workspaceId, 10);
+    const { question, meetingId, chatHistory = [], limit = 8 } = req.body || {};
+
+    if (Number.isNaN(workspaceIdInt)) {
+      return res.status(400).json({ error: "Valid workspace ID is required." });
+    }
+
+    const questionText = typeof question === 'string' ? question.trim() : '';
+    if (!questionText) {
+      return res.status(400).json({ error: "Question is required." });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: workspaceIdInt,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    let meetingIdInt = null;
+    if (meetingId != null && meetingId !== '') {
+      meetingIdInt = parseInt(meetingId, 10);
+      if (!Number.isNaN(meetingIdInt)) {
+        const meeting = await prisma.meeting.findUnique({
+          where: { id: meetingIdInt },
+          select: { id: true, workspaceId: true }
+        });
+
+        if (!meeting || meeting.workspaceId !== workspaceIdInt) {
+          return res.status(404).json({ error: "Meeting not found in this workspace." });
+        }
+      }
+    }
+
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 8, 3), 20);
+
+    const semanticResults = await meetingEmbeddingService.hybridSearchWorkspaceMeetings(
+      workspaceIdInt,
+      questionText,
+      safeLimit
+    );
+
+    const liveTranscriptEntries = meetingIdInt
+      ? getLiveTranscriptEntries(meetingIdInt, null).slice(-25)
+      : [];
+
+    const llm = await meetingMemoryChatService.generateAnswer({
+      question: questionText,
+      semanticResults,
+      liveTranscriptEntries,
+      chatHistory
+    });
+
+    const sourceItems = (semanticResults || []).slice(0, safeLimit).map((r) => ({
+      meetingId: r.meeting_id,
+      meetingTitle: r.meeting_title,
+      contentType: r.content_type,
+      snippet: String(r.content || '').slice(0, 240)
+    }));
+
+    return res.json({
+      success: true,
+      question: questionText,
+      answer: llm.answer,
+      usedFallback: !!llm.usedFallback,
+      model: llm.model,
+      sources: sourceItems,
+      sourceCount: sourceItems.length,
+      liveContextCount: liveTranscriptEntries.length
+    });
+  } catch (error) {
+    console.error("Error in memory chat answer:", error);
+    return res.status(500).json({ error: "An error occurred while generating memory chat response." });
   }
 };
 

@@ -3,11 +3,12 @@ import React, { useEffect, useRef, useState } from 'react';
 interface LiveChatProps {
   messages: { id: string; role: 'user' | 'bot'; text: string }[];
   input: string;
+  isLoading?: boolean;
   onChangeInput: (v: string) => void;
   onSubmit: () => void;
 }
 
-const LiveChat: React.FC<LiveChatProps> = ({ messages, input, onChangeInput, onSubmit }) => {
+const LiveChat: React.FC<LiveChatProps> = ({ messages, input, isLoading = false, onChangeInput, onSubmit }) => {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [selectedText, setSelectedText] = useState('');
@@ -104,6 +105,14 @@ const LiveChat: React.FC<LiveChatProps> = ({ messages, input, onChangeInput, onS
                 </div>
                 );
               })}
+
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] sm:max-w-[70%] px-2.5 py-1.5 text-sm leading-relaxed border bg-white border-gray-200 text-gray-800 dark:bg-slate-900/50 dark:border-slate-800/70 dark:text-slate-200 rounded-md shadow-sm whitespace-pre-wrap transition-all">
+                    Thinking...
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -129,9 +138,10 @@ const LiveChat: React.FC<LiveChatProps> = ({ messages, input, onChangeInput, onS
               <textarea
                 ref={textareaRef}
                 value={input}
+                disabled={isLoading}
                 onChange={(e) => onChangeInput(e.target.value)}
                 onInput={autoGrow}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isLoading) { e.preventDefault(); onSubmit(); } }}
                 placeholder="Send a message..."
                 rows={1}
                 className="w-full resize-none bg-transparent text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none overflow-y-auto"
@@ -140,7 +150,8 @@ const LiveChat: React.FC<LiveChatProps> = ({ messages, input, onChangeInput, onS
             </div>
             <button
               onClick={onSubmit}
-              className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium shadow-sm border border-purple-500/30"
+              disabled={isLoading || !input.trim()}
+              className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed text-white text-sm font-medium shadow-sm border border-purple-500/30"
             >
               Send
             </button>

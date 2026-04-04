@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { apiService } from '../../../services/api';
 
 interface MemoryQueryBarProps {
+  workspaceId?: string;
   isOpen: boolean;
   onClose: () => void;
   onQuery: (query: string) => void;
@@ -9,6 +11,7 @@ interface MemoryQueryBarProps {
 }
 
 const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
+  workspaceId,
   isOpen,
   onClose,
   onQuery,
@@ -35,33 +38,8 @@ const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
 
   const [currentExampleIndex, setCurrentExampleIndex] = useState(0);
 
-  // Generate contextual replies based on user queries.
-  // Matching meeting nodes are highlighted in the graph automatically via the
-  // real semantic search — these replies are supplementary guidance only.
-  const getDefaultReply = (query: string): string => {
-    const lowerQuery = query.toLowerCase();
-
-    if (lowerQuery.includes('decision') || lowerQuery.includes('decide')) {
-      return "Searching your workspace for decisions related to this topic.\n\nMatching meeting nodes will be highlighted in the graph. Click any highlighted meeting node to see the full decision record and rationale in the context panel.";
-    }
-
-    if (lowerQuery.includes('meeting') || lowerQuery.includes('discuss') || lowerQuery.includes('session')) {
-      return "Searching your workspace meetings for discussions related to this topic.\n\nAny matching meetings will be highlighted in the graph. Click a node to see transcripts, action items, and key insights from that meeting.";
-    }
-
-    if (lowerQuery.includes('action') || lowerQuery.includes('task') || lowerQuery.includes('todo') || lowerQuery.includes('pending')) {
-      return "Searching for meetings with action items or tasks related to your query.\n\nMatching meetings will be highlighted in the graph. Action item nodes connected to those meetings will also be visible — click them to see assignee and due date details.";
-    }
-
-    if (lowerQuery.includes('team') || lowerQuery.includes('member') || lowerQuery.includes('people') || lowerQuery.includes('who')) {
-      return "Looking up team members and their participation patterns in your workspace.\n\nMember nodes in the graph are connected to the meetings they participated in. Highlighted nodes indicate the closest matches to your query.";
-    }
-
-    if (lowerQuery.includes('topic') || lowerQuery.includes('subject') || lowerQuery.includes('theme')) {
-      return "Searching your workspace for meetings grouped around this topic.\n\nTopic nodes in the graph cluster related meetings. Matching nodes will be highlighted — click any topic node to see which meetings discussed it.";
-    }
-
-    return "Searching your workspace memory for relevant meetings and context.\n\nMatching meeting nodes will be highlighted in the graph. Click any highlighted node to open the context panel with full details, participants, and linked action items.";
+  const getLocalFallbackReply = (query: string): string => {
+    return `I could not fetch a full memory answer for "${query}" right now. Please try again in a moment. Do you want to ask anything else?`;
   };
 
   useEffect(() => {
@@ -85,25 +63,53 @@ const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
 
   const currentExample = exampleQueries[currentExampleIndex];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
-      const userMessage = {message: query.trim(), timestamp: new Date(), sender: 'user' as const};
+      const trimmedQuery = query.trim();
+      const userMessage = {message: trimmedQuery, timestamp: new Date(), sender: 'user' as const};
       setQueryHistory(prev => [...prev, userMessage]);
       setIsTyping(true);
-      onQuery(query.trim());
+      onQuery(trimmedQuery);
       setQuery('');
-      
-      // Simulate typing delay and add assistant reply
-      setTimeout(() => {
+
+      try {
+        const wid = Number(workspaceId);
+        if (!workspaceId || Number.isNaN(wid)) {
+          throw new Error('Open memory from a valid workspace to ask questions.');
+        }
+
+        const historyPayload = queryHistory.slice(-8).map((m) => ({
+          role: m.sender === 'user' ? 'user' as const : 'bot' as const,
+          text: m.message
+        }));
+
+        const response = await apiService.askMeetingMemoryQuestion(wid, {
+          question: trimmedQuery,
+          chatHistory: [...historyPayload, { role: 'user', text: trimmedQuery }],
+          limit: 8
+        });
+
+        const answer = response.error
+          ? `I ran into an issue while searching meeting memory: ${response.error}\n\nDo you want to ask anything else?`
+          : (response.data?.answer || getLocalFallbackReply(trimmedQuery));
+
         const assistantReply = {
-          message: getDefaultReply(query.trim()),
+          message: answer,
           timestamp: new Date(),
           sender: 'assistant' as const
         };
         setQueryHistory(prev => [...prev, assistantReply]);
+      } catch (err: any) {
+        const assistantReply = {
+          message: err?.message || getLocalFallbackReply(trimmedQuery),
+          timestamp: new Date(),
+          sender: 'assistant' as const
+        };
+        setQueryHistory(prev => [...prev, assistantReply]);
+      } finally {
         setIsTyping(false);
-      }, 1500);
+      }
     }
   };
 

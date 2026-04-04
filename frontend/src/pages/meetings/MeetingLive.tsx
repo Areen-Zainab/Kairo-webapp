@@ -208,6 +208,7 @@ const LiveMeetingView = () => {
   const [showParticipants, setShowParticipants] = useState(false);
   const [memoryChatInput, setMemoryChatInput] = useState('');
   const [memoryChat, setMemoryChat] = useState<{ id: string; role: 'user' | 'bot'; text: string }[]>([]);
+  const [isMemoryChatLoading, setIsMemoryChatLoading] = useState(false);
   const [meeting, setMeeting] = useState<any>(null);
   const [isBotJoining, setIsBotJoining] = useState(false);
   const [isBotJoined, setIsBotJoined] = useState(false);
@@ -804,15 +805,48 @@ const LiveMeetingView = () => {
       toastError(error?.message || 'Failed to update action item', 'Error');
     }
   };
-  const submitMemoryChat = () => {
+  const submitMemoryChat = async () => {
     const text = memoryChatInput.trim();
-    if (!text) return;
-    const id = Date.now().toString();
-    setMemoryChat(prev => [...prev, { id, role: 'user', text }]);
+    if (!text || isMemoryChatLoading) return;
+    const messageId = Date.now().toString();
+    setMemoryChat(prev => [...prev, { id: messageId, role: 'user', text }]);
     setMemoryChatInput('');
-    setTimeout(() => {
-      setMemoryChat(prev => [...prev, { id: id + '-bot', role: 'bot', text: 'Got it. I will recall this context during the meeting.' }]);
-    }, 400);
+
+    const resolvedWorkspaceId = Number(meeting?.workspaceId ?? workspaceId);
+    const resolvedMeetingId = Number(meeting?.id ?? id);
+
+    if (!resolvedWorkspaceId || Number.isNaN(resolvedWorkspaceId)) {
+      setMemoryChat(prev => [...prev, {
+        id: messageId + '-bot',
+        role: 'bot',
+        text: 'I could not determine the workspace context for memory search. Please refresh and try again.'
+      }]);
+      return;
+    }
+
+    setIsMemoryChatLoading(true);
+    try {
+      const response = await apiService.askMeetingMemoryQuestion(resolvedWorkspaceId, {
+        question: text,
+        meetingId: Number.isNaN(resolvedMeetingId) ? undefined : resolvedMeetingId,
+        chatHistory: [...memoryChat.slice(-7), { role: 'user', text }],
+        limit: 8
+      });
+
+      const answer = response.error
+        ? `I ran into an issue while searching meeting memory: ${response.error}`
+        : (response.data?.answer || 'I could not generate an answer from meeting memory right now.');
+
+      setMemoryChat(prev => [...prev, { id: messageId + '-bot', role: 'bot', text: answer }]);
+    } catch (error: any) {
+      setMemoryChat(prev => [...prev, {
+        id: messageId + '-bot',
+        role: 'bot',
+        text: `I ran into an issue while searching meeting memory: ${error?.message || 'Unknown error'}`
+      }]);
+    } finally {
+      setIsMemoryChatLoading(false);
+    }
   };
 
   const getCategoryColor = (category: string) => {
@@ -829,11 +863,11 @@ const LiveMeetingView = () => {
     { id: 'actions' as SidebarTab, label: 'Actions', icon: CheckSquare, count: actionItems.filter(a => !a.isCompleted).length },
     { id: 'chat' as SidebarTab, label: 'Chat', icon: MessageSquare, count: memoryChat.length },
     { id: 'memory' as SidebarTab, label: 'Memory', icon: Brain, count: memoryItems.length },
-    { id: 'recaps' as SidebarTab, label: 'Recaps', icon: Activity, count: recaps.length },
   ];
 
   const mobileTabs = [
     ...tabs,
+    { id: 'recaps' as SidebarTab, label: 'Recaps', icon: Activity, count: recaps.length },
     { id: 'transcript' as SidebarTab, label: 'Transcript', icon: MessageSquare, count: transcript.length },
     { id: 'insights' as SidebarTab, label: 'Insights', icon: Sparkles, count: insights.length },
   ];
@@ -1060,6 +1094,7 @@ const LiveMeetingView = () => {
                   <LiveChat
                     messages={memoryChat}
                     input={memoryChatInput}
+                    isLoading={isMemoryChatLoading}
                     onChangeInput={setMemoryChatInput}
                     onSubmit={submitMemoryChat}
                   />
@@ -1086,15 +1121,6 @@ const LiveMeetingView = () => {
                     onAddNote={addNote}
                   />
                 )}
-
-                {activeTab === 'recaps' && (
-                  <WhisperRecapTab
-                    recaps={recaps}
-                    loading={recapsLoading}
-                    error={recapsError}
-                    triggering={triggering}
-                  />
-                )}
               </div>
             )}
           </div>
@@ -1112,6 +1138,7 @@ const LiveMeetingView = () => {
               <LiveChat
                 messages={memoryChat}
                 input={memoryChatInput}
+                isLoading={isMemoryChatLoading}
                 onChangeInput={setMemoryChatInput}
                 onSubmit={submitMemoryChat}
               />
@@ -1198,15 +1225,22 @@ const LiveMeetingView = () => {
             />
           </div>
 
-          {/* Right Panel - AI Insights (hidden on small screens) */}
+          {/* Right Panel - Recaps (hidden on small screens) */}
           <div className="hidden md:flex w-72 flex-col bg-gray-50 border-l border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50">
             <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-purple-400" />
-                AI Insights
+                <Activity className="w-4 h-4 text-purple-400" />
+                Recaps
               </h2>
             </div>
-            <InsightsTab insights={insights} getCategoryColor={getCategoryColor} />
+            <div className="flex-1 overflow-y-auto p-3">
+              <WhisperRecapTab
+                recaps={recaps}
+                loading={recapsLoading}
+                error={recapsError}
+                triggering={triggering}
+              />
+            </div>
           </div>
         </div>
 

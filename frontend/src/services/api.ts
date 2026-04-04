@@ -1353,6 +1353,37 @@ class ApiService {
   }
 
   /**
+   * Ask a conversational memory question using semantic search + LLM.
+   */
+  async askMeetingMemoryQuestion(
+    workspaceId: number,
+    payload: {
+      question: string;
+      meetingId?: number | null;
+      chatHistory?: Array<{ role: 'user' | 'bot'; text: string }>;
+      limit?: number;
+    }
+  ): Promise<ApiResponse<{
+    question: string;
+    answer: string;
+    usedFallback: boolean;
+    model: string;
+    sources: Array<{
+      meetingId: number;
+      meetingTitle: string;
+      contentType: string;
+      snippet: string;
+    }>;
+    sourceCount: number;
+    liveContextCount: number;
+  }>> {
+    return this.request(`/workspaces/${workspaceId}/memory/chat`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  /**
    * Fetch workspace-scoped Memory Graph (nodes/edges).
    */
   async getMemoryGraph(
