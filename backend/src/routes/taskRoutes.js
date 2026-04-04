@@ -6,6 +6,7 @@ const Task = require('../models/Task');
 const KanbanColumn = require('../models/KanbanColumn');
 const Tag = require('../models/Tag');
 const prisma = require('../lib/prisma');
+const TaskContextService = require('../services/TaskContextService');
 
 /**
  * Helper function to check if user has access to workspace
@@ -234,6 +235,31 @@ router.get('/tasks/:taskId', authenticateToken, async (req, res) => {
     res.json({ task });
   } catch (error) {
     console.error('Error fetching task:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/tasks/:taskId/context
+ * Enriched meeting memory + micro-channel stats for TaskDetailModal (action-item-linked tasks only).
+ */
+router.get('/tasks/:taskId/context', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const result = await TaskContextService.getTaskMeetingContext(taskId, req.user.id);
+    if (result.status) {
+      const code = result.status;
+      const msg =
+        result.error === 'not_found'
+          ? 'Task not found'
+          : result.error === 'forbidden'
+            ? 'Access denied'
+            : 'Bad request';
+      return res.status(code).json({ error: msg });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching task context:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

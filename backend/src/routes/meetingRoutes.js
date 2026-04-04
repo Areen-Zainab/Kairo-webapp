@@ -439,6 +439,57 @@ router.get("/:id/related", authenticateToken, async (req, res) => {
   }
 });
 
+// Regenerate meeting embeddings (transcript + notes + confirmed action items) without re-running full AI insights
+router.post("/:id/regenerate-embeddings", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id);
+    if (isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    const MeetingEmbeddingService = require("../services/MeetingEmbeddingService");
+    const memoryCache = require("../services/memoryCache");
+
+    res.status(202).json({
+      success: true,
+      message: "Embedding regeneration started",
+      meetingId
+    });
+
+    MeetingEmbeddingService.regenerateMeetingEmbeddings(meetingId)
+      .then((result) => {
+        memoryCache.invalidateMeeting(meetingId);
+        console.log(`✅ regenerate-embeddings completed for meeting ${meetingId}:`, result);
+      })
+      .catch((err) => {
+        console.error(`❌ regenerate-embeddings failed for meeting ${meetingId}:`, err.message);
+      });
+  } catch (error) {
+    console.error("regenerate-embeddings error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+});
+
 // Get meeting by ID
 router.get("/:id", authenticateToken, async (req, res) => {
   try {

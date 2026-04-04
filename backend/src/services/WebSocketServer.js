@@ -234,6 +234,40 @@ function broadcastWhisperRecap(meetingId, recapData) {
 }
 
 /**
+ * Notify meeting subscribers that a workspace task linked to this meeting was mentioned in live transcript.
+ * @param {number} meetingId
+ * @param {object} payload - { taskId, taskTitle, chunkIndex, snippet }
+ */
+function broadcastTaskMention(meetingId, payload) {
+  const connections = meetingConnections.get(meetingId);
+  if (!connections || connections.size === 0) return;
+
+  const message = JSON.stringify({
+    type: 'task_mention',
+    data: {
+      ...payload,
+      timestamp: new Date().toISOString()
+    }
+  });
+
+  connections.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(message);
+      } catch (error) {
+        connections.delete(ws);
+      }
+    } else {
+      connections.delete(ws);
+    }
+  });
+
+  if (connections.size === 0) {
+    meetingConnections.delete(meetingId);
+  }
+}
+
+/**
  * Close all connections for a meeting
  * @param {number} meetingId - Meeting ID
  */
@@ -255,6 +289,7 @@ module.exports = {
   broadcastTranscript,
   broadcastActionItems,
   broadcastWhisperRecap,
+  broadcastTaskMention,
   getConnectionCount,
   closeMeetingConnections
 };

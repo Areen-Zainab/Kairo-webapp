@@ -376,6 +376,132 @@ class MeetingEmbeddingService {
       return []; // Non-fatal — callers should handle empty array
     }
   }
+
+  /**
+   * Embed all manual/timeline notes for a meeting (replaces prior rows with content_type = note).
+   * @returns {number} number of note rows embedded
+   */
+  async embedMeetingNotes(meetingId) {
+    const notes = await prisma.meetingNote.findMany({
+      where: { meetingId },
+      orderBy: { id: 'asc' }
+    });
+
+    await prisma.meetingEmbedding.deleteMany({
+      where: { meetingId, contentType: 'note' }
+    });
+
+    const validNotes = notes
+      .map((n) => ({ ...n, text: (n.content || '').trim() }))
+      .filter((n) => n.text.length > 0);
+
+    if (validNotes.length === 0) return 0;
+
+    const embeddings = await embeddingService.generateBatchEmbeddings(validNotes.map((n) => n.text));
+    const inserts = validNotes.map((note, index) => {
+      const embeddingStr = '[' + embeddings[index].join(',') + ']';
+      const meta = JSON.stringify({
+        authorName: note.authorName,
+        type: note.type,
+        timestamp: note.timestamp
+      });
+      return prisma.$executeRawUnsafe(
+        `INSERT INTO meeting_embeddings (id, meeting_id, content_type, content_id, content, embedding, chunk_index, metadata, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::vector(384), 0, $6::jsonb, NOW(), NOW())`,
+        meetingId,
+        'note',
+        String(note.id),
+        note.text,
+        embeddingStr,
+        meta
+      );
+    });
+
+    await prisma.$transaction(inserts);
+    return validNotes.length;
+  }
+
+  /**
+   * Embed confirmed action items for a meeting (replaces prior rows with content_type = action_item).
+   * @returns {number} number of action-item rows embedded
+   */
+  async embedConfirmedActionItems(meetingId) {
+    const items = await prisma.actionItem.findMany({
+      where: { meetingId, status: 'confirmed' },
+      orderBy: { id: 'asc' }
+    });
+
+    await prisma.meetingEmbedding.deleteMany({
+      where: { meetingId, contentType: 'action_item' }
+    });
+
+    const valid = items
+      .map((i) => {
+        const text = [i.title, i.description].filter(Boolean).join('\n').trim();
+        return { item: i, text };
+      })
+      .filter((x) => x.text.length > 0);
+
+    if (valid.length === 0) return 0;
+
+    const embeddings = await embeddingService.generateBatchEmbeddings(valid.map((x) => x.text));
+    const inserts = valid.map((x, index) => {
+      const embeddingStr = '[' + embeddings[index].join(',') + ']';
+      const meta = JSON.stringify({
+        assignee: x.item.assignee,
+        dueDate: x.item.dueDate,
+        canonicalKey: x.item.canonicalKey
+      });
+      return prisma.$executeRawUnsafe(
+        `INSERT INTO meeting_embeddings (id, meeting_id, content_type, content_id, content, embedding, chunk_index, metadata, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::vector(384), 0, $6::jsonb, NOW(), NOW())`,
+        meetingId,
+        'action_item',
+        String(x.item.id),
+        x.text,
+        embeddingStr,
+        meta
+      );
+    });
+
+    await prisma.$transaction(inserts);
+    return valid.length;
+  }
+
+  /**
+   * Regenerate transcript + note + confirmed action-item embeddings for a meeting.
+   * Transcript text is loaded via AIInsightsService when available on disk.
+   * @returns {object} counts per step
+   */
+  async regenerateMeetingEmbeddings(meetingId) {
+    const AIInsightsService = require('./AIInsightsService');
+    let transcriptText = '';
+    try {
+      const loaded = await AIInsightsService.loadDiarizedTranscript(meetingId);
+      transcriptText = loaded?.transcriptText || '';
+    } catch (e) {
+      console.warn(`[MeetingEmbeddingService] Transcript unavailable for meeting ${meetingId}: ${e.message}`);
+    }
+
+    const result = {
+      transcriptChunks: 0,
+      notesEmbedded: 0,
+      actionItemsEmbedded: 0,
+      hadTranscript: !!(transcriptText && transcriptText.trim())
+    };
+
+    if (result.hadTranscript) {
+      await this.embedTranscript(meetingId, transcriptText);
+      result.transcriptChunks = await prisma.meetingEmbedding.count({
+        where: { meetingId, contentType: 'transcript' }
+      });
+    }
+
+    result.notesEmbedded = await this.embedMeetingNotes(meetingId);
+    result.actionItemsEmbedded = await this.embedConfirmedActionItems(meetingId);
+
+    return result;
+  }
 }
 
 module.exports = new MeetingEmbeddingService();

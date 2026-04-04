@@ -45,6 +45,9 @@ export interface Task {
     transcriptSnippet?: string;
     decisions?: string[];
     notes?: string[];
+    summaryExcerpt?: string | null;
+    actionItemTitle?: string | null;
+    actionItemDescription?: string | null;
   };
   subtasks?: Task[];
   estimatedHours?: number;

@@ -1193,6 +1193,19 @@ class ApiService {
   }
 
   /**
+   * Enriched meeting memory + embedding micro-channels for task detail (linked action items only).
+   */
+  async getTaskMeetingContext(taskId: number): Promise<ApiResponse<{
+    success: boolean;
+    taskId: number;
+    meetingId: number | null;
+    meetingContext: Record<string, unknown> | null;
+    microChannels: Array<{ contentType: string; count: number }>;
+  }>> {
+    return this.request(`/tasks/${taskId}/context`);
+  }
+
+  /**
    * Move a task to a different column
    */
   async moveTask(taskId: number, columnId: number, position?: number): Promise<ApiResponse<{

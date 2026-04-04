@@ -4,6 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { broadcastTranscript } = require('./WebSocketServer');
 const PrivacyModeService = require('./PrivacyModeService');
+const TaskMentionService = require('./TaskMentionService');
 
 const PY_SCRIPT_PATH = path.resolve(__dirname, '../../../ai-layer/whisperX/transcribe-whisper.py');
 // Check for venv in root directory - support multiple Python versions
@@ -259,6 +260,13 @@ class TranscriptionService {
                 text: cleanedText.trim(),
                 timestamp: timestamp,
                 speaker: 'Speaker 1' // Will be updated after diarization
+              });
+              setImmediate(() => {
+                TaskMentionService.maybeBroadcastTaskMentions(
+                  meetingIdNum,
+                  cleanedText.trim(),
+                  chunkNum
+                );
               });
             } else {
               console.warn(`⚠️  Cannot broadcast: invalid meetingId ${this.meetingId} (not a number)`);

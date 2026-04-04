@@ -6,6 +6,7 @@ import {
 import type { Task, TaskStatus, TaskPriority, TaskTag } from '../../components/workspace/taskboard/types';
 import UserAvatar from '../../components/ui/UserAvatar';
 import apiService from '../../services/api';
+import { useMeetingTaskMention } from '../../hooks/useMeetingTaskMention';
 
 export interface TaskDetailModalProps {
   task: Task | null;
@@ -65,6 +66,16 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
   // ── Meeting context collapsible ────────────────────────────────────────────
   const [meetingContextOpen, setMeetingContextOpen] = useState(false);
+  const [enrichedMeetingContext, setEnrichedMeetingContext] = useState<Task['meetingContext'] | null>(null);
+  const [microChannels, setMicroChannels] = useState<Array<{ contentType: string; count: number }>>([]);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+
+  const liveMention = useMeetingTaskMention(
+    task?.meetingContext?.meetingId,
+    task?.id,
+    isOpen && !!task?.meetingContext?.meetingId
+  );
 
   const titleInputRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -82,7 +93,41 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     setAssigneePickerOpen(false);
     setAssigneeSearch('');
     setMeetingContextOpen(false);
+    setEnrichedMeetingContext(null);
+    setMicroChannels([]);
+    setContextError(null);
   }, [task?.id, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !task?.id || !task.meetingContext?.meetingId) {
+      setEnrichedMeetingContext(null);
+      setMicroChannels([]);
+      return;
+    }
+    let cancelled = false;
+    setContextLoading(true);
+    setContextError(null);
+    apiService.getTaskMeetingContext(parseInt(task.id, 10)).then((res) => {
+      if (cancelled) return;
+      if (res.error) {
+        setContextError(res.error);
+        return;
+      }
+      const payload = res.data as {
+        meetingContext?: Task['meetingContext'];
+        microChannels?: Array<{ contentType: string; count: number }>;
+      } | undefined;
+      if (payload?.meetingContext) {
+        setEnrichedMeetingContext(payload.meetingContext);
+      }
+      if (payload?.microChannels) {
+        setMicroChannels(payload.microChannels);
+      }
+    }).finally(() => {
+      if (!cancelled) setContextLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isOpen, task?.id, task?.meetingContext?.meetingId]);
 
   useEffect(() => {
     if (editingField === 'title') titleInputRef.current?.focus();
@@ -270,6 +315,8 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     m.name.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
     m.email.toLowerCase().includes(assigneeSearch.toLowerCase())
   );
+
+  const displayMeetingContext = enrichedMeetingContext ?? task.meetingContext;
 
   // ── Sub-components ─────────────────────────────────────────────────────────
 
@@ -479,17 +526,20 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 className="w-full flex items-center justify-between group py-1"
               >
                 <div className="flex items-center gap-2.5">
-                  {task.meetingContext
+                  {displayMeetingContext
                     ? <Video className="w-4 h-4 text-violet-500" />
                     : <VideoOff className="w-4 h-4 text-gray-400 dark:text-slate-500" />
                   }
                   <span className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-[0.1em]">
                     Meeting Context
                   </span>
-                  {task.meetingContext && (
+                  {displayMeetingContext && (
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-400">
                       Linked
                     </span>
+                  )}
+                  {contextLoading && (
+                    <span className="text-[10px] text-gray-400 dark:text-slate-500">Loading…</span>
                   )}
                 </div>
                 <ChevronDown
@@ -499,7 +549,19 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
               {meetingContextOpen && (
                 <div className="mt-4">
-                  {task.meetingContext ? (
+                  {liveMention && (
+                    <div className="mb-3 px-3 py-2 rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-950/30 text-sm text-amber-900 dark:text-amber-100">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400 mb-1">Live mention</p>
+                      <p className="leading-snug">This task was just referenced in the live transcript.</p>
+                      {liveMention.snippet ? (
+                        <p className="mt-2 text-xs opacity-90 italic border-l-2 border-amber-400 pl-2">"{liveMention.snippet}"</p>
+                      ) : null}
+                    </div>
+                  )}
+                  {contextError && (
+                    <p className="text-xs text-rose-600 dark:text-rose-400 mb-2">{contextError}</p>
+                  )}
+                  {displayMeetingContext ? (
                     <div className="rounded-xl border border-violet-200 dark:border-violet-800/60 bg-violet-50/60 dark:bg-violet-900/10 overflow-hidden">
                       {/* Meeting header */}
                       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-violet-200/60 dark:border-violet-800/40">
@@ -507,24 +569,45 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                           <Video className="w-4 h-4 text-violet-600 dark:text-violet-400" />
                         </div>
                         <span className="text-sm font-bold text-violet-900 dark:text-violet-200">
-                          {task.meetingContext.meetingTitle}
+                          {displayMeetingContext.meetingTitle}
                         </span>
                       </div>
+                      {microChannels.length > 0 && (
+                        <div className="px-4 py-2 flex flex-wrap gap-1.5 border-b border-violet-200/40 dark:border-violet-800/30 bg-violet-100/30 dark:bg-violet-950/20">
+                          <span className="text-[10px] font-bold text-violet-500 dark:text-violet-400 uppercase tracking-wider mr-1">Memory channels</span>
+                          {microChannels.map((ch) => (
+                            <span
+                              key={ch.contentType}
+                              className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/70 dark:bg-slate-800/80 text-violet-700 dark:text-violet-300"
+                            >
+                              {ch.contentType.replace(/_/g, ' ')} · {ch.count}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {/* Meeting body */}
                       <div className="px-4 py-3 space-y-3.5">
-                        {task.meetingContext.transcriptSnippet && (
+                        {displayMeetingContext.summaryExcerpt && (
                           <div>
-                            <p className="text-[10px] font-bold text-violet-500 dark:text-violet-400 uppercase tracking-widest mb-2">Transcript</p>
-                            <p className="text-sm text-violet-800 dark:text-violet-300 italic leading-relaxed border-l-2 border-violet-300 dark:border-violet-600 pl-4">
-                              "{task.meetingContext.transcriptSnippet}"
+                            <p className="text-[10px] font-bold text-violet-500 dark:text-violet-400 uppercase tracking-widest mb-2">Summary</p>
+                            <p className="text-sm text-violet-800 dark:text-violet-300 leading-relaxed">
+                              {displayMeetingContext.summaryExcerpt}
                             </p>
                           </div>
                         )}
-                        {Array.isArray(task.meetingContext.decisions) && task.meetingContext.decisions.length > 0 && (
+                        {displayMeetingContext.transcriptSnippet && (
+                          <div>
+                            <p className="text-[10px] font-bold text-violet-500 dark:text-violet-400 uppercase tracking-widest mb-2">Transcript</p>
+                            <p className="text-sm text-violet-800 dark:text-violet-300 italic leading-relaxed border-l-2 border-violet-300 dark:border-violet-600 pl-4">
+                              "{displayMeetingContext.transcriptSnippet}"
+                            </p>
+                          </div>
+                        )}
+                        {Array.isArray(displayMeetingContext.decisions) && displayMeetingContext.decisions.length > 0 && (
                           <div>
                             <p className="text-[10px] font-bold text-violet-500 dark:text-violet-400 uppercase tracking-widest mb-2">Decisions</p>
                             <ul className="space-y-2">
-                              {task.meetingContext.decisions.map((d, i) => (
+                              {displayMeetingContext.decisions.map((d, i) => (
                                 <li key={i} className="flex items-start gap-2.5 text-sm text-violet-800 dark:text-violet-300">
                                   <span className="mt-2 w-1 h-1 rounded-full bg-violet-400 flex-shrink-0" />
                                   {d}
@@ -533,11 +616,11 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                             </ul>
                           </div>
                         )}
-                        {Array.isArray(task.meetingContext.notes) && task.meetingContext.notes.length > 0 && (
+                        {Array.isArray(displayMeetingContext.notes) && displayMeetingContext.notes.length > 0 && (
                           <div>
                             <p className="text-[10px] font-bold text-violet-500 dark:text-violet-400 uppercase tracking-widest mb-2">Notes</p>
                             <ul className="space-y-2">
-                              {task.meetingContext.notes.map((n, i) => (
+                              {displayMeetingContext.notes.map((n, i) => (
                                 <li key={i} className="flex items-start gap-2.5 text-sm text-violet-800 dark:text-violet-300">
                                   <span className="mt-2 w-1 h-1 rounded-full bg-violet-400 flex-shrink-0" />
                                   {n}
@@ -546,7 +629,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                             </ul>
                           </div>
                         )}
-                        <button className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors">
+                        <button type="button" className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors">
                           View full meeting <ChevronRight className="w-3 h-3" />
                         </button>
                       </div>

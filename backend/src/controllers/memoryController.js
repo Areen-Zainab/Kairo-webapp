@@ -1,5 +1,6 @@
 const prisma = require("../lib/prisma");
 const meetingEmbeddingService = require("../services/MeetingEmbeddingService");
+const memoryCache = require("../services/memoryCache");
 const memoryContextService = require("../services/MemoryContextService");
 const memoryGraphAssemblyService = require("../services/MemoryGraphAssemblyService");
 const meetingMemoryChatService = require("../services/MeetingMemoryChatService");
@@ -219,12 +220,24 @@ exports.getMeetingContext = async (req, res) => {
       return res.status(404).json({ error: "Meeting not found in this workspace." });
     }
 
+    const bypassCache = req.query.cache === "0";
+    if (!bypassCache && memoryCache.TTL_MS > 0) {
+      const cached = memoryCache.getContext(meetingIdInt);
+      if (cached) {
+        return res.json({ success: true, meetingId: meetingIdInt, context: cached, cached: true });
+      }
+    }
+
     const context = await memoryContextService.getMeetingContext(meetingIdInt);
     if (!context) {
       return res.status(404).json({ error: "Meeting context not found." });
     }
 
-    res.json({ success: true, meetingId: meetingIdInt, context });
+    if (!bypassCache && memoryCache.TTL_MS > 0) {
+      memoryCache.setContext(meetingIdInt, context);
+    }
+
+    res.json({ success: true, meetingId: meetingIdInt, context, cached: false });
   } catch (error) {
     console.error("Error in getMeetingContext:", error);
     res.status(500).json({ error: "An error occurred while fetching meeting context." });
@@ -267,9 +280,28 @@ exports.getRelatedMeetings = async (req, res) => {
     }
 
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 10;
-    const related = await memoryContextService.getRelatedMeetings(meetingIdInt, Number.isNaN(limit) ? 10 : limit);
+    const safeLimit = Number.isNaN(limit) ? 10 : limit;
+    const bypassCache = req.query.cache === "0";
 
-    res.json({ success: true, meetingId: meetingIdInt, relatedMeetings: related });
+    if (!bypassCache && memoryCache.TTL_MS > 0) {
+      const cached = memoryCache.getRelated(meetingIdInt, safeLimit);
+      if (cached) {
+        return res.json({
+          success: true,
+          meetingId: meetingIdInt,
+          relatedMeetings: cached,
+          cached: true
+        });
+      }
+    }
+
+    const related = await memoryContextService.getRelatedMeetings(meetingIdInt, safeLimit);
+
+    if (!bypassCache && memoryCache.TTL_MS > 0) {
+      memoryCache.setRelated(meetingIdInt, safeLimit, related);
+    }
+
+    res.json({ success: true, meetingId: meetingIdInt, relatedMeetings: related, cached: false });
   } catch (error) {
     console.error("Error in getRelatedMeetings:", error);
     res.status(500).json({ error: "An error occurred while fetching related meetings." });
