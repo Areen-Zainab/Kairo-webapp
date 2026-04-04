@@ -108,9 +108,9 @@ export default function KairoHomePage() {
       gradient: "bg-gradient-to-br from-blue-500/20 to-cyan-500/20"
     },
     {
-      icon: Calendar,
-      title: "Smart Scheduling",
-      description: "Sync tasks with Google Calendar and get automated follow-up reminders",
+      icon: Shield,
+      title: "Privacy Mode",
+      description: "Pause transcription during sensitive discussions—instant toggle from the live meeting, with full audit intervals stored for compliance",
       color: "from-green-500 to-emerald-500",
       gradient: "bg-gradient-to-br from-green-500/20 to-emerald-500/20"
     },
@@ -162,9 +162,9 @@ export default function KairoHomePage() {
     { 
       step: "03", 
       title: "Execute", 
-      desc: "Automated Kanban boards and calendar sync for seamless action",
+      desc: "Automated Kanban boards, reminders, and privacy controls so nothing slips through",
       icon: Rocket,
-      details: ["Auto task boards", "Calendar sync", "Follow-up reminders"]
+      details: ["Auto task boards", "Follow-up reminders", "Privacy mode when you need it"]
     }
   ];
 
@@ -819,7 +819,7 @@ export default function KairoHomePage() {
               price: "$49",
               period: "per month",
               description: "For growing teams that need more",
-              features: ["Unlimited meetings", "Advanced AI features", "Meeting memory", "Unlimited team members", "Priority support", "Calendar integration", "Analytics dashboard"],
+              features: ["Unlimited meetings", "Advanced AI features", "Meeting memory", "Unlimited team members", "Priority support", "Live privacy mode", "Analytics dashboard"],
               cta: "Start Trial",
               popular: true
             },

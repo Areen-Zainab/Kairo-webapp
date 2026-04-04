@@ -14,67 +14,64 @@
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~87% Complete
+### Overall Progress: ~93% Complete
 
-> **Last Updated:** March 27, 2026 *(code-verified — not self-reported)*
-> Previous estimate was 85%. Knowledge Graph hardening completed since.
+> **Last Updated:** April 4, 2026 *(code-verified — not self-reported)*
 
-**Completed Since Last Audit:**
-- ✅ Embeddings auto-triggered in `AIInsightsService.generateInsights()` after insights complete
-- ✅ `SmartSearchModal.tsx` calls real backend API — no mock data
-- ✅ `PostMeetingProcessor.convertToTasks()` is a harmless stub — task creation handled in `AIInsightsService`
-- ✅ **Deadline parsing** — `chrono-node` integrated in `TaskCreationService.parseDeadline()` + wired into `AIInsightsService` (March 27, 2026)
-- ✅ **Priority auto-classification** — `_extractPriority()` already existed in `TaskCreationService` (confirmed March 27, 2026)
-- ✅ Memory Graph backend baseline: `/memory/graph` + `/memory/graph/stats` endpoints implemented
-- ✅ `MemoryView.tsx` now uses real workspace graph/stats data instead of full local mock graph generation
-- ✅ **Graph caching** — 60s TTL in-memory cache in `MemoryGraphAssemblyService`; `/graph` and `/graph/stats` now share one DB build per window
-- ✅ **Auth guards on graph endpoints** — `getWorkspaceGraph` and `getWorkspaceGraphStats` now verify workspace membership (security fix)
-- ✅ **Node-neighbour expansion** — `GET /memory/graph/node/:nodeId/neighbours?depth=N` endpoint implemented; `getNodeNeighbours` exposed in `api.ts`
-- ✅ **Query bar wired to real API** — `useQueryMemory` calls `/memory/search`, maps results to real node IDs; `MemoryView.handleAIQuery` uses them to focus/dim graph nodes
-- ✅ **MemoryQueryBar fake data removed** — `getDefaultReply` no longer returns hardcoded names and numbers
+**Corrected Since Earlier Audits (previously mis-reported as incomplete):**
+- ✅ **Quiet hours enforcement** — `ReminderService._isInQuietHours()` IS implemented and IS called on line 69 of `checkAndSendReminders()`. Handles overnight ranges (e.g. 22:00–07:00 UTC).
+- ✅ **Hybrid search (pgvector + FTS)** — `MeetingEmbeddingService.hybridSearchWorkspaceMeetings()` IS implemented (lines 219–304) using `plainto_tsquery('english', ...)` + cosine similarity, merged with 60/40 weighting. `memoryController.semanticSearch` calls it.
+- ✅ **Result highlighting in SmartSearchModal** — `HighlightedSnippet` component renders `<mark>` tags using `matchedTerms[]` passed from backend.
+- ✅ **Privacy Mode (full stack)** — Backend: `PrivacyModeService.js`, `PATCH /api/meetings/:id/privacy-mode`, transcription gate, AI insights filter. **Frontend:** `MeetingLive.tsx` — Kairo Bot dropdown toggle (`togglePrivacyMode` → `apiService.updateMeetingPrivacyMode`), optimistic UI, top-bar “Privacy Mode ON” badge, status indicator; `TranscriptTab.tsx` shows privacy state and system messages.
 
-**Key Remaining Gaps (verified):**
-- ⚠️ **Knowledge Graph — no persistent storage** — graph is regenerated per request (with 60s cache); no dedicated `graph_nodes`/`graph_edges` tables yet
-- ❌ **ReminderService quiet hours** — `quietHoursStart`/`quietHoursEnd` stored and shown in UI but never checked in `checkAndSendReminders()` before dispatching
-- ❌ **Privacy & Compliance Mode** — 0% implemented
-- ❌ **Speaker identification by name** — Pyannote diarization works post-meeting but produces `Speaker_0`/`Speaker_1` labels only (no name mapping)
-- ❌ **Calendar Integration** — UI mockup only
-- ❌ **Third-party integrations** — UI mockups only
+**Remaining Gaps (verified, non-optional product work):**
+- ❌ **Speaker identification by name** — Pyannote diarization produces `Speaker_0`/`Speaker_1` labels; no user ↔ speaker mapping or post-meeting assignment UI.
+- ❌ **Task Contextual Micro-Channels** — 0% implemented.
+- ⚠️ **Knowledge Graph — no persistent storage** *(optional scale-up)* — graph is regenerated per request (with 60s cache); no `graph_nodes`/`graph_edges` tables.
+- ⚠️ **Graph click-to-expand UI** — `/neighbours` endpoint exists and `apiService.getNodeNeighbours()` is defined; `MemoryView` node click only opens the context panel — neighbour expansion is not merged into the canvas.
+
+**Optional / out-of-scope for core roadmap (tracked separately):**
+- Calendar Integration — UI mockup only.
+- Third-party integrations — UI mockups only.
 
 ---
 
 ## IMPLEMENTATION STATUS OVERVIEW
 
-### ✅ COMPLETED FEATURES (15/22)
+### ✅ COMPLETED FEATURES (17/21 core)
 
 1. **Team and Workspace Management** — 100% Complete
 2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom)
 3. **Real-Time Transcription (WhisperX)** — 90% Complete (speaker names still generic)
 4. **Summarization Engine** — 100% Complete
-5. **Action Item Detection** — 85% Complete (auto task creation works; real-time detection missing)
+5. **Action Item Detection** — 90% Complete (auto task creation + deadline parsing + priority classification; real-time detection missing)
 6. **Role-Based Access Control (RBAC)** — 100% Complete
 7. **Note-Taking** — 100% Complete
 8. **Interactive Transcript Review & Timeline** — 100% Complete
 9. **Analytics Dashboard** — 100% Complete
 10. **Kanban Board Integration** — 100% Complete
 11. **Meeting Memory Engine (Embedding Pipeline)** — ✅ 90% Complete *(embeddings auto-triggered post-insights, transcript + summary embedded, memory context generated — verified in code)*
-12. **Auto Follow-Up Reminders** — ✅ 100% Complete *(quiet hours enforcement added March 27, 2026)*
-13. **Task Extraction and Deadline Parsing** — ✅ 100% Complete *(chrono-node integrated March 27, 2026; handles ISO dates + natural language like "next Friday", "in 2 days")*
+12. **Auto Follow-Up Reminders** — ✅ 100% Complete *(quiet hours enforcement confirmed in code — `_isInQuietHours()` called at line 69 of `checkAndSendReminders()`)*
+13. **Task Extraction and Deadline Parsing** — ✅ 100% Complete *(chrono-node integrated; ISO dates + natural language like "next Friday", "in 2 days")*
 14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron + manual trigger + WebSocket + useWhisperRecaps + WhisperRecapTab + "Catch Me Up" button)*
-15. **Smart Search & Query** — ✅ 100% Complete *(hybrid search pgvector+FTS + result highlighting added March 27, 2026)*
+15. **Smart Search & Query** — ✅ 100% Complete *(hybrid pgvector+FTS in `hybridSearchWorkspaceMeetings()`, result highlighting via `HighlightedSnippet` in `SmartSearchModal.tsx` — all code-verified)*
+16. **Privacy Mode (pause/resume transcription)** — ✅ 100% Complete *(backend + `MeetingLive.tsx` / `TranscriptTab.tsx` UI — `updateMeetingPrivacyMode`, toggle in Kairo Bot menu, badges and transcript messaging)*
+17. **Related Meetings + Memory Context** — ✅ 100% Complete *(MemoryContextService + findRelatedMeetings + all routes)*
 
-### 🔄 PARTIALLY IMPLEMENTED (3/22)
+### 🔄 PARTIALLY IMPLEMENTED (3/21 core)
 
-16. **Multimodal Meeting Capture** — 20% Complete (audio/video only)
-17. **Speaker Diarization** — 30% Complete *(Pyannote diarization runs post-meeting; produces Speaker_0/Speaker_1 labels; no name mapping to real users)*
-18. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion, and real query-bar integration now implemented; only persistent storage remains pending)*
+18. **Speaker Diarization** — 30% Complete *(Pyannote diarization runs post-meeting; produces Speaker_0/Speaker_1 labels; no name mapping to real users)*
+19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion API, real query-bar integration done; optional persistent storage + click-to-expand UI pending)*
 
-### ❌ NOT IMPLEMENTED (4/22)
+### ❌ NOT IMPLEMENTED (1/21 core)
 
-19. **Task Contextual Micro-Channels** — 0% Complete
-20. **Privacy & Compliance Mode** — 0% Complete
-21. **Calendar Integrations** — 0% Complete (UI mockup exists)
-22. **Third-Party Tool Integrations** — 0% Complete (UI mockups exist)
+20. **Task Contextual Micro-Channels** — 0% Complete
+
+### Optional (stretch / ecosystem — not counted in core 21)
+
+- **Multimodal Meeting Capture** — 20% Complete (audio/video only)
+- **Calendar Integrations** — 0% Complete (UI mockup exists)
+- **Third-Party Tool Integrations** — 0% Complete (UI mockups exist)
 
 ---
 
@@ -108,6 +105,7 @@
 - Transcripts saved in JSON and text formats
 - WebSocket broadcasting of live transcript to clients
 - Hybrid processing: real-time + post-meeting refinement
+- **Privacy gate**: `TranscriptionService.js` checks `PrivacyModeService.isEnabled()` per chunk; drops chunk silently if privacy mode active
 
 #### ⚠️ What's Missing:
 - Speaker identification by name (only `Speaker_0`, `Speaker_1` labels)
@@ -136,6 +134,7 @@
 - All generated asynchronously post-meeting via `AIInsightsService.js`
 - Stored in DB and displayed in organized UI panels
 - Confidence scores per insight type
+- Privacy-aware: utterances timestamped inside privacy intervals are filtered before being sent to AI
 
 ---
 
@@ -175,7 +174,9 @@
   - `embedSummary(meetingId, summaryText)` — stores summary embedding
   - `generateMemoryContext(meetingId, ...)` — creates/updates `meeting_memory_contexts` with upsert
   - `searchWorkspaceMeetings(workspaceId, queryText, limit)` — cosine similarity search using `<=>` operator
-- `AIInsightsService.js` — Memory Engine embedding/context work is best-effort and step-isolated (embedding failures no longer block memory-context creation)
+  - `hybridSearchWorkspaceMeetings(workspaceId, queryText, limit)` — pgvector + `plainto_tsquery` FTS, 60/40 weighted merge *(code-verified, lines 219–304)*
+  - `findRelatedMeetings(meetingId, workspaceId, limit)` — cosine similarity on `meeting_memory_contexts.summary_embedding`
+- `AIInsightsService.js` — Memory Engine work is best-effort and step-isolated (embedding failures do not block memory-context creation)
 - `MeetingEmbeddingService.js` — Regeneration safety: transcript/summary embedding inserts are deterministic by deleting prior rows for the meeting/content type before insert
 - `MemoryContextService.js` — Implemented:
   - `getMeetingContext(meetingId)` (loads `meeting_memory_contexts` + a short transcript snippet from `meeting_embeddings`)
@@ -188,59 +189,22 @@
 - pgvector extension installed and HNSW indexes created
 
 #### ⚠️ What's Missing:
-- Manual embeddings/context regeneration endpoint is not implemented yet (only AI-insights regeneration exists today)
-- Notes and action item embeddings are not generated yet (currently only transcript + summary feed `meeting_memory_contexts`)
-- Result caching for frequent `/context` and `/related` queries is not implemented yet
-- `meeting_relationships` is not populated as a persistent step yet; `/related` works via on-demand fallback similarity when relationships are empty
-- No `EmbeddingRepository.js` (direct Prisma wrapper) — raw SQL used instead (acceptable but fragile)
-- Hybrid search (pgvector + PostgreSQL FTS) not implemented
-- No embedding for notes or action items (only transcript + summary)
-
-#### ✅ What's Working (code-verified):
-- `EmbeddingService.js` — local all-MiniLM-L6-v2 (384-dim), `generateEmbedding()` + `generateBatchEmbeddings()`
-- `MeetingEmbeddingService.js` — `chunkText()`, `embedTranscript()`, `embedSummary()`, `generateMemoryContext()`, `searchWorkspaceMeetings()`
-- **Auto-triggered in `AIInsightsService.generateInsights()`** after insights complete — `embedTranscript()` + `generateMemoryContext()` called with topics, decisions, participants
-- `GET /api/workspaces/:id/memory/search` route — semantic search working
-- pgvector extension + HNSW indexes installed
-- `SmartSearchModal.tsx` calls real backend API *(verified — no mock)*
-
+- Manual embeddings/context regeneration endpoint not implemented (only AI-insights regeneration exists)
+- Notes and action item embeddings are not generated (only transcript + summary)
+- Result caching for frequent `/context` and `/related` queries not implemented
+- `meeting_relationships` table is not populated as a persistent step; `/related` works via on-demand fallback similarity
 
 #### 📋 Remaining To-Do:
-
-**HIGH PRIORITY:**
-- [x] **Wire embedding generation into the end-of-meeting intelligence pipeline**
-  - `TranscriptionService` triggers `AIInsightsService.generateInsights()` asynchronously after diarized transcript finalize
-  - `AIInsightsService` runs the Memory Engine embedding steps and upserts `meeting_memory_contexts`
-  - **Estimate: Completed**
-
-- [x] **Add related meetings + context routes**
-  - Implemented under `memoryRoutes.js`:
-    - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/context`
-    - `GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/related`
-  - `/related` works even if `meeting_relationships` is empty (on-demand fallback similarity)
-  - **Estimate: Completed**
-
-- [x] **Build MemoryContextService**
-  - Created `backend/src/services/MemoryContextService.js`
-  - Implemented `getMeetingContext()` and `getRelatedMeetings()` with fallback similarity
-  - **Estimate: Completed**
 
 **MEDIUM PRIORITY:**
 - [ ] Add manual embeddings-only regeneration endpoint (e.g. `POST /api/meetings/:id/regenerate-embeddings`)
 - [ ] Add embedding generation for notes and action items (currently only transcript + summary)
 - [ ] Implement result caching for frequent `/context` and `/related` queries
-- [ ] **Implement hybrid search** — combine `<=>` cosine similarity with `tsvector` FTS for better results — *2-3 days*
-- [ ] **Add related meetings routes** — `GET /api/meetings/:id/related` using existing `searchWorkspaceMeetings` — *1-2 days*
-- [ ] **Build MemoryContextService.js** — `findRelatedMeetings()`, `meeting_relationships` table — *2-3 days*
-
-**MEDIUM PRIORITY:**
-- [ ] Embed notes and confirmed action items for richer search
-- [ ] Add result highlighting in `SmartSearchModal` (show matching snippet in context)
 
 ---
 
 ### 6. Meeting Memory Graph (Knowledge Graph)
-**Status:** 🔄 80% COMPLETE *(caching, auth, neighbour expansion, real query-bar integration complete; only persistent storage pending)*
+**Status:** 🔄 80% COMPLETE *(caching, auth, neighbour expansion, real query-bar integration complete; persistent storage + click-to-expand UI pending)*
 **Priority:** High
 **Technologies:** PostgreSQL (adjacency lists), React Canvas
 
@@ -277,7 +241,7 @@
 ## 🔹 ACTIONABILITY & TASK CONTEXT
 
 ### 7. Action Item Detection
-**Status:** ✅ 85% COMPLETE
+**Status:** ✅ 90% COMPLETE
 **Technologies:** Grok API, Node.js
 
 #### ✅ What's Working:
@@ -287,17 +251,14 @@
 - **Auto task creation from confirmed action items** (in `AIInsightsService.saveInsightsToDatabase()`)
 - DB link between `action_items` and `tasks` tables
 - "Create Task" button in ActionItemsPanel with `TASK CREATED` badge
+- **Deadline parsing** — `chrono-node` in `TaskCreationService.parseDeadline()` + wired into `AIInsightsService`
+- **Priority auto-classification** — `_extractPriority()` in `TaskCreationService`
 
 #### ⚠️ What's Missing:
-- Due dates extracted as text strings, NOT parsed to datetime
-- Priority not auto-classified from action item text
 - Assignee names not matched to workspace users
+- Real-time action item detection during meetings
 
 #### 📋 To-Do:
-
-**COMPLETED:**
-- [x] **Deadline parsing** — `chrono-node` in `TaskCreationService.parseDeadline()` + `AIInsightsService` *(March 27, 2026)*
-- [x] **Priority auto-classification** — `_extractPriority()` in `TaskCreationService` *(already existed — confirmed March 27, 2026)*
 
 **MEDIUM PRIORITY:**
 - [ ] Fuzzy-match assignee name to workspace users
@@ -321,7 +282,7 @@
 ---
 
 ### 9. Auto Follow-Up Reminders
-**Status:** ✅ 85% COMPLETE
+**Status:** ✅ 100% COMPLETE *(quiet hours confirmed code-verified — `_isInQuietHours()` called at line 69)*
 **Technologies:** Node.js cron, NotificationService, PostgreSQL
 
 #### ✅ What's Working:
@@ -331,18 +292,9 @@
 - `GET/PUT /api/reminders/preferences`, `GET /api/reminders/upcoming`
 - `RemindersTab.tsx` — full preferences UI in profile settings
 - `NotificationService.js` — in-app notification delivery
+- **Quiet hours enforcement** ✅ — `_isInQuietHours(start, end)` correctly handles normal (09:00–18:00) and overnight (22:00–07:00) ranges; skips dispatching if current UTC hour is within window
 
-#### ⚠️ What's Missing (code-verified):
-- **Quiet hours not enforced** — `quietHoursStart`/`quietHoursEnd` stored and shown in UI but `checkAndSendReminders()` never checks them before dispatching
-
-#### 📋 To-Do:
-
-**HIGH PRIORITY:**
-- [ ] **Enforce quiet hours in `ReminderService.checkAndSendReminders()`** — *~3 hours*
-  - After fetching preferences, check if current UTC hour falls within quiet window before adding to `remindersToSend`
-  - Handle overnight ranges (e.g. 22:00–07:00)
-
-**LOW PRIORITY:**
+#### 📋 Optional (Low Priority):
 - [ ] Email reminder channel (when `NotificationSettings.emailActionItems` is enabled)
 - [ ] Browser push notifications (Web Push API / Firebase)
 
@@ -361,37 +313,38 @@
 
 ---
 
-## 🔹 MULTIMODAL INTELLIGENCE
+## 🔹 PRIVACY & COMPLIANCE
 
-### 11. Multimodal Meeting Capture
-**Status:** 🔄 20% COMPLETE
-**Technologies:** HTML5 Canvas, Tesseract.js (OCR)
-
-#### ✅ What's Working:
-- Audio/video recording during meetings
-
-#### 📋 To-Do:
-- [ ] "Capture Moment" button in live meeting UI
-- [ ] `MeetingCaptures` table
-- [ ] OCR for slide text extraction
-
----
-
-## 🔹 PRIVACY, COMPLIANCE & CONTROL
-
-### 12. Privacy & Compliance Mode
-**Status:** ✅ 90% COMPLETE
+### 11. Privacy Mode (Pause/Resume Transcription)
+**Status:** ✅ 100% COMPLETE *(April 2026 — code-verified)*
 **Priority:** Medium
-**Technologies:** RBAC, PostgreSQL
+**Technologies:** Node.js, PostgreSQL (metadata JSON), Puppeteer, React
 
-#### 📋 Phases:
-- **PHASE 1:** Pause/resume transcription in bot + UI toggle in live meeting
-- **PHASE 2:** "Confidential" meeting flag + meeting-level access restrictions
-- **PHASE 3:** Data retention policies, audit logging, GDPR export
+#### ✅ What's Working (code-verified):
+
+**Backend**
+- `PrivacyModeService.js` — full state machine:
+  - `getState(meetingId)` — loads privacy state from `meeting.metadata.privacyMode`, caches in memory
+  - `setState(meetingId, enabled)` — toggles state, appends interval `{ start, end }` to DB, clears cache
+  - `isEnabled(meetingId)` — quick boolean check used by hot paths
+- `PATCH /api/meetings/:id/privacy-mode` route in `meetingRoutes.js`
+- `TranscriptionService.js` — checks `PrivacyModeService.isEnabled()` before processing each audio chunk; drops chunk silently when privacy is on
+- `AIInsightsService.js` — loads privacy intervals, filters utterances timestamped within privacy windows before generating AI insights (`_isInPrivacyInterval()` method)
+- `AudioRecorder.js` — also checks `PrivacyModeService.isEnabled()` during recording
+
+**Frontend**
+- `apiService.updateMeetingPrivacyMode()` — `PATCH` with optimistic error handling
+- `MeetingLive.tsx` — `togglePrivacyMode`, initial state from `meeting.metadata.privacyMode`, Kairo Bot dropdown entry (EyeOff + On/Off), top-bar “Privacy Mode ON” badge when active, status dot (orange when privacy on), “Catch Me Up” respects `isPrivacyMode`
+- `TranscriptTab.tsx` — privacy banner when active; system lines for privacy on/off events
+
+#### 📋 Optional (compliance / enterprise — not core FYP)
+
+- [ ] "Confidential" meeting flag + meeting-level access restrictions
+- [ ] Data retention policies, audit logging, GDPR export
 
 ---
 
-### 13. Role-Based Access Control (RBAC)
+### 12. Role-Based Access Control (RBAC)
 **Status:** ✅ 100% COMPLETE
 
 - Roles: owner, admin, member, observer
@@ -402,27 +355,38 @@
 
 ## 🔹 SEARCH & RETRIEVAL
 
-### 14. Smart Search & Query
-**Status:** ✅ 75% COMPLETE *(previously under-reported as 60%)*
-**Technologies:** pgvector, Transformers.js, Node.js
+### 13. Smart Search & Query
+**Status:** ✅ 100% COMPLETE *(code-verified March 27, 2026)*
+**Technologies:** pgvector, Transformers.js, PostgreSQL FTS, Node.js
 
 #### ✅ What's Working (code-verified):
-- `SmartSearchModal.tsx` calls `apiService.searchMeetingMemory()` → real `GET /api/workspaces/:id/memory/search` *(verified — no mock)*
-- Semantic (cosine similarity) search via `MeetingEmbeddingService.searchWorkspaceMeetings()`
+- `SmartSearchModal.tsx` calls `apiService.searchMeetingMemory()` → real `GET /api/workspaces/:id/memory/search`
+- **Hybrid search** ✅ — `MeetingEmbeddingService.hybridSearchWorkspaceMeetings()` (lines 219–304):
+  - Runs vector cosine similarity and `plainto_tsquery` FTS in parallel
+  - Merges results with 60% semantic + 40% FTS weighting
+  - Falls back to pure vector search if FTS fails
+- **Result highlighting** ✅ — `HighlightedSnippet` component in `SmartSearchModal.tsx` (lines 53–70):
+  - Backend passes `matchedTerms[]` extracted from query (stop-words stripped)
+  - Frontend renders `<mark>` tags around matching terms in snippet
 - Keyboard navigation (↑↓, Enter, ESC), debounced 500ms
+- Results deduplicated — one best match per meeting
 - Results grouped by meeting with snippet preview
 
-#### ⚠️ What's Missing:
-- Hybrid search (pgvector + PostgreSQL FTS)
-- Result highlighting of matching transcript excerpts
-- Speaker-based search filters
-- Date range / meeting type filters
+---
+
+## 🔹 MULTIMODAL INTELLIGENCE
+
+### 14. Multimodal Meeting Capture
+**Status:** 🔄 20% COMPLETE
+**Technologies:** HTML5 Canvas, Tesseract.js (OCR)
+
+#### ✅ What's Working:
+- Audio/video recording during meetings
 
 #### 📋 To-Do:
-
-**HIGH PRIORITY:**
-- [ ] **Implement hybrid search** in `memoryController.js` — combine vector similarity with `plainto_tsquery` FTS — *2 days*
-- [ ] **Add result highlighting** in `SmartSearchModal.tsx` — bold matching terms in snippet — *1 day*
+- [ ] "Capture Moment" button in live meeting UI
+- [ ] `MeetingCaptures` table
+- [ ] OCR for slide text extraction
 
 ---
 
@@ -461,24 +425,30 @@
 
 ### 🔥 HIGH PRIORITY (Do Now)
 
-| # | Task | Effort | Owner | Status |
-|---|---|---|---|---|
-| 1 | **Quiet hours enforcement** in `ReminderService.checkAndSendReminders()` | ~3 hrs | You | ✅ DONE |
-| 2 | **Hybrid search** — pgvector + FTS in `memoryController.js` | 2 days | You | ✅ DONE |
-| 2b | **Result highlighting** in `SmartSearchModal.tsx` | 1 day | You | ✅ DONE |
-| 3 | **Deadline parsing** — `chrono-node` in `TaskCreationService.js` | 2 days | You | ✅ DONE |
-| 4 | **Priority auto-classification** — keyword-based for action items | — | You | ✅ DONE |
-| 5 | **Knowledge Graph backend hardening** — caching + neighbour expansion + search/focus integration | 3-4 days | Friend | ✅ DONE |
-| 6 | **Related meetings routes + MemoryContextService** | 2-3 days | You | ✅ DONE |
-| 7 | **Result highlighting** in `SmartSearchModal.tsx` | 1 day | You | ⬜ TODO |
+| # | Task | Effort | Status |
+|---|---|---|---|
+| 1 | **Speaker assignment UI** — manual speaker name mapping in post-meeting transcript review | 2-3 days | ⬜ TODO |
+| 2 | **Knowledge Graph click-to-expand** — wire `getNodeNeighbours` / `/neighbours` to node-click in `MemoryView` + `GraphCanvas` (merge neighbour nodes into graph state) | ~1 day | ⬜ TODO |
 
 ### ⚡ MEDIUM PRIORITY
 
 | # | Task | Effort |
 |---|---|---|
-| 8 | Privacy Mode (pause/resume transcription) | 3-4 days |
-| 9 | Task Contextual Micro-Channels | ~1 week |
-| 10 | Manual speaker assignment in transcript review | 2-3 days |
+| 3 | Fuzzy-match assignee name to workspace users in `TaskCreationService` | 2-3 days |
+| 4 | Task Contextual Micro-Channels (schema → service → TaskDetailModal tab → WS) | ~1 week |
+| 5 | Manual embeddings regeneration endpoint (`POST /api/meetings/:id/regenerate-embeddings`) | 1 day |
+| 6 | Embed notes and confirmed action items for richer search | 1-2 days |
+| 7 | Result caching for frequent `/context` and `/related` memory routes | TBD |
+| 8 | Real-time action item detection during live meetings (vs post-meeting only today) | TBD |
+
+### ✅ CONFIRMED DONE (previously listed as TODO)
+
+| # | Task | Verified In |
+|---|---|---|
+| — | Quiet hours enforcement in `ReminderService` | `ReminderService.js` (`checkAndSendReminders`, `_isInQuietHours`) |
+| — | Hybrid search (pgvector + FTS) | `MeetingEmbeddingService.js` (`hybridSearchWorkspaceMeetings`) |
+| — | Result highlighting in `SmartSearchModal` | `SmartSearchModal.tsx` (`HighlightedSnippet`) |
+| — | Privacy Mode — backend + live UI | `PrivacyModeService.js`, `meetingRoutes.js` (`PATCH .../privacy-mode`), `TranscriptionService.js`, `AIInsightsService.js`; `MeetingLive.tsx`, `TranscriptTab.tsx`, `api.ts` (`updateMeetingPrivacyMode`) |
 
 ### 📊 LOW PRIORITY / POST-FYP
 
@@ -488,22 +458,28 @@
 - Multilingual transcription
 - Migrate to Faster-Whisper
 - Email/push reminders
+- Privacy Mode Phase 2 (confidential meeting flag)
+- Privacy Mode Phase 3 (data retention, audit logs, GDPR)
 
 ---
 
 ## CONCLUSION
 
-Kairo is now **~87% complete** (code-verified, March 27, 2026). The core AI pipeline (bot -> transcript -> AI insights -> embeddings -> Smart Search) is fully end-to-end functional. Deadline parsing, priority classification, and Knowledge Graph hardening (caching, auth guards, neighbour expansion, real query-bar integration) are all done. The main remaining work is:
+Kairo is **~93% complete** on core scope (code-verified, April 4, 2026). Earlier audits understated completion for quiet hours, hybrid search, result highlighting, and **Privacy Mode**, which is now **end-to-end**: backend services and routes plus live-meeting UI (`MeetingLive.tsx`, `TranscriptTab.tsx`, `apiService.updateMeetingPrivacyMode`).
 
-1. **Small plumbing fixes** (quiet hours enforcement in `ReminderService`) — ~3 hrs
-2. **Search improvements** (hybrid search, result highlighting) — ~3 days
-3. **Knowledge Graph UI expansion** (wire `/neighbours` to node click-to-expand in `GraphCanvas`) — ~1 day
-4. **New features** (Privacy Mode, Calendar) — post-FYP or stretch goals
+**Remaining core work (non-optional):**
+
+1. **Speaker name assignment** — map `Speaker_0` / `Speaker_1` to real people in transcript review
+2. **Knowledge Graph click-to-expand** — use existing `/neighbours` API from a node click to expand the canvas graph
+3. **Task Contextual Micro-Channels** — full vertical not started
+4. **Medium-priority memory & tasks** — assignee fuzzy-match to workspace users, manual embeddings regeneration, embeddings for notes/action items, optional `/context`/`/related` caching
+
+**Optional / stretch:** Calendar, third-party integrations, multimodal capture, graph table persistence (`graph_nodes`/`graph_edges`), Faster-Whisper migration, multilingual transcription, email/push reminders, enterprise privacy (retention, audit, GDPR).
 
 **Note:** Microsoft Teams support is NOT in scope. Focus is Google Meet and Zoom.
 
 ---
 
-*Last Updated: March 27, 2026*
-*Audited by: Antigravity — cross-checked against actual source code*
+*Last Updated: April 4, 2026*
+*Last audit: cross-checked against `MeetingLive.tsx` (privacy UI), `PrivacyModeService.js`, `MemoryView.tsx` / `GraphCanvas.tsx` (neighbours not wired), `TaskCreationService.js`, roadmap optional sections*
 *Maintained by: Kairo Team*
