@@ -773,12 +773,42 @@ const LiveMeetingView = () => {
     }
   };
 
-  const addActionItem = () => {
-    if (newAction.trim()) {
-      const id = Date.now().toString();
-      setActionItems([...actionItems, { id, text: newAction, assignee: 'Unassigned', isCompleted: false }]);
-      setActionStatusById(prev => ({ ...prev, [id]: 'undecided' }));
+  const addActionItem = async () => {
+    const content = newAction.trim();
+    if (!content || !meeting?.id) {
+      return;
+    }
+
+    try {
+      const response = await apiService.createActionItem(Number(meeting.id), {
+        title: content,
+        description: content,
+        assignee: 'Unassigned',
+        confidence: 0.95
+      });
+
+      if (response.error || !response.data?.actionItem) {
+        toastError(response.error || 'Failed to save action item', 'Error');
+        return;
+      }
+
+      const saved = response.data.actionItem;
+      const mappedItem = {
+        id: String(saved.id),
+        text: saved.title || saved.description || content,
+        assignee: saved.assignee || 'Unassigned',
+        isCompleted: saved.status === 'confirmed'
+      };
+
+      setActionItems(prev => [mappedItem, ...prev]);
+      setActionStatusById(prev => ({
+        ...prev,
+        [String(saved.id)]: saved.status === 'confirmed' ? 'confirmed' : 'undecided'
+      }));
       setNewAction('');
+    } catch (error: any) {
+      console.error('Failed to create action item', error);
+      toastError(error?.message || 'Failed to save action item', 'Error');
     }
   };
 

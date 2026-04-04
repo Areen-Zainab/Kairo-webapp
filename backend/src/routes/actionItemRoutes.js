@@ -72,6 +72,49 @@ router.get('/meetings/:meetingId', authenticateToken, async (req, res) => {
   }
 });
 
+// Create a live manual action item for a meeting
+router.post('/meetings/:meetingId', authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.meetingId, 10);
+    const { title, description, assignee, dueDate, confidence } = req.body || {};
+
+    if (Number.isNaN(meetingId)) {
+      return res.status(400).json({ error: 'Invalid meeting ID' });
+    }
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const created = await ActionItemService.createActionItem(meetingId, {
+      title,
+      description,
+      assignee,
+      dueDate,
+      confidence
+    });
+
+    return res.status(201).json({ actionItem: ActionItemService._toDTO(created) });
+  } catch (error) {
+    console.error('Create action item error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 // Confirm an action item
 router.post('/:id/confirm', authenticateToken, async (req, res) => {
   try {

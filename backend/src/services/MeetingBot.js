@@ -773,8 +773,8 @@ class MeetingBot {
 
     const ActionItemService = require('./ActionItemService');
     
-    // Use live transcript file for real-time extraction
-    const liveTranscriptPath = this.audioRecorder?.transcriptFilepath;
+    // Use the complete live transcript file when available for real-time extraction
+    const liveTranscriptPath = this.audioRecorder?.transcriptionService?.completeTranscriptPath || this.audioRecorder?.transcriptFilepath;
     
     // Fallback to complete transcript if live transcript not available
     const transcriptPath = liveTranscriptPath || path.join(this.meetingDataDir, 'transcript_complete.txt');

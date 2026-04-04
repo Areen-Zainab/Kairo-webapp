@@ -39,13 +39,16 @@ class ActionItemService {
       lastSeenAt: new Date()
     };
 
+    const existingTitle = existing.title || '';
+    const existingDescription = existing.description || '';
+
     let hasChanges = false;
 
     // Update title if new one is more detailed (longer and different)
     if (newItem.title && newItem.title !== existing.title) {
-      if (newItem.title.length > existing.title.length && 
-          !existing.title.toLowerCase().includes(newItem.title.toLowerCase()) &&
-          !newItem.title.toLowerCase().includes(existing.title.toLowerCase())) {
+      if (newItem.title.length > existingTitle.length && 
+          !existingTitle.toLowerCase().includes(newItem.title.toLowerCase()) &&
+          !newItem.title.toLowerCase().includes(existingTitle.toLowerCase())) {
         updates.title = newItem.title;
         historyEntry.changes.title = `updated from "${existing.title}" to "${newItem.title}"`;
         hasChanges = true;
@@ -54,7 +57,7 @@ class ActionItemService {
 
     // Append description if different and not already contained.
     if (newItem.description && newItem.description !== existing.description) {
-      const existingDesc = (existing.description || '').toLowerCase();
+      const existingDesc = existingDescription.toLowerCase();
       const newDesc = (newItem.description || '').toLowerCase();
 
       // Check if new description adds meaningful information
@@ -114,6 +117,150 @@ class ActionItemService {
     return { updates, hasChanges };
   }
 
+  static _normalizeTranscriptText(transcriptText) {
+    if (!transcriptText || typeof transcriptText !== 'string') {
+      return '';
+    }
+
+    return transcriptText
+      .replace(/^Kairo (?:Complete )?Transcript.*$/gim, '')
+      .replace(/^=+$/gim, '')
+      .replace(/^\[Chunk\s+\d+\]\s*\[[^\]]+\]\s*/gim, '')
+      .replace(/^\[[^\]]+\]\s*/gim, '')
+      .replace(/\[(?:UNKNOWN|SPEAKER_\d+)\]\s*/gim, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  static _extractHeuristicActionItems(transcriptText) {
+    const text = this._normalizeTranscriptText(transcriptText);
+    if (!text) {
+      return [];
+    }
+
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const cuePattern = /\b(i will|i'll|i can|i'll take|let me|we need to|we should|we must|we have to|let's|someone needs to|someone should|please|can you|could you|action:|todo:|follow up:|next steps?:)\b/i;
+
+    const items = [];
+
+    for (const sentence of sentences) {
+      const trimmed = sentence.trim();
+      if (trimmed.length < 20) {
+        continue;
+      }
+
+      if (!cuePattern.test(trimmed)) {
+        continue;
+      }
+
+      const cleaned = trimmed
+        .replace(/^\[.*?\]\s*/g, '')
+        .replace(/\b(i will|i'll|i can|i'll take|let me|we need to|we should|we must|we have to|let's|someone needs to|someone should|please|can you|could you|action:|todo:|follow up:|next steps?:)\b\s*/i, '')
+        .trim();
+
+      const titleSource = cleaned || trimmed;
+      const title = titleSource
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/[.?!]+$/, '')
+        .slice(0, 100);
+
+      if (!title) {
+        continue;
+      }
+
+      items.push({
+        id: items.length,
+        title,
+        description: trimmed,
+        assignee: null,
+        dueDate: null,
+        confidence: 0.35
+      });
+    }
+
+    return items;
+  }
+
+  static async createActionItem(meetingId, actionItemData, sourceChunk = null) {
+    meetingId = parseInt(meetingId, 10);
+    if (isNaN(meetingId)) {
+      throw new Error('Invalid meetingId: must be a number');
+    }
+
+    const title = this._cleanActionItemText(actionItemData?.title || actionItemData?.text || actionItemData?.description || '');
+    const description = this._cleanActionItemText(actionItemData?.description || actionItemData?.text || title);
+
+    if (!title) {
+      throw new Error('Action item title is required');
+    }
+
+    const normalizedItem = {
+      title,
+      description,
+      assignee: actionItemData?.assignee || actionItemData?.assigned_to || null,
+      dueDate: actionItemData?.dueDate || actionItemData?.due_date ? new Date(actionItemData.dueDate || actionItemData.due_date) : null,
+      confidence: Number.isFinite(actionItemData?.confidence) ? actionItemData.confidence : 0.5
+    };
+
+    const canonicalKey = this._generateCanonicalKey(normalizedItem);
+    const existing = await prisma.actionItem.findFirst({
+      where: {
+        meetingId,
+        canonicalKey,
+        status: 'pending'
+      }
+    });
+
+    if (existing) {
+      const { updates } = this._mergeActionItem(existing, {
+        ...normalizedItem,
+        sourceChunk
+      });
+
+      const updated = await prisma.actionItem.update({
+        where: { id: existing.id },
+        data: updates
+      });
+
+      try {
+        const WebSocketServer = require('./WebSocketServer');
+        WebSocketServer.broadcastActionItems(meetingId, [this._toDTO(updated)]);
+      } catch (wsError) {
+        console.warn('⚠️ Failed to broadcast action item creation update via WebSocket:', wsError.message);
+      }
+
+      return updated;
+    }
+
+    const created = await prisma.actionItem.create({
+      data: {
+        meetingId,
+        title: normalizedItem.title,
+        description: normalizedItem.description,
+        assignee: normalizedItem.assignee,
+        dueDate: normalizedItem.dueDate,
+        canonicalKey,
+        confidence: normalizedItem.confidence,
+        sourceChunk,
+        status: 'pending',
+        rawData: { manual: true, ...actionItemData },
+        updateHistory: [],
+        firstSeenAt: new Date(),
+        lastSeenAt: new Date()
+      }
+    });
+
+    try {
+      const WebSocketServer = require('./WebSocketServer');
+      WebSocketServer.broadcastActionItems(meetingId, [this._toDTO(created)]);
+    } catch (wsError) {
+      console.warn('⚠️ Failed to broadcast action item creation via WebSocket:', wsError.message);
+    }
+
+    return created;
+  }
+
   /**
    * Extract and process action items from transcript.
    * Called periodically during meeting.
@@ -125,14 +272,24 @@ class ActionItemService {
         throw new Error('Invalid meetingId: must be a number');
       }
 
-      if (!transcriptText || transcriptText.trim().length < 50) {
+      const normalizedTranscript = this._normalizeTranscriptText(transcriptText);
+
+      if (!normalizedTranscript || normalizedTranscript.trim().length < 50) {
         console.log(`⚠️ [ActionItemService] Transcript too short: ${transcriptText?.trim().length || 0} chars`);
         return { added: 0, updated: 0, items: [] };
       }
 
-      console.log(`🔍 [ActionItemService] Extracting action items from ${transcriptText.length} chars (${isIncremental ? 'incremental' : 'full'})...`);
-      const extractedItems = await AgentProcessingService.extractActionItems(transcriptText);
+      console.log(`🔍 [ActionItemService] Extracting action items from ${normalizedTranscript.length} chars (${isIncremental ? 'incremental' : 'full'})...`);
+      let extractedItems = await AgentProcessingService.extractActionItems(normalizedTranscript);
       console.log(`🔍 [ActionItemService] AI returned ${extractedItems?.length || 0} action items`);
+
+      if (!Array.isArray(extractedItems) || extractedItems.length === 0) {
+        const heuristicItems = this._extractHeuristicActionItems(normalizedTranscript);
+        if (heuristicItems.length > 0) {
+          console.log(`🔍 [ActionItemService] Heuristic fallback produced ${heuristicItems.length} action items`);
+          extractedItems = heuristicItems;
+        }
+      }
 
       if (!Array.isArray(extractedItems) || extractedItems.length === 0) {
         console.log(`⚠️ [ActionItemService] No action items extracted from AI`);
@@ -141,11 +298,12 @@ class ActionItemService {
 
       // Filter by confidence threshold to reduce noise
       // Lower threshold for incremental processing to catch items early
-      const CONFIDENCE_THRESHOLD = isIncremental ? 0.4 : 0.5;
+      const CONFIDENCE_THRESHOLD = isIncremental ? 0.3 : 0.45;
       console.log(`🔍 [ActionItemService] Filtering with confidence threshold: ${CONFIDENCE_THRESHOLD}`);
-      const highConfidenceItems = extractedItems.filter(item =>
-        (item.confidence || 0) >= CONFIDENCE_THRESHOLD
-      );
+      const highConfidenceItems = extractedItems.filter(item => {
+        const confidence = Number.isFinite(item?.confidence) ? item.confidence : 0.5;
+        return confidence >= CONFIDENCE_THRESHOLD;
+      });
 
       if (highConfidenceItems.length === 0) {
         console.log(`⚠️ [ActionItemService] No high-confidence items (${extractedItems.length} items below threshold)`);
@@ -208,7 +366,7 @@ class ActionItemService {
           description: item.description || item.title || '',
           assignee: item.assignee || item.assigned_to || item.assignee_name || null,
           dueDate: item.dueDate || item.due_date ? new Date(item.dueDate || item.due_date) : null,
-          confidence: item.confidence || 0.5
+          confidence: Number.isFinite(item.confidence) ? item.confidence : 0.5
         };
 
         const canonicalKey = this._generateCanonicalKey(normalizedItem);
@@ -313,6 +471,21 @@ class ActionItemService {
         }
       }
     });
+  }
+
+  static _cleanActionItemText(text) {
+    if (!text || typeof text !== 'string') {
+      return '';
+    }
+
+    return text
+      .replace(/^Kairo (?:Complete )?Transcript.*$/gim, '')
+      .replace(/^=+$/gim, '')
+      .replace(/^\[Chunk\s+\d+\]\s*\[[^\]]+\]\s*/gim, '')
+      .replace(/^\[[^\]]+\]\s*/gim, '')
+      .replace(/\[(?:UNKNOWN|SPEAKER_\d+)\]\s*/gim, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**

@@ -1014,6 +1014,16 @@ class ApiService {
     return this.request<{ actionItems: any[] }>(`/action-items/meetings/${meetingId}/pending`);
   }
 
+  async createActionItem(
+    meetingId: number,
+    payload: { title: string; description?: string; assignee?: string; dueDate?: string; confidence?: number }
+  ): Promise<ApiResponse<{ actionItem: any }>> {
+    return this.request<{ actionItem: any }>(`/action-items/meetings/${meetingId}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async confirmActionItem(actionItemId: number): Promise<ApiResponse<{ actionItem: any }>> {
     return this.request<{ actionItem: any }>(`/action-items/${actionItemId}/confirm`, {
       method: 'POST',
