@@ -22,6 +22,10 @@ model User {
   lastLogin            DateTime?             @map("last_login")
   isActive             Boolean               @default(true) @map("is_active")
   emailVerified        Boolean               @default(false) @map("email_verified")
+  biometricConsent     Boolean               @default(false) @map("biometric_consent")
+  consentGivenAt       DateTime?             @map("consent_given_at")
+  voiceEmbeddings      UserVoiceEmbedding[]
+  speakerIdentities    SpeakerIdentityMap[]
   notificationSettings NotificationSettings?
   notifications        Notification[]
   userPreferences      UserPreferences?
@@ -169,6 +173,7 @@ model Meeting {
   memoryContext       MeetingMemoryContext?
   sourceRelationships MeetingRelationship[] @relation("SourceMeeting")
   targetRelationships MeetingRelationship[] @relation("TargetMeeting")
+  speakerIdentities    SpeakerIdentityMap[]
 
   @@index([workspaceId, startTime])
   @@index([status, startTime])
@@ -348,6 +353,42 @@ model AiInsight {
   @@index([meetingId])
   @@index([insightType])
   @@map("ai_insights")
+}
+
+model UserVoiceEmbedding {
+  id              String   @id @default(uuid())
+  userId          Int      @map("user_id")
+  embedding       Unsupported("vector(256)")? // pyannote resnet34 (256 dims)
+  version         Int      @default(1)
+  snrScore        Float?   @map("snr_score")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_voice_embeddings")
+}
+
+model SpeakerIdentityMap {
+  id              String   @id @default(uuid())
+  meetingId       Int      @map("meeting_id")
+  speakerLabel    String   @map("speaker_label") // e.g., 'SPEAKER_00'
+  userId          Int?     @map("user_id")
+  confidenceScore Float    @map("confidence_score")
+  tierResolved    Int      @map("tier_resolved") // 1, 2, 3, or 4
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  meeting         Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([meetingId, speakerLabel])
+  @@index([meetingId])
+  @@index([userId])
+  @@map("speaker_identity_maps")
 }
 
 

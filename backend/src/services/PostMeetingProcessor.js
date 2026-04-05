@@ -2,6 +2,7 @@ const ActionItemService = require('./ActionItemService');
 const Meeting = require('../models/Meeting');
 const path = require('path');
 const { getAudioFileDuration } = require('../utils/meetingStats');
+const SpeakerMatchingEngine = require('./SpeakerMatchingEngine');
 
 // Base directory for all meeting data (same as MeetingBot uses)
 const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../data/meetings');
@@ -109,6 +110,17 @@ class PostMeetingProcessor {
   static async convertToTasks(meetingId) {
     console.log(`[Future] Converting confirmed action items to tasks for meeting ${meetingId}`);
     return { converted: 0 };
+  }
+
+  /**
+   * Phase 3: Trigger async speaker identification after transcription completes.
+   * Non-blocking — fires in background and does not affect the response.
+   * @param {number} meetingId
+   * @param {Function} [broadcastFn] - Optional WebSocket broadcast callback
+   */
+  static triggerSpeakerIdentification(meetingId, broadcastFn = null) {
+    console.log(`[PostMeetingProcessor] Scheduling speaker identification for meeting ${meetingId}`);
+    SpeakerMatchingEngine.triggerIdentificationAsync(meetingId, broadcastFn);
   }
 }
 

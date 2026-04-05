@@ -1670,6 +1670,16 @@ class TranscriptionService {
         console.log(`⚠️  [TranscriptionService.finalize] No meeting ID available, skipping AI insights generation`);
       }
 
+      // 4 (Speaker ID). Trigger async speaker identification — non-blocking
+      if (this.meetingId) {
+        try {
+          const PostMeetingProcessor = require('./PostMeetingProcessor');
+          PostMeetingProcessor.triggerSpeakerIdentification(this.meetingId);
+        } catch (err) {
+          console.warn(`⚠️  [TranscriptionService.finalize] Speaker identification trigger failed: ${err.message}`);
+        }
+      }
+
       // 4. Verify all output files exist
       const outputFiles = {
         'Complete transcript': this.completeTranscriptPath,
