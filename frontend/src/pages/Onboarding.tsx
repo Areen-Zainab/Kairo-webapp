@@ -16,6 +16,7 @@ interface OnboardingData {
   timezone: string;
   profilePicture: File | null;
   audioSample: File | null;
+  biometricConsent: boolean;
   
   // NEW: Calendar fields
   calendarConnected: boolean;
@@ -39,6 +40,7 @@ export default function KairoOnboarding() {
     timezone: '',
     profilePicture: null,
     audioSample: null,
+    biometricConsent: false,
     // NEW: Calendar defaults
     calendarConnected: false,
     calendarProvider: null,
@@ -136,22 +138,40 @@ export default function KairoOnboarding() {
         }
       }
 
-      // 3. Upload voice sample if provided
-      if (formData.audioSample) {
-        console.log('Uploading voice sample...');
-        const base64Data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(formData.audioSample!);
-        });
-        
-        const response = await apiService.uploadAudioRecording(base64Data);
-        if (response.error) {
-          console.error('Audio upload failed:', response.error);
-          toast.error('Failed to upload audio recording');
-        } else {
-          console.log('Audio recording uploaded successfully!');
+      // 3. Handle Voice Enrollment with Biometric Consent
+      if (formData.audioSample && formData.biometricConsent) {
+        console.log('Enrolling voice sample...');
+        try {
+          // First, grant consent
+          const consentResponse = await apiService.grantSpeakerConsent();
+          if (consentResponse.error) {
+            console.error('Failed to grant speaker consent:', consentResponse.error);
+            toast.error('Failed to register voice consent');
+          } else {
+            // Convert to base64 for the API
+            const base64Data = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(formData.audioSample!);
+            });
+
+            const enrollResponse = await apiService.enrollSpeakerVoice(base64Data);
+            if (enrollResponse.error) {
+              console.error('Voice enrollment failed:', enrollResponse.error);
+              // Use the specific message from the backend if available
+              const errorMsg = enrollResponse.data?.message || enrollResponse.error || 'Voice enrollment failed.';
+              toast.error(`${errorMsg} You can re-enroll later in Settings.`);
+            } else if (enrollResponse.data?.snr && enrollResponse.data.snr < 15) {
+              console.warn('Voice enrolled but SNR is low:', enrollResponse.data.snr);
+              toast.warning('Voice enrolled, but background noise was detected. Consider re-enrolling later for better accuracy.');
+            } else {
+              console.log('Voice enrolled successfully!');
+            }
+          }
+        } catch (voiceErr) {
+          console.error('Error during voice setup:', voiceErr);
+          toast.error('Voice setup failed, but you can finish onboarding.');
         }
       }
 
