@@ -20,7 +20,7 @@ const fs = require('fs');
 // Path to the Python script
 const PY_SCRIPT = path.resolve(
   __dirname,
-  '../../ai-layer/whisperX/VoiceEmbeddingService.py'
+  '../../../ai-layer/whisperX/VoiceEmbeddingService.py'
 );
 
 // Candidate Python executables — same pattern used by TranscriptionService

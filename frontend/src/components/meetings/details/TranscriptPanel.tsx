@@ -1,6 +1,19 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Captions, Filter, Users, CheckSquare, AlertCircle, HelpCircle, ArrowDownToLine, StickyNote } from 'lucide-react';
+import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Captions, Filter, Users, CheckSquare, AlertCircle, HelpCircle, ArrowDownToLine, StickyNote, UserPlus, Fingerprint, History } from 'lucide-react';
 import type { MeetingDetailsData, TranscriptEntry, Slide, MeetingNote } from './types';
+import apiService from '../../../services/api';
+import SpeakerAssignmentPopover from './SpeakerAssignmentPopover';
+
+
+interface SpeakerMapping {
+  speakerLabel: string;
+  userId: number | null;
+  userName: string | null;
+  confidenceScore: number;
+  tierResolved: number;
+  resolved: boolean;
+}
+
 
 interface TranscriptPanelProps {
   meeting: MeetingDetailsData;
@@ -33,44 +46,47 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [isControlsExpanded, setIsControlsExpanded] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [activeRightTab, setActiveRightTab] = useState<'slides' | 'notes'>('slides');
-  const [newNote, setNewNote] = useState('');
   const [useAudio, setUseAudio] = useState(false);
-  const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [audioObjectUrl, setAudioObjectUrl] = useState<string | null>(null);
   const [volume, setVolume] = useState(1); // 0 to 1
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1); // 0.5, 0.75, 1, 1.25, 1.5, 2
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [progressHoverPosition, setProgressHoverPosition] = useState<number | null>(null);
   const [mediaCurrentTime, setMediaCurrentTime] = useState(0); // Local state for current playback time
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [progressHoverPosition, setProgressHoverPosition] = useState<number | null>(null);
   const [isHoveringPlayer, setIsHoveringPlayer] = useState(false); // Track hover state for controls visibility
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [showCaptions, setShowCaptions] = useState(true); // Caption overlay toggle
+  const [isSeeking, setIsSeeking] = useState(false); // Track if user is seeking
+  const [speakerMappings, setSpeakerMappings] = useState<Record<string, SpeakerMapping>>({});
+  const [isLoadingMappings, setIsLoadingMappings] = useState(false);
+  const [activePopover, setActivePopover] = useState<string | null>(null); // speakerLabel
+  const [activeRightTab, setActiveRightTab] = useState<'slides' | 'notes'>('slides');
+  const [newNote, setNewNote] = useState('');
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(true); // Collapsed by default
+
+
   
   // NEW: Filtering states
   const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
   const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'action-items' | 'decisions' | 'questions'>('all');
   
-  // Audio error state
-  const [audioError, setAudioError] = useState<string | null>(null);
-  
   // Auto-scroll control
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
-  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(true); // Collapsed by default
-  const hideControlsTimeoutRef = useRef<number | null>(null);
   const audioObjectUrlRef = useRef<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const transcriptRef = useRef<HTMLDivElement>(null);
   const volumeSliderRef = useRef<HTMLDivElement>(null);
   const speedMenuRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+  const hideControlsTimeoutRef = useRef<number | null>(null);
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const progressBarRef = useRef<HTMLDivElement>(null);
-  const [showCaptions, setShowCaptions] = useState(true); // Caption overlay toggle
-  const [isSeeking, setIsSeeking] = useState(false); // Track if user is seeking
   const seekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSyncedTimeRef = useRef<number>(0); // Track last synced time for better accuracy
 
@@ -200,9 +216,10 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
 
   // Extract unique speakers for legend
   const uniqueSpeakers = React.useMemo(() => {
-    const speakers = new Map<string, { count: number; color: string }>();
+    const speakers = new Map<string, { count: number; color: string; mapping?: SpeakerMapping }>();
     filteredTranscript.forEach(entry => {
       if (!speakers.has(entry.speaker)) {
+        const mapping = speakerMappings[entry.speaker];
         const speakerNum = entry.speaker.match(/\d+/)?.[0];
         const colors = [
           'from-blue-500 via-blue-600 to-blue-700',
@@ -215,13 +232,15 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         const color = entry.speaker === 'UNKNOWN' 
           ? 'from-slate-400 to-slate-500'
           : colors[parseInt(speakerNum || '0') % colors.length] || colors[0];
-        speakers.set(entry.speaker, { count: 0, color });
+        
+        speakers.set(entry.speaker, { count: 0, color, mapping });
       }
-      const speaker = speakers.get(entry.speaker)!;
-      speaker.count++;
+      const speakerData = speakers.get(entry.speaker)!;
+      speakerData.count++;
     });
-    return Array.from(speakers.entries()).map(([name, data]) => ({ name, ...data }));
-  }, [filteredTranscript]);
+    return Array.from(speakers.entries()).map(([label, data]) => ({ label, ...data }));
+  }, [filteredTranscript, speakerMappings]);
+
 
   // Get speaker color function
   const getSpeakerColor = (speaker: string) => {
@@ -248,7 +267,6 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       setScrollProgress(isNaN(progress) ? 0 : progress);
     }
   };
-
 
   // Always prefer audio for playback when audioUrl is available (complete recording from meeting folder)
   // Use audioUrl if available, otherwise fallback to recordingUrl
@@ -287,6 +305,31 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       setUseAudio(true);
     }
   }, [meeting.recordingUrl, meeting.audioUrl]);
+
+  // Fetch Speaker Mappings
+  const fetchSpeakerMappings = useCallback(async () => {
+    if (!meeting.id) return;
+    setIsLoadingMappings(true);
+    try {
+      const response = await apiService.getMeetingSpeakerMappings(Number(meeting.id));
+      if (response?.data?.mappings) {
+        const mappings: Record<string, SpeakerMapping> = {};
+        response.data.mappings.forEach(m => {
+          mappings[m.speakerLabel] = m;
+        });
+        setSpeakerMappings(mappings);
+      }
+    } catch (err) {
+      console.error('Failed to fetch speaker mappings:', err);
+    } finally {
+      setIsLoadingMappings(false);
+    }
+  }, [meeting.id]);
+
+  useEffect(() => {
+    fetchSpeakerMappings();
+  }, [fetchSpeakerMappings]);
+
 
   // Fetch audio as blob and create object URL when audioUrl changes (for authenticated requests)
   useEffect(() => {
@@ -623,7 +666,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         color: 'blue',
         tags: [],
         author: {
-          id: 'current-user',
+          id: 'current-user', // Should come from context
           name: 'Current User',
           avatar: 'CU'
         }
@@ -1384,26 +1427,27 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                     >
                       All Speakers
                     </button>
-                    {uniqueSpeakers.map(({ name, color }) => {
-                      const isSelected = selectedSpeakers.includes(name);
+                    {uniqueSpeakers.map(({ label, mapping, color }) => {
+                      const name = mapping?.resolved ? mapping.userName! : label.replace(/_/g, ' ');
+                      const isSelected = selectedSpeakers.includes(label);
                       return (
                         <button
-                          key={name}
+                          key={label}
                           onClick={() => {
                             if (isSelected) {
-                              setSelectedSpeakers(prev => prev.filter(s => s !== name));
+                              setSelectedSpeakers(prev => prev.filter(s => s !== label));
                             } else {
-                              setSelectedSpeakers(prev => [...prev, name]);
+                              setSelectedSpeakers(prev => [...prev, label]);
                             }
                           }}
                           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                             isSelected
-                              ? `${color} text-white shadow-md`
+                              ? 'bg-blue-500 text-white shadow-md'
                               : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                           }`}
                         >
-                          <div className={`w-2 h-2 rounded-full ${isSelected ? 'bg-white' : color}`} />
-                          {name.replace(/_/g, ' ')}
+                          <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${color}`} />
+                          {name}
                         </button>
                       );
                     })}
@@ -1500,17 +1544,21 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               {uniqueSpeakers.length > 0 && (
                 <div className="mb-8 flex flex-wrap gap-2 items-center">
                   <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Speakers:</span>
-                    {uniqueSpeakers.map(({ name, color, count }) => (
-                    <div key={name} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                      <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${color}`} />
-                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                          {name.replace(/_/g, ' ')}
-                        </span>
-                      <span className="text-xs text-slate-400 dark:text-slate-500">·{count}</span>
-                      </div>
-                    ))}
+                    {uniqueSpeakers.map(({ label, mapping, color, count }) => {
+                      const resolvedName = mapping?.resolved ? mapping.userName : label.replace(/_/g, ' ');
+                      return (
+                        <div key={label} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                          <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${color}`} />
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                              {resolvedName}
+                            </span>
+                          <span className="text-xs text-slate-400 dark:text-slate-500">·{count}</span>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
+
 
               <div className="space-y-4">
                 {filteredTranscript.map((entry, index) => {
@@ -1570,18 +1618,70 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                           {/* Header: Speaker name, badge, timestamp */}
                           <div className="flex items-start justify-between gap-3 mb-2">
                             <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                              <h4 className={`font-semibold text-sm truncate ${
-                                isActive 
-                                  ? 'text-blue-700 dark:text-blue-300' 
-                                  : 'text-slate-900 dark:text-white'
-                                }`}>
-                                  {entry.speaker.replace(/_/g, ' ')}
-                              </h4>
+                              <div className="relative">
+                                <h4 
+                                  className={`font-semibold text-sm truncate flex items-center gap-2 ${
+                                    isActive 
+                                      ? 'text-blue-700 dark:text-blue-300' 
+                                      : 'text-slate-900 dark:text-white'
+                                  }`}
+                                >
+                                  {speakerMappings[entry.speaker]?.resolved 
+                                    ? speakerMappings[entry.speaker].userName 
+                                    : entry.speaker.replace(/_/g, ' ')}
+                                  
+                                  {/* Identity Badge */}
+                                  {speakerMappings[entry.speaker]?.resolved && (
+                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                                      {speakerMappings[entry.speaker].tierResolved === 1 ? (
+                                        <>
+                                          <Fingerprint className="w-3" />
+                                          <span className="text-emerald-600 dark:text-emerald-400">Biometric</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <History className="w-3" />
+                                          <span className="text-blue-600 dark:text-blue-400">Historical</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Identify Button (Tier 4) - Only visible on hover or if unresolved */}
+                                  {(!speakerMappings[entry.speaker]?.resolved) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActivePopover(activePopover === entry.speaker ? null : entry.speaker);
+                                      }}
+                                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all ml-1 border border-blue-100 dark:border-blue-900/30"
+                                    >
+                                      <UserPlus className="w-3 h-3" />
+                                      IDENTIFY
+                                    </button>
+                                  )}
+
+                                  {/* Popover */}
+                                  {activePopover === entry.speaker && (
+                                    <div onClick={(e) => e.stopPropagation()}>
+                                      <SpeakerAssignmentPopover
+                                        meetingId={Number(meeting.id)}
+                                        speakerLabel={entry.speaker}
+                                        currentMapping={speakerMappings[entry.speaker]}
+                                        participants={meeting.participants}
+                                        onAssignmentComplete={() => fetchSpeakerMappings()}
+                                        onClose={() => setActivePopover(null)}
+                                      />
+                                    </div>
+                                  )}
+                                </h4>
+                              </div>
                               {badge && (
                                 <span className={`text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 ${badge.color} font-medium flex-shrink-0`}>
                                   {badge.badge} {badge.label}
                                 </span>
                               )}
+
                               {/* Note tags */}
                               {entryNotes.map((note) => (
                                 <div

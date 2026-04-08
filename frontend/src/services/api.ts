@@ -133,6 +133,38 @@ interface UpcomingReminder {
   nextReminderIn: string;
 }
 
+export interface SpeakerConsentStatus {
+  biometricConsent: boolean;
+  consentGivenAt: string | null;
+  enrolled: boolean;
+  needsReEnrollment: boolean;
+  lastEnrollmentAt: string | null;
+  embeddingVersion: number;
+}
+
+interface SpeakerMapping {
+  speakerLabel: string;
+  userId: number | null;
+  userName: string | null;
+  confidenceScore: number;
+  tierResolved: number;
+  resolved: boolean;
+}
+
+interface AudioValidationResponse {
+  valid: boolean;
+  reason?: string;
+  snr?: number;
+  duration?: number;
+}
+
+interface EnrollmentResponse {
+  success: boolean;
+  message: string;
+  snr?: number;
+}
+
+
 class ApiService {
   private baseURL: string;
   private token: string | null = null;
@@ -1561,7 +1593,55 @@ class ApiService {
     const params = new URLSearchParams({ label });
     return this.request(`/workspaces/${workspaceId}/memory/member-insights?${params.toString()}`);
   }
+
+  // ==================== SPEAKER IDENTIFICATION ====================
+
+  async getSpeakerConsentStatus(): Promise<ApiResponse<SpeakerConsentStatus>> {
+    return this.request<SpeakerConsentStatus>('/speakers/consent/status');
+  }
+
+  async grantSpeakerConsent(): Promise<ApiResponse<{ message: string; consentGivenAt: string }>> {
+    return this.request<{ message: string; consentGivenAt: string }>('/speakers/consent/grant', {
+      method: 'POST',
+    });
+  }
+
+  async revokeSpeakerConsent(): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>('/speakers/consent/revoke', {
+      method: 'POST',
+    });
+  }
+
+  async validateSpeakerAudio(audioData: string): Promise<ApiResponse<AudioValidationResponse>> {
+    return this.request<AudioValidationResponse>('/speakers/validate-audio', {
+      method: 'POST',
+      body: JSON.stringify({ audioData }),
+    });
+  }
+
+  async enrollSpeakerVoice(audioData: string): Promise<ApiResponse<EnrollmentResponse>> {
+    return this.request<EnrollmentResponse>('/speakers/enroll', {
+      method: 'POST',
+      body: JSON.stringify({ audioData }),
+    });
+  }
+
+  async getMeetingSpeakerMappings(meetingId: number): Promise<ApiResponse<{ mappings: SpeakerMapping[] }>> {
+    return this.request<{ mappings: SpeakerMapping[] }>(`/speakers/meetings/${meetingId}`);
+  }
+
+  async manuallyAssignSpeaker(meetingId: number, speakerLabel: string, userId: number): Promise<ApiResponse<{ message: string; mapping: SpeakerMapping }>> {
+    return this.request<{ message: string; mapping: SpeakerMapping }>(`/speakers/meetings/${meetingId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ speakerLabel, userId }),
+    });
+  }
+
+  async getWorkspaceEnrolledUsers(workspaceId: number): Promise<ApiResponse<{ users: Array<{ id: number; name: string; profilePictureUrl?: string; lastEnrollment?: string }> }>> {
+    return this.request<{ users: Array<{ id: number; name: string; profilePictureUrl?: string; lastEnrollment?: string }> }>(`/speakers/workspace/${workspaceId}/enrolled`);
+  }
 }
+
 
 export type { Notification, NotificationsResponse, Tag };
 

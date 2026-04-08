@@ -33,7 +33,6 @@ const { findMeetingDirectory, findCompleteAudioFile, getDiarizedTranscript } = r
 const COSINE_THRESHOLD       = 0.82;   // Tier 1 match threshold
 const EMBEDDING_DECAY_MONTHS = 6;      // Reduce confidence for embeddings older than this
 const DECAY_FACTOR           = 0.85;   // Multiply confidence by this if stale
-const MAX_TIER2_PARTICIPANTS = 5;      // Only use Tier 2 for small meetings
 
 // Python VoiceEmbeddingService path
 const PY_SCRIPT = path.resolve(__dirname, '../../../ai-layer/whisperX/VoiceEmbeddingService.py');
@@ -284,74 +283,10 @@ async function tier1Match(segmentPath, enrolledUsers) {
   return null;
 }
 
-// ============================================================
-// TIER 2: PARTICIPANT PRESENCE INFERENCE
-// ============================================================
-
-/**
- * Tier 2: Match speakers to participants based on speaking-order vs join-order.
- *
- * Logic:
- *   - Only applies when speaker_count == participant_count (low ambiguity)
- *   - Sorts participants by their joinedAt timestamp (backend join event)
- *   - Sorts speakers by their first utterance start time
- *   - Maps first-joiner → first-speaker, second-joiner → second-speaker, etc.
- *
- * @param {object} speakerSegments  - { SPEAKER_00: [{start, end},...], ... }
- * @param {number} meetingId
- * @returns {object | null}  - { SPEAKER_00: {userId, userName, confidence}, ... } or null
- */
-async function tier2Match(speakerSegments, meetingId) {
-  const speakerLabels = Object.keys(speakerSegments);
-  const speakerCount  = speakerLabels.length;
-
-  if (speakerCount > MAX_TIER2_PARTICIPANTS) {
-    console.log(`    ⚠️  Tier 2: skipped — too many speakers (${speakerCount} > ${MAX_TIER2_PARTICIPANTS})`);
-    return null;
-  }
-
-  // Fetch meeting participants who actually attended (status = 'attended')
-  const participants = await prisma.meetingParticipant.findMany({
-    where: { meetingId, status: { in: ['attended', 'accepted'] } },
-    include: { user: { select: { id: true, name: true } } },
-    orderBy: { joinedAt: 'asc' },
-  });
-
-  if (participants.length === 0) {
-    console.log(`    ⚠️  Tier 2: no participants found for meeting ${meetingId}`);
-    return null;
-  }
-
-  if (participants.length !== speakerCount) {
-    console.log(`    ⚠️  Tier 2: count mismatch — ${speakerCount} speakers vs ${participants.length} participants`);
-    // Flag for UI review but don't fail silently
-    return { _mismatch: true, speakers: speakerCount, participants: participants.length };
-  }
-
-  // Sort speakers by their earliest utterance start time
-  const speakerFirstAppearance = speakerLabels.map(label => {
-    const segs = speakerSegments[label];
-    const earliest = Math.min(...segs.map(s => s.start));
-    return { label, earliest };
-  }).sort((a, b) => a.earliest - b.earliest);
-
-  const result = {};
-  for (let i = 0; i < speakerFirstAppearance.length; i++) {
-    const { label } = speakerFirstAppearance[i];
-    const participant = participants[i];
-    if (!participant) continue;
-
-    const confidence = 0.65; // Tier 2 is educated guess — moderate confidence
-    result[label] = {
-      userId:     participant.user.id,
-      userName:   participant.user.name,
-      confidence,
-    };
-    console.log(`    🟡 Tier 2 inferred: ${label} → ${participant.user.name} (conf=${confidence})`);
-  }
-
-  return Object.keys(result).length ? result : null;
-}
+// Tier 2 (Participant Presence Inference) has been intentionally removed.
+// The assumption that join-order correlates with speaking-order is too unreliable
+// in practice (attendees may join before speaking, or speak out of join order).
+// Tier 1 now falls directly to Tier 3 (Historical Persistence).
 
 // ============================================================
 // TIER 3: HISTORICAL IDENTITY PERSISTENCE
@@ -506,15 +441,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
 
   // ── Step 5: Tier cascade for each speaker ─────────────────────────────────
   const results  = {};
-  const summary  = { tier1: 0, tier2: 0, tier3: 0, unresolved: 0 };
-
-  // Pre-compute Tier 2 mappings (applies to all speakers at once)
-  let tier2Mappings = null;
-  try {
-    tier2Mappings = await tier2Match(speakerSegments, meetingIdNum);
-  } catch (e) {
-    console.warn(`  ⚠️  Tier 2 failed: ${e.message}`);
-  }
+  const summary  = { tier1: 0, tier3: 0, unresolved: 0 };
 
   for (const label of speakerLabels) {
     console.log(`\n  🎙️  Processing: ${label}`);
@@ -535,14 +462,6 @@ async function runForMeeting(meetingId, broadcastFn = null) {
         console.log(`    ⚠️  Segment extraction failed: ${e.message}`);
       } finally {
         if (fs.existsSync(segPath)) fs.unlinkSync(segPath);
-      }
-    }
-
-    // ── Tier 2: Participant Inference ─────────────────────────────────────
-    if (!identified && tier2Mappings && !tier2Mappings._mismatch) {
-      if (tier2Mappings[label]) {
-        identified = tier2Mappings[label];
-        tier = 2;
       }
     }
 
@@ -568,7 +487,6 @@ async function runForMeeting(meetingId, broadcastFn = null) {
     results[label] = { userId, userName, confidence, tier, resolved: tier < 4 };
 
     if (tier === 1) summary.tier1++;
-    else if (tier === 2) summary.tier2++;
     else if (tier === 3) summary.tier3++;
     else summary.unresolved++;
 
@@ -584,7 +502,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\n✅ [SpeakerMatchingEngine] Completed in ${elapsed}s`);
-  console.log(`   Tier 1: ${summary.tier1} | Tier 2: ${summary.tier2} | Tier 3: ${summary.tier3} | Unresolved: ${summary.unresolved}`);
+  console.log(`   Tier 1: ${summary.tier1} | Tier 3: ${summary.tier3} | Unresolved: ${summary.unresolved}`);
 
   return {
     success: true,
@@ -622,6 +540,5 @@ module.exports = {
   triggerIdentificationAsync,
   groupSegmentsBySpeaker,
   tier1Match,
-  tier2Match,
   tier3Match,
 };

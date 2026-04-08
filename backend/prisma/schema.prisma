@@ -358,7 +358,7 @@ model AiInsight {
 model UserVoiceEmbedding {
   id              String   @id @default(uuid())
   userId          Int      @map("user_id")
-  embedding       Unsupported("vector(256)")? // pyannote resnet34 (256 dims)
+  embedding       Unsupported("vector(192)")? // SpeechBrain ECAPA-TDNN (192 dims)
   version         Int      @default(1)
   snrScore        Float?   @map("snr_score")
   isActive        Boolean  @default(true) @map("is_active")

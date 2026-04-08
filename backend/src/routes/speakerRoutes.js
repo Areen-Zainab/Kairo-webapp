@@ -1,271 +1,67 @@
-/**
- * speakerRoutes.js
- * 
- * Phase 1: Speaker Identification API Routes
- * 
- * Endpoints:
- *   POST   /api/speakers/consent/grant          - Grant biometric consent
- *   POST   /api/speakers/consent/revoke         - Revoke biometric consent + soft-delete embeddings
- *   GET    /api/speakers/consent/status         - Get own consent + enrollment status
- *
- *   GET    /api/speakers/meetings/:meetingId    - Get all speaker identity mappings for a meeting
- *   POST   /api/speakers/meetings/:meetingId/assign - Manually assign a speaker to a user (Tier 4)
- */
-
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const prisma = require('../lib/prisma');
 const { authenticateToken } = require('../middleware/auth');
 const SpeakerIdentificationService = require('../services/SpeakerIdentificationService');
 const VoiceEmbeddingBridge = require('../services/VoiceEmbeddingBridge');
-const prisma = require('../lib/prisma');
 
-// Multer — accept audio uploads up to 50MB into memory
+// Configure multer for temp audio storage
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      const tmpDir = path.join(__dirname, '../../data/voice_samples_tmp');
-      require('fs').mkdirSync(tmpDir, { recursive: true });
-      cb(null, tmpDir);
-    },
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname) || '.wav';
-      cb(null, `user_${req.user?.id}_${Date.now()}${ext}`);
-    },
-  }),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  dest: 'data/voice_samples_tmp/',
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
 });
 
-
 // ============================================================
-// CONSENT ROUTES
+// CONSENT MANAGEMENT
 // ============================================================
 
 /**
+ * GET /api/speakers/consent/status
+ * Get the current user's biometric consent status and enrollment info.
+ */
+router.get('/consent/status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const status = await SpeakerIdentificationService.getConsentStatus(userId);
+    return res.json({ success: true, ...status });
+  } catch (error) {
+    console.error('[SpeakerRoutes] Status error:', error.message);
+    return res.status(500).json({ error: 'Failed to fetch consent status.' });
+  }
+});
+
+/**
  * POST /api/speakers/consent/grant
- * Grant biometric consent for the authenticated user.
- * Must be called before any voice embedding is generated.
+ * Grant biometric consent for voice fingerprinting.
  */
 router.post('/consent/grant', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const result = await SpeakerIdentificationService.grantConsent(userId);
-    return res.status(200).json({
-      success: true,
-      message: 'Biometric consent granted. Your voice profile can now be created.',
-      user: result.user,
-    });
+    return res.json({ success: true, ...result });
   } catch (error) {
-    console.error('[SpeakerRoutes] Grant consent error:', error.message);
+    console.error('[SpeakerRoutes] Grant error:', error.message);
     return res.status(500).json({ error: 'Failed to grant consent.' });
   }
 });
 
 /**
  * POST /api/speakers/consent/revoke
- * Revoke biometric consent and soft-delete all stored embeddings.
- * GDPR/BIPA compliance: clears all biometric data.
+ * Revoke biometric consent and DELETE all stored voice fingerprints.
  */
 router.post('/consent/revoke', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const result = await SpeakerIdentificationService.revokeConsent(userId);
-    return res.status(200).json({
-      success: true,
-      message: 'Biometric consent revoked. All voice data has been removed.',
-      embeddingsDeactivated: result.embeddingsDeactivated,
-    });
+    return res.json({ success: true, ...result });
   } catch (error) {
-    console.error('[SpeakerRoutes] Revoke consent error:', error.message);
+    console.error('[SpeakerRoutes] Revoke error:', error.message);
     return res.status(500).json({ error: 'Failed to revoke consent.' });
   }
 });
-
-/**
- * GET /api/speakers/consent/status
- * Returns the authenticated user's current consent + enrollment status.
- * Used by the settings page to show enrollment state and re-enrollment prompts.
- */
-router.get('/consent/status', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const status = await SpeakerIdentificationService.getConsentStatus(userId);
-    return res.status(200).json({ success: true, ...status });
-  } catch (error) {
-    console.error('[SpeakerRoutes] Get consent status error:', error.message);
-    return res.status(500).json({ error: 'Failed to retrieve consent status.' });
-  }
-});
-
-// ============================================================
-// SPEAKER IDENTITY MAP ROUTES (per meeting)
-// ============================================================
-
-/**
- * GET /api/speakers/meetings/:meetingId
- * Returns all speaker → user identity mappings for a specific meeting.
- * Includes resolved names and confidence scores.
- * Used by the TranscriptTab to display identified speaker names.
- */
-router.get('/meetings/:meetingId', authenticateToken, async (req, res) => {
-  try {
-    const meetingId = parseInt(req.params.meetingId);
-    if (isNaN(meetingId)) {
-      return res.status(400).json({ error: 'Invalid meeting ID.' });
-    }
-
-    // Verify user is a member of the workspace this meeting belongs to
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
-      select: { workspaceId: true },
-    });
-
-    if (!meeting) {
-      return res.status(404).json({ error: 'Meeting not found.' });
-    }
-
-    const membership = await prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: {
-          workspaceId: meeting.workspaceId,
-          userId: req.user.id,
-        },
-      },
-    });
-
-    if (!membership) {
-      return res.status(403).json({ error: 'You do not have access to this meeting.' });
-    }
-
-    const mappings = await SpeakerIdentificationService.getIdentityMappings(meetingId);
-
-    return res.status(200).json({
-      success: true,
-      meetingId,
-      mappings,
-      totalSpeakers: mappings.length,
-      resolvedSpeakers: mappings.filter(m => m.isResolved).length,
-    });
-  } catch (error) {
-    console.error('[SpeakerRoutes] Get identity mappings error:', error.message);
-    return res.status(500).json({ error: 'Failed to retrieve speaker mappings.' });
-  }
-});
-
-/**
- * POST /api/speakers/meetings/:meetingId/assign
- * Tier 4: Manually assign a speaker label to a user.
- * Called when a user clicks "Identify Speaker" in the transcript UI.
- * 
- * Body: { speakerLabel: "SPEAKER_00", userId: 42 }
- */
-router.post('/meetings/:meetingId/assign', authenticateToken, async (req, res) => {
-  try {
-    const meetingId = parseInt(req.params.meetingId);
-    const { speakerLabel, userId } = req.body;
-
-    if (isNaN(meetingId)) {
-      return res.status(400).json({ error: 'Invalid meeting ID.' });
-    }
-    if (!speakerLabel || typeof speakerLabel !== 'string') {
-      return res.status(400).json({ error: 'speakerLabel is required.' });
-    }
-    if (!userId || isNaN(parseInt(userId))) {
-      return res.status(400).json({ error: 'userId is required and must be a number.' });
-    }
-
-    // Verify user is a member of the workspace
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
-      select: { workspaceId: true },
-    });
-
-    if (!meeting) {
-      return res.status(404).json({ error: 'Meeting not found.' });
-    }
-
-    const membership = await prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: {
-          workspaceId: meeting.workspaceId,
-          userId: req.user.id,
-        },
-      },
-    });
-
-    if (!membership) {
-      return res.status(403).json({ error: 'You do not have access to this meeting.' });
-    }
-
-    // Verify the target user exists
-    const targetUser = await prisma.user.findUnique({
-      where: { id: parseInt(userId) },
-      select: { id: true, name: true },
-    });
-
-    if (!targetUser) {
-      return res.status(404).json({ error: 'Target user not found.' });
-    }
-
-    await SpeakerIdentificationService.manuallyAssignSpeaker(
-      meetingId,
-      speakerLabel,
-      parseInt(userId)
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: `${speakerLabel} has been identified as ${targetUser.name}.`,
-      speakerLabel,
-      userId: targetUser.id,
-      userName: targetUser.name,
-    });
-  } catch (error) {
-    console.error('[SpeakerRoutes] Manual assign error:', error.message);
-    return res.status(500).json({ error: 'Failed to assign speaker identity.' });
-  }
-});
-
-/**
- * GET /api/speakers/workspace/:workspaceId/enrolled
- * Get all workspace users who have given consent and have voice embeddings.
- * Used by the matching engine and the "Which team member is this?" dropdown.
- */
-router.get('/workspace/:workspaceId/enrolled', authenticateToken, async (req, res) => {
-  try {
-    const workspaceId = parseInt(req.params.workspaceId);
-    if (isNaN(workspaceId)) {
-      return res.status(400).json({ error: 'Invalid workspace ID.' });
-    }
-
-    const membership = await prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: {
-          workspaceId,
-          userId: req.user.id,
-        },
-      },
-    });
-
-    if (!membership) {
-      return res.status(403).json({ error: 'You are not a member of this workspace.' });
-    }
-
-    const enrolled = await SpeakerIdentificationService.getEnrolledWorkspaceUsers(workspaceId);
-
-    return res.status(200).json({
-      success: true,
-      workspaceId,
-      enrolledUsers: enrolled,
-      totalEnrolled: enrolled.length,
-    });
-  } catch (error) {
-    console.error('[SpeakerRoutes] Get enrolled users error:', error.message);
-    return res.status(500).json({ error: 'Failed to retrieve enrolled users.' });
-  }
-});
-
 
 // ============================================================
 // VOICE ENROLLMENT (Phase 2)
@@ -276,25 +72,38 @@ router.get('/workspace/:workspaceId/enrolled', authenticateToken, async (req, re
  * Upload a voice sample audio file to create/update the user's voice fingerprint.
  * Requires biometric consent to be granted first.
  * 
- * Form data: audio file with field name "audio"
- * Returns: embedding ID, SNR score, version number
+ * Body: audio file with field name "audio" (multipart) OR "audioData" (base64)
  */
 router.post('/enroll', authenticateToken, upload.single('audio'), async (req, res) => {
   const fs = require('fs');
+  const path = require('path');
   let tmpFilePath = null;
 
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No audio file provided. Use field name "audio".' });
+    if (req.file) {
+      tmpFilePath = req.file.path;
+    } else if (req.body.audioData) {
+      // Handle base64 fallback from frontend - more robust stripping for all media types (mp4, wav, etc)
+      const base64Data = req.body.audioData.includes(',') 
+        ? req.body.audioData.split(',')[1] 
+        : req.body.audioData;
+      const buffer = Buffer.from(base64Data, 'base64');
+      const tmpDir = path.join(__dirname, '../../data/voice_samples_tmp');
+      require('fs').mkdirSync(tmpDir, { recursive: true });
+      tmpFilePath = path.join(tmpDir, `user_${req.user.id}_${Date.now()}.wav`);
+      fs.writeFileSync(tmpFilePath, buffer);
     }
 
-    tmpFilePath = req.file.path;
+    if (!tmpFilePath) {
+      return res.status(400).json({ error: 'No audio file provided. Use field name "audio" or "audioData" (base64).' });
+    }
+
     const userId = req.user.id;
 
     // Check consent
     const hasConsent = await SpeakerIdentificationService.hasConsent(userId);
     if (!hasConsent) {
-      fs.unlinkSync(tmpFilePath);
+      if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
       return res.status(403).json({
         error: 'Biometric consent required before enrollment.',
         action: 'Call POST /api/speakers/consent/grant first.',
@@ -328,31 +137,42 @@ router.post('/enroll', authenticateToken, upload.single('audio'), async (req, re
     });
 
   } catch (error) {
-    if (tmpFilePath) {
-      try { require('fs').unlinkSync(tmpFilePath); } catch (_) {}
+    if (tmpFilePath && fs.existsSync(tmpFilePath)) {
+      try { fs.unlinkSync(tmpFilePath); } catch (_) {}
     }
     console.error('[SpeakerRoutes] Enroll error:', error.message);
-    return res.status(500).json({ error: 'Voice enrollment failed.' });
+    return res.status(500).json({ error: 'Voice enrollment failed: ' + error.message });
   }
 });
 
 /**
  * POST /api/speakers/validate-audio
  * Validate audio quality without storing an embedding.
- * Used by the frontend to check if a recording is clean before submitting.
- * 
- * Form data: audio file with field name "audio"
  */
 router.post('/validate-audio', authenticateToken, upload.single('audio'), async (req, res) => {
   const fs = require('fs');
+  const path = require('path');
   let tmpFilePath = null;
 
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No audio file provided. Use field name "audio".' });
+    if (req.file) {
+      tmpFilePath = req.file.path;
+    } else if (req.body.audioData) {
+      // Handle base64 fallback from frontend - more robust stripping for all media types
+      const base64Data = req.body.audioData.includes(',') 
+        ? req.body.audioData.split(',')[1] 
+        : req.body.audioData;
+      const buffer = Buffer.from(base64Data, 'base64');
+      const tmpDir = path.join(__dirname, '../../data/voice_samples_tmp');
+      require('fs').mkdirSync(tmpDir, { recursive: true });
+      tmpFilePath = path.join(tmpDir, `validate_${req.user.id}_${Date.now()}.wav`);
+      fs.writeFileSync(tmpFilePath, buffer);
     }
 
-    tmpFilePath = req.file.path;
+    if (!tmpFilePath) {
+      return res.status(400).json({ error: 'No audio file provided. Use field name "audio" or "audioData" (base64).' });
+    }
+
     const result = await VoiceEmbeddingBridge.validateAudio(tmpFilePath);
 
     if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
@@ -360,13 +180,57 @@ router.post('/validate-audio', authenticateToken, upload.single('audio'), async 
     return res.status(200).json({ success: true, ...result });
 
   } catch (error) {
-    if (tmpFilePath) {
-      try { require('fs').unlinkSync(tmpFilePath); } catch (_) {}
+    if (tmpFilePath && fs.existsSync(tmpFilePath)) {
+      try { fs.unlinkSync(tmpFilePath); } catch (_) {}
     }
     console.error('[SpeakerRoutes] Validate audio error:', error.message);
     return res.status(500).json({ error: 'Audio validation failed.' });
   }
 });
 
-module.exports = router;
+// ============================================================
+// MEETING SPEAKER MAPPINGS
+// ============================================================
 
+/**
+ * GET /api/speakers/meetings/:meetingId
+ * Get identity mappings for all speakers in a specific meeting.
+ */
+router.get('/meetings/:meetingId', authenticateToken, async (req, res) => {
+  try {
+    const { meetingId } = req.params;
+    const mappings = await SpeakerIdentificationService.getMeetingMappings(parseInt(meetingId));
+    return res.json({ success: true, mappings });
+  } catch (error) {
+    console.error('[SpeakerRoutes] Get mappings error:', error.message);
+    return res.status(500).json({ error: 'Failed to fetch speaker mappings.' });
+  }
+});
+
+/**
+ * POST /api/speakers/meetings/:meetingId/assign
+ * Manually assign a speaker label to a specific user (Tier 4 overrides).
+ */
+router.post('/meetings/:meetingId/assign', authenticateToken, async (req, res) => {
+  try {
+    const { meetingId } = req.params;
+    const { speakerLabel, userId } = req.body;
+
+    if (!speakerLabel || !userId) {
+      return res.status(400).json({ error: 'speakerLabel and userId are required.' });
+    }
+
+    const mapping = await SpeakerIdentificationService.manuallyAssignSpeaker(
+      parseInt(meetingId),
+      speakerLabel,
+      parseInt(userId)
+    );
+
+    return res.json({ success: true, message: 'Speaker manually assigned.', mapping });
+  } catch (error) {
+    console.error('[SpeakerRoutes] Manual assign error:', error.message);
+    return res.status(500).json({ error: 'Failed to assign speaker.' });
+  }
+});
+
+module.exports = router;
