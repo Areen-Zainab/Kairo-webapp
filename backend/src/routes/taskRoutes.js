@@ -7,6 +7,7 @@ const KanbanColumn = require('../models/KanbanColumn');
 const Tag = require('../models/Tag');
 const prisma = require('../lib/prisma');
 const TaskContextService = require('../services/TaskContextService');
+const NotificationService = require('../services/NotificationService');
 
 /**
  * Helper function to check if user has access to workspace
@@ -336,6 +337,18 @@ router.post('/workspaces/:workspaceId/tasks', authenticateToken, async (req, res
       }
     });
 
+    const ws = await prisma.workspace.findUnique({
+      where: { id: parseInt(workspaceId, 10) },
+      select: { name: true }
+    });
+    await NotificationService.notifyTaskAssigned({
+      task,
+      workspaceId: parseInt(workspaceId, 10),
+      workspaceName: ws?.name || 'Workspace',
+      actorUserId: userId,
+      previousAssignee: undefined
+    });
+
     res.status(201).json({ 
       message: 'Task created successfully',
       task 
@@ -375,7 +388,19 @@ router.patch('/tasks/:taskId', authenticateToken, async (req, res) => {
       }
     }
 
+    const previousAssignee = task.assignee;
     const updatedTask = await TaskCreationService.updateTask(parseInt(taskId), updates);
+
+    if (updates.assignee !== undefined) {
+      const workspaceName = task.workspace?.name || 'Workspace';
+      await NotificationService.notifyTaskAssigned({
+        task: updatedTask,
+        workspaceId: task.workspaceId,
+        workspaceName,
+        actorUserId: userId,
+        previousAssignee
+      });
+    }
 
     res.json({ 
       message: 'Task updated successfully',

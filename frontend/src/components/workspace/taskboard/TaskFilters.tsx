@@ -56,16 +56,16 @@ const TaskFiltersComponent: React.FC<TaskFiltersProps> = ({
   ].filter(Boolean).length;
 
   return (
-    <div className="relative">
+    <div className="relative inline-block">
       {/* Filter Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500/40 bg-white border-gray-300 text-gray-900 hover:bg-gray-50 dark:bg-slate-800/50 dark:border-slate-700/60 dark:text-slate-100 dark:hover:bg-slate-800"
       >
         <Filter className="w-4 h-4" />
         <span className="text-sm font-medium">Filters</span>
         {activeFiltersCount > 0 && (
-          <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+          <span className="px-2 py-0.5 bg-purple-600 text-white text-xs rounded-full">
             {activeFiltersCount}
           </span>
         )}
@@ -82,30 +82,30 @@ const TaskFiltersComponent: React.FC<TaskFiltersProps> = ({
           />
 
           {/* Panel */}
-          <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-[600px] overflow-y-auto">
+          <div className="absolute right-0 mt-2 w-[28rem] max-w-[calc(100vw-2rem)] rounded-lg shadow-lg border z-50 max-h-[min(70vh,720px)] overflow-y-auto bg-white border-gray-200 dark:bg-slate-900 dark:border-slate-700">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Filters & Sort</h3>
+            <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters & Sort</h3>
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-4 space-y-6">
-              {/* Sort Section */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Sort By</h4>
+            <div className="p-3">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Sort Section */}
                 <div className="space-y-2">
+                  <h4 className="text-xs font-medium text-gray-700 dark:text-slate-200">Sort</h4>
                   <select
                     value={filters.sortBy}
                     onChange={(e) => updateFilter('sortBy', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500/40 focus:border-transparent text-sm bg-white border-gray-300 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100"
                   >
-                    <option value="createdAt">Created Date</option>
-                    <option value="dueDate">Due Date</option>
+                    <option value="createdAt">Created</option>
+                    <option value="dueDate">Due</option>
                     <option value="priority">Priority</option>
                   </select>
 
@@ -114,124 +114,126 @@ const TaskFiltersComponent: React.FC<TaskFiltersProps> = ({
                       onClick={() => updateFilter('sortOrder', 'asc')}
                       className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
                         filters.sortOrder === 'asc'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                       }`}
                     >
-                      Ascending
+                      Asc
                     </button>
                     <button
                       onClick={() => updateFilter('sortOrder', 'desc')}
                       className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
                         filters.sortOrder === 'desc'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                       }`}
                     >
-                      Descending
+                      Desc
                     </button>
                   </div>
                 </div>
-              </div>
 
-              {/* Priority Filter */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Priority</h4>
-                <div className="grid grid-cols-2 gap-2">
-                  {['low', 'medium', 'high', 'urgent'].map((priority) => (
-                    <button
-                      key={priority}
-                      onClick={() =>
-                        updateFilter('priority', filters.priority === priority ? null : priority)
-                      }
-                      className={`px-3 py-2 text-sm rounded-lg capitalize transition-colors ${
-                        filters.priority === priority
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {priority}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Due Date Filter */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Due Date</h4>
-                <select
-                  value={filters.dueDateRange}
-                  onChange={(e) => updateFilter('dueDateRange', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                >
-                  <option value="all">All</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="today">Today</option>
-                  <option value="week">This Week</option>
-                  <option value="month">This Month</option>
-                </select>
-              </div>
-
-              {/* Assignee Filter */}
-              {availableAssignees.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-3">Assignee</h4>
+                {/* Due Date Filter */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-medium text-gray-700 dark:text-slate-200">Due date</h4>
                   <select
-                    value={filters.assignee || ''}
-                    onChange={(e) => updateFilter('assignee', e.target.value || null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    value={filters.dueDateRange}
+                    onChange={(e) => updateFilter('dueDateRange', e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500/40 focus:border-transparent text-sm bg-white border-gray-300 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100"
                   >
-                    <option value="">All</option>
-                    {availableAssignees.map((assignee) => (
-                      <option key={assignee} value={assignee}>
-                        {assignee}
-                      </option>
-                    ))}
+                    <option value="all">All</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
                   </select>
                 </div>
-              )}
 
-              {/* Tags Filter */}
-              {availableTags.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-3">Tags</h4>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {availableTags.map((tag) => (
+                {/* Priority Filter */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-medium text-gray-700 dark:text-slate-200">Priority</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['low', 'medium', 'high', 'urgent'].map((priority) => (
                       <button
-                        key={tag.id}
-                        onClick={() => toggleTag(tag.id)}
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left ${
-                          filters.tags.includes(tag.id)
-                            ? 'bg-blue-50 border-2 border-blue-500'
-                            : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
+                        key={priority}
+                        onClick={() =>
+                          updateFilter('priority', filters.priority === priority ? null : priority)
+                        }
+                        className={`px-3 py-2 text-sm rounded-lg capitalize transition-colors ${
+                          filters.priority === priority
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                         }`}
                       >
-                        <div
-                          className="w-4 h-4 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: tag.color }}
-                        />
-                        <span className="text-sm text-gray-700">{tag.name}</span>
-                        {filters.tags.includes(tag.id) && (
-                          <span className="ml-auto text-blue-600">✓</span>
-                        )}
+                        {priority}
                       </button>
                     ))}
                   </div>
                 </div>
-              )}
+
+                {/* Assignee Filter */}
+                {availableAssignees.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-medium text-gray-700 dark:text-slate-200">Assignee</h4>
+                    <select
+                      value={filters.assignee || ''}
+                      onChange={(e) => updateFilter('assignee', e.target.value || null)}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500/40 focus:border-transparent text-sm bg-white border-gray-300 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100"
+                    >
+                      <option value="">All</option>
+                      {availableAssignees.map((assignee) => (
+                        <option key={assignee} value={assignee}>
+                          {assignee}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Tags Filter */}
+                {availableTags.length > 0 && (
+                  <div className="col-span-2 space-y-2">
+                    <h4 className="text-xs font-medium text-gray-700 dark:text-slate-200">Tags</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {availableTags.map((tag) => (
+                        <button
+                          key={tag.id}
+                          onClick={() => toggleTag(tag.id)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left ${
+                            filters.tags.includes(tag.id)
+                              ? 'bg-purple-50 border-2 border-purple-500 dark:bg-purple-500/10'
+                              : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100 dark:bg-slate-800/60 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <div
+                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <span className="text-sm text-gray-700 dark:text-slate-200 truncate">
+                            {tag.name}
+                          </span>
+                          {filters.tags.includes(tag.id) && (
+                            <span className="ml-auto text-purple-600 dark:text-purple-400">✓</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Footer */}
-            <div className="p-4 border-t border-gray-200 flex gap-2">
+            <div className="p-3 border-t border-gray-200 dark:border-slate-700 flex gap-2">
               <button
                 onClick={clearFilters}
-                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors text-gray-700 bg-gray-100 hover:bg-gray-200 dark:text-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
               >
                 Clear All
               </button>
               <button
                 onClick={() => setIsOpen(false)}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
               >
                 Apply
               </button>

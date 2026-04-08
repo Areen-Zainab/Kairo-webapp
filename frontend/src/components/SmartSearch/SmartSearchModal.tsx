@@ -2,6 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Calendar, FileText, MessageSquare, Loader2, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
+import {
+  HighlightedText,
+  highlightTermsFromQuery,
+  mergeHighlightTermArrays,
+} from '../common/HighlightedText';
+import type { MemorySearchHit } from '../workspace/memory/types';
+import { buildSmartExcerpt } from '../../utils/searchExcerpt';
+import { persistWorkspaceMemorySearch } from '../../utils/memorySearchSession';
 
 interface SearchResult {
   id: string;
@@ -45,29 +53,6 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
       matchedTerms: Array.isArray(r.matchedTerms) ? r.matchedTerms : []
     }));
   }, [results]);
-
-  /**
-   * Renders a snippet with query terms bolded.
-   * Splits text on all matched terms simultaneously using a single regex.
-   */
-  const HighlightedSnippet: React.FC<{ text: string; terms: string[] }> = ({ text, terms }) => {
-    if (!terms || terms.length === 0) return <>{text}</>;
-
-    // Build a regex that matches any of the terms (case-insensitive)
-    const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
-    const parts = text.split(pattern);
-
-    return (
-      <>
-        {parts.map((part, i) =>
-          pattern.test(part)
-            ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-500/30 text-yellow-900 dark:text-yellow-200 rounded px-0.5 font-medium not-italic">{part}</mark>
-            : <span key={i}>{part}</span>
-        )}
-      </>
-    );
-  };
 
   // Handle ESC + keyboard navigation (↑↓ + Enter)
   useEffect(() => {
@@ -125,8 +110,17 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
         const res = await apiService.searchMeetingMemory(workspaceId, query, 10);
         if (res.error) throw new Error(res.error);
         if (res.data) {
-          setResults(res.data.results || []);
+          const rows = res.data.results || [];
+          setResults(rows);
           setActiveIndex(0);
+          const hits: MemorySearchHit[] = rows.map((r: any) => ({
+            meetingId: Number(r.meetingId ?? r.meeting_id),
+            snippet: typeof r.snippet === 'string' ? r.snippet : '',
+            content: typeof r.content === 'string' ? r.content : undefined,
+            matchedTerms: Array.isArray(r.matchedTerms) ? r.matchedTerms : [],
+            contentType: r.contentType ?? r.content_type
+          }));
+          persistWorkspaceMemorySearch(workspaceId, query.trim(), hits);
         }
       } catch (err: any) {
         console.error('Search error:', err);
@@ -259,8 +253,31 @@ const SmartSearchModal: React.FC<SmartSearchModalProps> = ({ isOpen, onClose, wo
                           </span>
                         </div>
                       </div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 pl-6">
-                        <HighlightedSnippet text={result.snippet} terms={result.matchedTerms || []} />
+                      <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-4 pl-6">
+                        {(() => {
+                          const { prefix, context, jumped } = buildSmartExcerpt(
+                            result.content || result.snippet || '',
+                            query,
+                            result.matchedTerms,
+                            { prefixWords: 12, contextCharsAroundMatch: 220 }
+                          );
+                          const terms = mergeHighlightTermArrays(
+                            result.matchedTerms,
+                            highlightTermsFromQuery(query)
+                          );
+                          return (
+                            <>
+                              {/* Prefix — highlighted too in case the term appears there */}
+                              {prefix && <HighlightedText text={prefix} terms={terms} />}
+                              {/* Ellipsis separator shown only when we jumped to a distant match */}
+                              {jumped && (
+                                <span className="text-slate-400 dark:text-slate-500 select-none mx-0.5">…</span>
+                              )}
+                              {/* Context around the match — always highlighted */}
+                              <HighlightedText text={context} terms={terms} />
+                            </>
+                          );
+                        })()}
                       </p>
                     </button>
                   </li>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Video } from 'lucide-react';
+import { RefreshCw, Video } from 'lucide-react';
 import ExportDropdown from './ExportDropdown';
 import type { MeetingDetailsData } from './types';
 
@@ -9,6 +9,9 @@ interface MeetingHeaderProps {
   onShareMeeting: () => void;
   onExportTranscript: () => void;
   onAddNotes: () => void;
+  isOrganizer?: boolean;
+  onReprocessMeeting?: () => void;
+  isProcessing?: boolean;
 }
 
 const MeetingHeader: React.FC<MeetingHeaderProps> = ({
@@ -16,7 +19,10 @@ const MeetingHeader: React.FC<MeetingHeaderProps> = ({
   onDownloadRecording,
   onShareMeeting,
   onExportTranscript,
-  onAddNotes
+  onAddNotes,
+  isOrganizer = false,
+  onReprocessMeeting,
+  isProcessing = false
 }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -143,6 +149,29 @@ const MeetingHeader: React.FC<MeetingHeaderProps> = ({
               onDownloadRecording={onDownloadRecording}
               onShareMeeting={onShareMeeting}
             />
+
+            {isOrganizer && onReprocessMeeting && (
+              <button
+                onClick={onReprocessMeeting}
+                disabled={isProcessing}
+                className={[
+                  "inline-flex items-center justify-center",
+                  // Override global button padding/background so the icon doesn't disappear
+                  "w-10 h-10 rounded-full p-0",
+                  // High-contrast icon button (works in light/dark)
+                  "bg-blue-600 hover:bg-blue-700 text-white",
+                  "dark:bg-blue-600 dark:hover:bg-blue-500",
+                  "border border-blue-600/20 dark:border-blue-400/20",
+                  "shadow-sm hover:shadow transition-all",
+                  "focus:outline-none focus:ring-2 focus:ring-blue-500/60 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-800",
+                  isProcessing ? "opacity-60 cursor-not-allowed" : ""
+                ].join(' ')}
+                title={isProcessing ? "Processing in progress…" : "Reprocess meeting (retranscribe, embeddings, insights)"}
+                aria-label="Reprocess meeting"
+              >
+                <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} strokeWidth={2.25} />
+              </button>
+            )}
             
             <button
               onClick={onAddNotes}

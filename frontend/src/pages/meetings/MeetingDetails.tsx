@@ -6,7 +6,6 @@ import { useToastContext } from '../../context/ToastContext';
 import {
   MeetingHeader,
   MeetingTabs,
-  AddNoteFAB,
   type MeetingDetailsData,
   type MeetingMinute,
   type MeetingNote,
@@ -19,12 +18,31 @@ const MeetingDetails: React.FC = () => {
   const meetingId = id || '1'; // Default to '1' if no id provided
   const { success: toastSuccess, error: toastError } = useToastContext();
   const [meeting, setMeeting] = useState<MeetingDetailsData | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [meetingMetadata, setMeetingMetadata] = useState<any>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [activeTab, setActiveTab] = useState('overview');
   const [, setHoveredMinute] = useState<MeetingMinute | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [actionItems, setActionItems] = useState<any[]>([]);
   const [aiInsights, setAIInsights] = useState<any>(null);
+  const [showReprocessDialog, setShowReprocessDialog] = useState(false);
+  const [isReprocessStarting, setIsReprocessStarting] = useState(false);
+
+  // Load current user (for organiser-only controls)
+  useEffect(() => {
+    let cancelled = false;
+    apiService.getCurrentUser()
+      .then((resp) => {
+        if (cancelled) return;
+        const id = resp.data?.user?.id;
+        if (typeof id === 'number') setCurrentUserId(id);
+      })
+      .catch(() => {
+        // Non-fatal: page can still load without organiser-only controls
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Load files when files tab is opened
   const loadFiles = async (meetingId: number) => {
@@ -77,6 +95,7 @@ const MeetingDetails: React.FC = () => {
         }
 
         const m = resp.data.meeting;
+        setMeetingMetadata(m.metadata || null);
 
         // Map backend meeting shape into MeetingDetailsData skeleton.
         // Use actual audio duration from stats if available (convert seconds to minutes for display)
@@ -540,6 +559,41 @@ const MeetingDetails: React.FC = () => {
     }
   };
 
+  const handleReprocessMeeting = () => {
+    setShowReprocessDialog(true);
+  };
+
+  const confirmReprocessMeeting = async () => {
+    if (!meeting) return;
+    const meetingNumericId = parseInt(meeting.id, 10);
+    if (isNaN(meetingNumericId)) {
+      toastError('Invalid meeting ID', 'Error');
+      return;
+    }
+
+    try {
+      setIsReprocessStarting(true);
+      const resp = await apiService.reprocessMeeting(meetingNumericId);
+      if (resp.error) {
+        toastError(resp.error, 'Reprocess failed');
+        return;
+      }
+      // Optimistically reflect processing state immediately in UI.
+      setMeetingMetadata((prev: any) => ({
+        ...(prev || {}),
+        reprocessStatus: 'running',
+        reprocessStep: 'starting',
+        reprocessProgress: 0
+      }));
+      setShowReprocessDialog(false);
+      toastSuccess(resp.data?.message || 'Reprocess started. Check back in a few minutes.', 'Reprocess started');
+    } catch (e: any) {
+      toastError(e?.message || 'Failed to start reprocess', 'Error');
+    } finally {
+      setIsReprocessStarting(false);
+    }
+  };
+
   const handleFileClick = (file: MeetingFile) => {
     // For now, just trigger download
     handleFileDownload(file);
@@ -714,6 +768,38 @@ const MeetingDetails: React.FC = () => {
     );
   }
 
+  const isOrganizer = currentUserId != null && String(currentUserId) === meeting.organizer.id;
+  const isMeetingProcessing =
+    !!aiInsights?.generating ||
+    meetingMetadata?.aiInsightsStatus === 'generating' ||
+    meetingMetadata?.reprocessStatus === 'running' ||
+    isReprocessStarting;
+
+  // While meeting processing/reprocessing is running, show an explicit full-page loading state
+  // so the user doesn't think the UI is stuck.
+  if (isMeetingProcessing) {
+    return (
+      <Layout>
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
+          <div className="text-center px-6">
+            <div className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Meeting: <span className="text-slate-900 dark:text-white">{meeting.title}</span>
+            </div>
+            <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+              Loading
+            </div>
+            <div className="mt-6 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-20 w-20 border-b-2 border-blue-500"></div>
+            </div>
+            <div className="mt-5 text-sm text-slate-600 dark:text-slate-300">
+              We’re processing the meeting. This may take a few minutes.
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
@@ -724,6 +810,9 @@ const MeetingDetails: React.FC = () => {
           onShareMeeting={handleShareMeeting}
           onExportTranscript={handleExportTranscript}
           onAddNotes={() => setActiveTab('notes')}
+          isOrganizer={isOrganizer}
+          onReprocessMeeting={handleReprocessMeeting}
+          isProcessing={isMeetingProcessing}
         />
 
           {/* Main Content */}
@@ -748,13 +837,61 @@ const MeetingDetails: React.FC = () => {
             actionItems={actionItems}
             aiInsights={aiInsights}
           />
-
-        {/* Floating Action Buttons */}
-        <AddNoteFAB
-          onAddNote={handleAddNote}
-          currentTime={currentTime}
-        />
       </div>
+
+      {/* Professional confirmation dialog */}
+      {showReprocessDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => !isReprocessStarting && setShowReprocessDialog(false)}
+          />
+          <div className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Reprocess meeting
+                </h3>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                  This will retranscribe from stored audio chunks and regenerate diarized transcript, embeddings, and AI insights.
+                  Processing may take a few minutes depending on meeting length.
+                </p>
+              </div>
+              <button
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                onClick={() => !isReprocessStarting && setShowReprocessDialog(false)}
+                aria-label="Close dialog"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowReprocessDialog(false)}
+                disabled={isReprocessStarting}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-sm font-semibold disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReprocessMeeting}
+                disabled={isReprocessStarting}
+                className="inline-flex items-center px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-60"
+              >
+                {isReprocessStarting ? (
+                  <>
+                    <span className="mr-2 inline-block w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                    Starting…
+                  </>
+                ) : (
+                  'Reprocess'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };

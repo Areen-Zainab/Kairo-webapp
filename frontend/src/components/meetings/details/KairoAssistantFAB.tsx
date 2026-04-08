@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import apiService from '../../../services/api';
+import { ChatMessageMarkdown } from '../../common/ChatMessageMarkdown';
 
 interface KairoAssistantFABProps {
   onGeneratePersonalSummary: () => void;
@@ -134,12 +135,18 @@ const KairoAssistantFAB: React.FC<KairoAssistantFABProps> = ({ workspaceId }) =>
                 <div className="space-y-2">
                   {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] rounded-md px-3 py-2 text-sm whitespace-pre-wrap ${
-                        msg.role === 'user'
-                          ? 'bg-purple-100 text-purple-900 dark:bg-purple-600/30 dark:text-purple-100'
-                          : 'bg-slate-100 text-slate-800 dark:bg-slate-700/50 dark:text-slate-100'
-                      }`}>
-                        {msg.text}
+                      <div
+                        className={`max-w-[85%] rounded-md px-3 py-2 ${
+                          msg.role === 'user'
+                            ? 'whitespace-pre-wrap bg-purple-100 text-sm text-purple-900 dark:bg-purple-600/30 dark:text-purple-100'
+                            : 'bg-slate-100 text-slate-800 dark:bg-slate-700/50 dark:text-slate-100'
+                        }`}
+                      >
+                        {msg.role === 'user' ? (
+                          msg.text
+                        ) : (
+                          <ChatMessageMarkdown content={msg.text} />
+                        )}
                       </div>
                     </div>
                   ))}

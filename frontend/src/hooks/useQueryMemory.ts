@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { apiService } from '../services/api';
-import type { AIQuery } from '../components/workspace/memory/types';
+import type { AIQuery, MemorySearchHit } from '../components/workspace/memory/types';
+import { persistWorkspaceMemorySearch } from '../utils/memorySearchSession';
 
 /**
  * Hook that performs a real semantic search against the workspace memory API
@@ -18,16 +19,25 @@ export const useQueryMemory = (workspaceId: string) => {
     try {
       const workspaceIdInt = parseInt(workspaceId, 10);
       let nodeIds: string[] = [];
+      let memorySearchHits: MemorySearchHit[] = [];
 
       if (!Number.isNaN(workspaceIdInt) && query.trim()) {
         const response = await apiService.searchMeetingMemory(workspaceIdInt, query.trim(), 10);
 
         if (!response.error && response.data?.results) {
+          const raw = response.data.results as any[];
+          const withId = raw.filter((r) => (r.meetingId ?? r.meeting_id) != null);
           // Map each matching meeting to its graph node ID.
           // The search endpoint dedupes by meeting and returns sorted by relevance.
-          nodeIds = (response.data.results as any[])
-            .filter((r) => r.meetingId != null)
-            .map((r) => `meeting:${r.meetingId}`);
+          nodeIds = withId.map((r) => `meeting:${r.meetingId ?? r.meeting_id}`);
+
+          memorySearchHits = withId.map((r) => ({
+            meetingId: Number(r.meetingId ?? r.meeting_id),
+            snippet: typeof r.snippet === 'string' ? r.snippet : '',
+            content: typeof r.content === 'string' ? r.content : undefined,
+            matchedTerms: Array.isArray(r.matchedTerms) ? r.matchedTerms : [],
+            contentType: r.contentType ?? r.content_type
+          }));
         }
       }
 
@@ -38,8 +48,13 @@ export const useQueryMemory = (workspaceId: string) => {
           nodes: nodeIds,
           edges: [],
           confidence: nodeIds.length > 0 ? 0.8 : 0.3
-        }
+        },
+        memorySearchHits
       };
+
+      if (!Number.isNaN(workspaceIdInt) && query.trim()) {
+        persistWorkspaceMemorySearch(workspaceIdInt, query.trim(), memorySearchHits);
+      }
 
       setQueryHistory((prev) => [aiQuery, ...prev.slice(0, 9)]);
       return aiQuery;

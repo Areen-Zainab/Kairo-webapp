@@ -58,7 +58,7 @@
 16. **Privacy Mode (pause/resume transcription)** — ✅ 100% Complete *(backend + `MeetingLive.tsx` / `TranscriptTab.tsx` UI — `updateMeetingPrivacyMode`, toggle in Kairo Bot menu, badges and transcript messaging)*
 17. **Related Meetings + Memory Context** — ✅ 100% Complete *(MemoryContextService + findRelatedMeetings + all routes)*
 
-### 🔄 PARTIALLY IMPLEMENTED (3/21 core)
+### 🔄 PARTIALLY IMPLEMENTED (2/21 core)
 
 18. **Speaker Diarization** — 30% Complete *(Pyannote diarization runs post-meeting; produces Speaker_0/Speaker_1 labels; no name mapping to real users)*
 19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion API, real query-bar integration done; optional persistent storage + click-to-expand UI pending)*
@@ -301,15 +301,29 @@
 ---
 
 ### 10. Task Contextual Micro-Channels
-**Status:** ❌ 0% COMPLETE
+**Status:** 🟡 ~70% COMPLETE *(April 2026 — code-verified)*
 **Priority:** Medium
-**Technologies:** PostgreSQL, React, WebSocket
+**Technologies:** PostgreSQL, Prisma, React, WebSocket *(WS only for optional live-mention channel)*
 
-#### 📋 To-Do (after Knowledge Graph is in progress):
-- **PHASE 1:** TaskContext schema (meeting refs, transcript excerpts, timestamps)
-- **PHASE 2:** `TaskContextService.js` — `linkTaskToMeeting()`, `getTaskContext()`
-- **PHASE 3:** "Meeting Context" tab in TaskDetailModal
-- **PHASE 4:** Real-time WS updates when task is mentioned in meeting
+#### ✅ What's Working (code-verified):
+
+**Data model (PHASE 1 — partial)**
+- No dedicated `TaskContext` table yet. Meeting linkage is **`Task.actionItemId` → `ActionItem` → `meetingId`**; enriched context is assembled from **`MeetingMemoryContext`**, **`MeetingEmbedding`** (per–content-type counts / “micro-channels”), **`MeetingNote`**, and **`MemoryContextService`**.
+
+**Backend (PHASE 2 — partial)**
+- `TaskContextService.js` — `getTaskMeetingContext(taskId, userId)`; route **`GET /api/tasks/:taskId/context`** (workspace access enforced).
+
+**Frontend (PHASE 3 — partial)**
+- `TaskDetailModal`: collapsible **Meeting Context** section (summary excerpt, transcript snippet, decisions, notes, memory-channel badges); `apiService.getTaskMeetingContext`; types on `Task.meetingContext`.
+- **Gap:** “View full meeting” control is not wired to navigation; UI is a collapsible block rather than a separate modal tab strip (acceptable unless product insists on tabs).
+
+#### 📋 To-Do (remaining core work):
+- **PHASE 1 (finish):** Optional dedicated **`TaskContext`** (or equivalent) if you need persisted per-task anchors (e.g. pinned excerpt + explicit timestamps), beyond derived meeting memory.
+- **PHASE 2 (finish):** `linkTaskToMeeting()` (and optional unlink) so **manually created** tasks can attach meeting / action-item context, not only tasks born from action items.
+- **PHASE 3 (finish):** Wire **View full meeting** to the meeting details route; align naming with docs (`getTaskContext` alias vs `getTaskMeetingContext`).
+
+#### 📋 Optional (Low Priority):
+- **PHASE 4:** Real-time WebSocket **task_mention** when linked task titles appear in live transcript — **already implemented** (`TaskMentionService` + `broadcastTaskMention` + `useMeetingTaskMention` in `TaskDetailModal`). Treat as **optional polish / ops** (throttling, env `TASK_MENTION_WS_THROTTLE_MS`, WS URL/port in dev/prod).
 
 ---
 
@@ -471,7 +485,7 @@ Kairo is **~93% complete** on core scope (code-verified, April 4, 2026). Earlier
 
 1. **Speaker name assignment** — map `Speaker_0` / `Speaker_1` to real people in transcript review
 2. **Knowledge Graph click-to-expand** — use existing `/neighbours` API from a node click to expand the canvas graph
-3. **Task Contextual Micro-Channels** — full vertical not started
+3. **Task Contextual Micro-Channels** — 70% complete
 4. **Medium-priority memory & tasks** — assignee fuzzy-match to workspace users, manual embeddings regeneration, embeddings for notes/action items, optional `/context`/`/related` caching
 
 **Optional / stretch:** Calendar, third-party integrations, multimodal capture, graph table persistence (`graph_nodes`/`graph_edges`), Faster-Whisper migration, multilingual transcription, email/push reminders, enterprise privacy (retention, audit, GDPR).
@@ -480,6 +494,6 @@ Kairo is **~93% complete** on core scope (code-verified, April 4, 2026). Earlier
 
 ---
 
-*Last Updated: April 4, 2026*
+*Last Updated: April 9, 2026*
 *Last audit: cross-checked against `MeetingLive.tsx` (privacy UI), `PrivacyModeService.js`, `MemoryView.tsx` / `GraphCanvas.tsx` (neighbours not wired), `TaskCreationService.js`, roadmap optional sections*
 *Maintained by: Kairo Team*

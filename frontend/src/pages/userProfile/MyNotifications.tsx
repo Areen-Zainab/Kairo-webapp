@@ -11,7 +11,7 @@ interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'meeting' | 'meeting_updated' | 'meeting_status_changed' | 'meeting_invitation' | 'task' | 'deadline' | 'system' | 'workspace' | 'account';
+  type: 'meeting' | 'meeting_updated' | 'meeting_status_changed' | 'meeting_invitation' | 'task' | 'task_assigned' | 'deadline' | 'system' | 'workspace' | 'account';
   priority: 'low' | 'medium' | 'high';
   workspace: string;
   isRead: boolean;
@@ -97,7 +97,9 @@ const MyNotifications = () => {
       case 'meeting_updated':
       case 'meeting_status_changed':
         return <Calendar size={16} className="text-blue-600" />;
-      case 'task': return <CheckCircle size={16} className="text-green-600" />;
+      case 'task':
+      case 'task_assigned':
+        return <CheckCircle size={16} className="text-green-600" />;
       case 'deadline': return <AlertCircle size={16} className="text-red-600" />;
       case 'system': return <Bell size={16} className="text-purple-600" />;
       case 'workspace': return <Users size={16} className="text-cyan-600" />;
@@ -111,6 +113,7 @@ const MyNotifications = () => {
       case 'meeting_updated': return 'Meeting Updated';
       case 'meeting_status_changed': return 'Meeting Status';
       case 'meeting_invitation': return 'Meeting Invitation';
+      case 'task_assigned': return 'Task assigned';
       case 'meeting': return 'Meeting';
       default: return type.charAt(0).toUpperCase() + type.slice(1);
     }

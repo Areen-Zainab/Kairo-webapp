@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { apiService } from '../../../services/api';
+import { ChatMessageMarkdown } from '../../common/ChatMessageMarkdown';
 
 interface MemoryQueryBarProps {
   workspaceId?: string;
@@ -151,15 +152,14 @@ const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
     }
   }, []);
 
-  // Real-time highlighting as user types
+  // Live graph highlight while typing — do not call with an empty string (submit clears the input and would wipe the last search highlight).
   useEffect(() => {
-    if (onHighlightNodes) {
-      const timeoutId = setTimeout(() => {
-        onHighlightNodes(query.trim());
-      }, 300); // Debounce for 300ms
-
-      return () => clearTimeout(timeoutId);
-    }
+    if (!onHighlightNodes) return;
+    const timeoutId = setTimeout(() => {
+      const q = query.trim();
+      if (q.length > 0) onHighlightNodes(q);
+    }, 300);
+    return () => clearTimeout(timeoutId);
   }, [query, onHighlightNodes]);
 
   if (!isOpen) return null;
@@ -182,7 +182,7 @@ const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
                 <span className="text-white text-sm">🤖</span>
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Memory Assistant</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Kairo Assistant</h2>
                 <p className="text-xs text-slate-600 dark:text-slate-400">
                   {queryHistory.length > 0 ? `${queryHistory.length} messages` : 'Ask about your workspace'}
                 </p>
@@ -252,7 +252,12 @@ const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
                       {messageData.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <div className="whitespace-pre-wrap">{messageData.message}</div>
+                  <div className="whitespace-pre-wrap">
+                    {messageData.sender === 'assistant'
+                      ? <ChatMessageMarkdown content={messageData.message} />
+                      : <p>{messageData.message}</p>
+                    }
+                  </div>
                 </div>
               )}
             </div>
@@ -266,7 +271,7 @@ const MemoryQueryBar: React.FC<MemoryQueryBarProps> = ({
                   <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-white text-xs">🤖</span>
                   </div>
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Memory Assistant</span>
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Kairo Assistant</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="flex space-x-1">

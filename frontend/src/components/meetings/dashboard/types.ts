@@ -23,5 +23,7 @@ export interface Meeting {
   memoryLinks?: number;
   meetingLink?: string;
   backendId?: number;
+  /** ISO start time for calendar placement (preferred over formatted `date`) */
+  startTimeIso?: string;
 }
 

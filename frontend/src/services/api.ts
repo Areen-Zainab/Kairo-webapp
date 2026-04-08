@@ -657,8 +657,17 @@ class ApiService {
     return this.request<{ logs: any[]; pagination: any }>(`/workspaces/${workspaceId}/logs${queryString}`);
   }
 
-  async getWorkspaceDashboard(workspaceId: number): Promise<ApiResponse<{ stats: any }>> {
-    return this.request<{ stats: any }>(`/workspaces/${workspaceId}/dashboard`);
+  async getWorkspaceDashboard(
+    workspaceId: number,
+    period?: 'today' | 'week' | 'month' | 'quarter' | 'all'
+  ): Promise<ApiResponse<{ stats: any }>> {
+    const q =
+      period && period !== 'all'
+        ? `?period=${encodeURIComponent(period)}`
+        : period === 'all'
+          ? '?period=all'
+          : '';
+    return this.request<{ stats: any }>(`/workspaces/${workspaceId}/dashboard${q}`);
   }
 
   async getWorkspaceAnalytics(workspaceId: number, timeRange: string = 'month'): Promise<ApiResponse<{ analytics: any }>> {
@@ -1099,6 +1108,17 @@ class ApiService {
     });
   }
 
+  async reprocessMeeting(meetingId: number): Promise<ApiResponse<{
+    success: boolean;
+    meetingId: number;
+    message?: string;
+    error?: string;
+  }>> {
+    return this.request(`/meetings/${meetingId}/reprocess`, {
+      method: 'POST',
+    });
+  }
+
   // ==================== TASK MANAGEMENT ====================
 
   /**
@@ -1460,6 +1480,86 @@ class ApiService {
     return this.request(
       `/workspaces/${workspaceId}/memory/graph/node/${encodeURIComponent(nodeId)}/neighbours?${params.toString()}`
     );
+  }
+
+  /**
+   * Memory graph — meeting Tasks tab: tasks from this meeting + pending action items (no task yet).
+   */
+  async getMeetingTasksPanel(
+    workspaceId: number,
+    meetingId: number
+  ): Promise<
+    ApiResponse<{
+      success: boolean;
+      tasks: Array<{
+        id: number;
+        title: string;
+        description: string | null;
+        assignee: string | null;
+        dueDate: string | null;
+        priority: string;
+        columnName: string | null;
+        actionItemId: number | null;
+        updatedAt: string;
+      }>;
+      pendingActionItems: Array<{
+        id: number;
+        title: string;
+        description: string | null;
+        assignee: string | null;
+        dueDate: string | null;
+        lastSeenAt: string | null;
+      }>;
+    }>
+  > {
+    return this.request(
+      `/workspaces/${workspaceId}/memory/meetings/${meetingId}/tasks-panel`
+    );
+  }
+
+  /**
+   * Memory graph — member node: workspace user match, meetings attended, assigned tasks, stats.
+   */
+  async getMemberMemoryInsights(
+    workspaceId: number,
+    label: string
+  ): Promise<
+    ApiResponse<{
+      success: boolean;
+      resolved: boolean;
+      label: string;
+      user: { id: number; name: string; email: string } | null;
+      meetings: Array<{
+        id: number;
+        title: string;
+        startTime: string;
+        endTime: string | null;
+        status: string;
+        duration: number;
+      }>;
+      tasks: Array<{
+        id: number;
+        title: string;
+        description: string | null;
+        assignee: string | null;
+        dueDate: string | null;
+        priority: string;
+        columnName: string | null;
+        updatedAt: string;
+        meetingId: number | null;
+        meetingTitle: string | null;
+      }>;
+      stats: {
+        meetingsAttended: number;
+        tasksAssigned: number;
+        tasksCompleted: number;
+        latestMeeting: { id: number; title: string; startTime: string } | null;
+        latestCompletedTask: { id: number; title: string; updatedAt: string } | null;
+      };
+    }>
+  > {
+    const params = new URLSearchParams({ label });
+    return this.request(`/workspaces/${workspaceId}/memory/member-insights?${params.toString()}`);
   }
 }
 

@@ -31,6 +31,7 @@ export const useActionItems = (meetingId: number | string | null, pollInterval =
   const [usePolling, setUsePolling] = useState(false); // Fallback flag
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
+  const [wsReconnectNonce, setWsReconnectNonce] = useState(0);
 
   const fetchActionItems = useCallback(async () => {
     console.log('🔍 [useActionItems] fetchActionItems called:', {
@@ -103,7 +104,10 @@ export const useActionItems = (meetingId: number | string | null, pollInterval =
     // Try WebSocket connection
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
-    const port = window.location.port || (protocol === 'wss:' ? '443' : '5000');
+    // In development, backend is typically on port 5000, frontend on 3000/5173.
+    // In production, they're usually on the same host/port (via proxy).
+    const isDevelopment = host === 'localhost' || host === '127.0.0.1';
+    const port = isDevelopment ? '5000' : (window.location.port || (protocol === 'wss:' ? '443' : '80'));
     const wsUrl = `${protocol}//${host}:${port}/ws/transcript?meetingId=${meetingId}`;
 
     console.log(`🔌 Connecting to WebSocket for action items: ${wsUrl}`);
@@ -163,10 +167,9 @@ export const useActionItems = (meetingId: number | string | null, pollInterval =
         console.log(`🔄 Reconnecting WebSocket for action items in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
 
         setTimeout(() => {
-          if (wsRef.current?.readyState === WebSocket.CLOSED) {
-            // Trigger reconnection by re-running effect
-            setUsePolling(false);
-          }
+          // Force the effect to re-run to create a new WebSocket instance.
+          // (Setting usePolling(false) when it's already false doesn't trigger rerender.)
+          setWsReconnectNonce((n) => n + 1);
         }, delay);
       } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
         console.warn('⚠️ Max WebSocket reconnection attempts reached, falling back to polling');
@@ -185,7 +188,7 @@ export const useActionItems = (meetingId: number | string | null, pollInterval =
         clearInterval(intervalRef.current);
       }
     };
-  }, [meetingId, pollInterval, fetchActionItems, usePolling, enableWebSocket]);
+  }, [meetingId, pollInterval, fetchActionItems, usePolling, enableWebSocket, wsReconnectNonce]);
 
   const confirmActionItem = async (id: number) => {
     const response = await apiService.confirmActionItem(id);

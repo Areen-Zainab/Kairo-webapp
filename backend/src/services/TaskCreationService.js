@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const chrono = require('chrono-node');
+const NotificationService = require('./NotificationService');
 
 /**
  * TaskCreationService - Handles creation of tasks from action items
@@ -93,6 +94,19 @@ class TaskCreationService {
       });
 
       console.log(`✅ Created task ${task.id} from action item ${actionItemId}`);
+
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { name: true }
+      });
+      await NotificationService.notifyTaskAssigned({
+        task,
+        workspaceId,
+        workspaceName: workspace?.name || 'Workspace',
+        actorUserId: null,
+        previousAssignee: undefined
+      });
+
       return task;
 
     } catch (error) {

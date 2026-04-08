@@ -391,6 +391,27 @@ print(result)
 
       let stdout = '';
       let stderr = '';
+      let settled = false;
+      const startedAt = Date.now();
+      const timeoutMs = 2 * 60 * 1000; // 2 minutes (conversion should be fast; long runs likely hung)
+
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        if (err) reject(err);
+        else resolve(value);
+      };
+
+      const timeout = setTimeout(() => {
+        const elapsedMs = Date.now() - startedAt;
+        try {
+          proc.kill('SIGTERM');
+        } catch (_) {
+          // ignore
+        }
+        finish(new Error(`Transcript conversion timed out after ${elapsedMs}ms`));
+      }, timeoutMs);
 
       proc.stdout.on('data', (data) => {
         stdout += data.toString();
@@ -400,16 +421,24 @@ print(result)
         stderr += data.toString();
       });
 
-      proc.on('close', (code) => {
-        if (code === 0) {
-          resolve(stdout.trim());
-        } else {
-          reject(new Error(`Transcript conversion failed: ${stderr || 'Unknown error'}`));
+      proc.on('exit', (code, signal) => {
+        // Some environments report kills via signal with code null.
+        if (settled) return;
+        if (signal) {
+          const snippet = (stderr || stdout).toString().trim().slice(0, 500);
+          return finish(new Error(`Transcript conversion was killed (signal: ${signal}). Output: ${snippet || '(none)'}`));
         }
+        // Let 'close' handle normal completion.
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0) return finish(null, stdout.trim());
+        const snippet = (stderr || stdout).toString().trim().slice(0, 1500);
+        return finish(new Error(`Transcript conversion failed (exit code: ${code}). Output: ${snippet || 'Unknown error'}`));
       });
 
       proc.on('error', (error) => {
-        reject(new Error(`Failed to start Python process: ${error.message}`));
+        finish(new Error(`Failed to start Python process: ${error.message}`));
       });
     });
   }

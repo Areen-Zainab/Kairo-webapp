@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Video, CheckSquare, TrendingUp, Clock, Calendar, ArrowUpRight, Play, MoreVertical, MessageSquare, FileText, Brain, Network, Filter, Download, Users, User, Activity, Plus, ArrowDownRight } from 'lucide-react';
+import { Video, CheckSquare, TrendingUp, Clock, Calendar, Play, MoreVertical, MessageSquare, FileText, Brain, Network, Filter, Users, User, Activity, Plus, Sparkles } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { useUser } from '../../context/UserContext';
 import UserAvatar from '../../components/ui/UserAvatar';
@@ -9,6 +9,24 @@ import WorkspaceActivityLog from '../../modals/workspace/WorkspaceActivityLog';
 import NewMeetingModal from '../../modals/NewMeetingModal';
 import { useToastContext } from '../../context/ToastContext';
 import LiveMeetingBanner from '../../components/meetings/dashboard/LiveMeetingBanner';
+
+/** Analytics API has no single-day range; map for demo account approximations */
+const timeFilterToAnalyticsRange = (
+  tf: string
+): 'week' | 'month' | 'quarter' | 'year' | 'all' => {
+  switch (tf) {
+    case 'today':
+      return 'week';
+    case 'week':
+      return 'week';
+    case 'month':
+      return 'month';
+    case 'quarter':
+      return 'quarter';
+    default:
+      return 'week';
+  }
+};
 
 const WorkspaceOverview = () => {
   const { workspaceId } = useParams<{ workspaceId?: string }>();
@@ -25,6 +43,8 @@ const WorkspaceOverview = () => {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [recentCompletedMeetings, setRecentCompletedMeetings] = useState<any[]>([]);
+  /** Workspace analytics snapshot for memory highlights + AI insight activity (aligned with time filter) */
+  const [workspaceAnalytics, setWorkspaceAnalytics] = useState<any>(null);
   
   const { error: toastError, success: toastSuccess } = useToastContext();
   
@@ -80,13 +100,13 @@ const WorkspaceOverview = () => {
     fetchWorkspaceDetails();
   }, [workspaceId, shouldShowDummyData]);
 
-  // Fetch activity logs
+  // Fetch activity logs (merged on the client with AI insight events from analytics)
   useEffect(() => {
     const fetchActivityLogs = async () => {
       if (!workspaceId || shouldShowDummyData) return;
-      
+
       try {
-        const response = await apiService.getWorkspaceLogs(parseInt(workspaceId), 4, 0); // Fetch top 4 logs
+        const response = await apiService.getWorkspaceLogs(parseInt(workspaceId), 40, 0);
         if (response.data?.logs) {
           setActivityLogs(response.data.logs);
         }
@@ -98,23 +118,83 @@ const WorkspaceOverview = () => {
     fetchActivityLogs();
   }, [workspaceId, shouldShowDummyData]);
 
-  // Fetch dashboard stats
-  useEffect(() => {
-    const fetchDashboardStats = async () => {
-      if (!workspaceId || shouldShowDummyData) return;
-      
+  const loadDashboardStats = useCallback(async () => {
+    if (!workspaceId) return;
+    const ws = parseInt(workspaceId, 10);
+
+    if (shouldShowDummyData) {
       try {
-        const response = await apiService.getWorkspaceDashboard(parseInt(workspaceId));
-        if (response.data?.stats) {
-          setDashboardStats(response.data.stats);
+        const res = await apiService.getWorkspaceAnalytics(ws, timeFilterToAnalyticsRange(timeFilter));
+        if (res.data?.analytics) {
+          const a = res.data.analytics;
+          const totalActionItems = a.totalActionItems ?? 0;
+          const confirmedActionItems = a.confirmedActionItems ?? 0;
+          setDashboardStats({
+            period: timeFilter,
+            periodLabel:
+              timeFilter === 'today'
+                ? 'Last 7 days (closest range)'
+                : timeFilter === 'week'
+                  ? 'This week'
+                  : timeFilter === 'month'
+                    ? 'This month'
+                    : timeFilter === 'quarter'
+                      ? 'Last 3 months'
+                      : '',
+            totalMeetings: a.totalMeetings ?? 0,
+            completedMeetings: a.completedMeetings ?? 0,
+            totalMembers: a.totalMembers ?? 0,
+            totalActionItems,
+            confirmedActionItems,
+            completionRate:
+              totalActionItems > 0
+                ? Math.round((confirmedActionItems / totalActionItems) * 100)
+                : 0,
+          });
         }
       } catch (error) {
-        console.error('Failed to fetch dashboard stats:', error);
+        console.error('Failed to fetch demo dashboard stats:', error);
+        setDashboardStats(null);
       }
-    };
+      return;
+    }
 
-    fetchDashboardStats();
-  }, [workspaceId, shouldShowDummyData]);
+    try {
+      const response = await apiService.getWorkspaceDashboard(
+        ws,
+        timeFilter as 'today' | 'week' | 'month' | 'quarter'
+      );
+      if (response.data?.stats) {
+        setDashboardStats(response.data.stats);
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard stats:', error);
+    }
+  }, [workspaceId, shouldShowDummyData, timeFilter]);
+
+  useEffect(() => {
+    loadDashboardStats();
+  }, [loadDashboardStats]);
+
+  const loadWorkspaceAnalytics = useCallback(async () => {
+    if (!workspaceId) return;
+    const ws = parseInt(workspaceId, 10);
+    try {
+      const res = await apiService.getWorkspaceAnalytics(ws, timeFilterToAnalyticsRange(timeFilter));
+      if (res.data?.analytics) {
+        setWorkspaceAnalytics(res.data.analytics);
+      } else {
+        setWorkspaceAnalytics(null);
+      }
+    } catch (e) {
+      console.error('Failed to load workspace analytics:', e);
+      setWorkspaceAnalytics(null);
+    }
+  }, [workspaceId, timeFilter]);
+
+  useEffect(() => {
+    loadWorkspaceAnalytics();
+  }, [loadWorkspaceAnalytics]);
 
   // Fetch meetings once on mount or workspace change
   useEffect(() => {
@@ -198,7 +278,17 @@ const WorkspaceOverview = () => {
   const handleMeetingCreated = async () => {
     const wsId = workspaceId || currentWorkspace?.id;
     if (!wsId || shouldShowDummyData) return;
-    
+
+    await loadDashboardStats();
+    await loadWorkspaceAnalytics();
+
+    try {
+      const logsRes = await apiService.getWorkspaceLogs(parseInt(wsId, 10), 40, 0);
+      if (logsRes.data?.logs) setActivityLogs(logsRes.data.logs);
+    } catch {
+      /* non-fatal */
+    }
+
     try {
       const response = await apiService.getMeetingsByWorkspace(parseInt(wsId));
       if (response.data?.meetings) {
@@ -258,46 +348,81 @@ const WorkspaceOverview = () => {
     setDismissedLiveBanner(true);
   };
 
-  // Stats data - show dummy for demo account, real data for others
-  const stats = shouldShowDummyData ? [
-    { id: 1, label: 'Total Meetings', value: '24', change: '+12%', icon: Video, color: 'from-blue-500 to-cyan-500' },
-    { id: 2, label: 'Active Tasks', value: '18', change: '+8%', icon: CheckSquare, color: 'from-purple-500 to-pink-500' },
-    { id: 3, label: 'Completion Rate', value: '87%', change: '+5%', icon: TrendingUp, color: 'from-green-500 to-emerald-500' },
-    { id: 4, label: 'Memory Items', value: '156', change: '+23', icon: Brain, color: 'from-orange-500 to-red-500' },
-  ] : (dashboardStats ? [
-    { 
-      id: 1, 
-      label: 'Total Meetings', 
-      value: String(dashboardStats.totalMeetings), 
-      change: dashboardStats.meetingsThisWeek > 0 ? `+${dashboardStats.meetingsThisWeek} this week` : '', 
-      icon: Video, 
-      color: 'from-blue-500 to-cyan-500' 
-    },
-    { 
-      id: 2, 
-      label: 'Action Items', 
-      value: String(dashboardStats.totalActionItems), 
-      change: dashboardStats.confirmedActionItems > 0 ? `${dashboardStats.confirmedActionItems} confirmed` : '', 
-      icon: CheckSquare, 
-      color: 'from-purple-500 to-pink-500' 
-    },
-    { 
-      id: 3, 
-      label: 'Completion Rate', 
-      value: `${dashboardStats.completionRate}%`, 
-      change: '', 
-      icon: TrendingUp, 
-      color: 'from-green-500 to-emerald-500' 
-    },
-    { 
-      id: 4, 
-      label: 'Team Members', 
-      value: String(dashboardStats.totalMembers), 
-      change: '', 
-      icon: Users, 
-      color: 'from-orange-500 to-red-500' 
-    },
-  ] : []);
+  const stats = useMemo(() => {
+    if (!dashboardStats) return [];
+    const d = dashboardStats;
+    const pl = typeof d.periodLabel === 'string' ? d.periodLabel : '';
+    return [
+      {
+        id: 1,
+        label: 'Meetings',
+        value: String(d.totalMeetings ?? 0),
+        detail: `${d.completedMeetings ?? 0} completed${pl ? ` · ${pl}` : ''}`,
+        icon: Video,
+        color: 'from-blue-500 to-cyan-500',
+      },
+      {
+        id: 2,
+        label: 'Action items',
+        value: String(d.totalActionItems ?? 0),
+        detail: `${d.confirmedActionItems ?? 0} confirmed${pl ? ` · ${pl}` : ''}`,
+        icon: CheckSquare,
+        color: 'from-purple-500 to-pink-500',
+      },
+      {
+        id: 3,
+        label: 'Confirmed rate',
+        value: `${d.completionRate ?? 0}%`,
+        detail: 'Confirmed / total action items',
+        icon: TrendingUp,
+        color: 'from-green-500 to-emerald-500',
+      },
+      {
+        id: 4,
+        label: 'Active members',
+        value: String(d.totalMembers ?? 0),
+        detail: 'Workspace roster',
+        icon: Users,
+        color: 'from-orange-500 to-red-500',
+      },
+    ];
+  }, [dashboardStats]);
+
+  const formatActivityTime = (createdAt: string): string => {
+    const now = new Date();
+    const activityTime = new Date(createdAt);
+    const diffMs = now.getTime() - activityTime.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    return activityTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const formatWorkspaceLogMessage = (log: { title?: string; description?: string; action?: string }) => {
+    if (log.title?.trim()) return log.title.trim();
+    if (log.description?.trim()) return log.description.trim();
+    return 'Workspace activity';
+  };
+
+  const mapActionToActivityType = (action: string): string => {
+    if (!action) return 'message';
+    if (action.includes('meeting_status')) return 'meeting_status';
+    if (action.includes('meeting_created')) return 'meeting_created';
+    if (action.includes('meeting_deleted')) return 'meeting_deleted';
+    if (action.includes('meeting_updated')) return 'meeting_updated';
+    if (action.includes('meeting')) return 'meeting';
+    if (action.includes('member') || action.includes('invite')) return 'member';
+    if (action.includes('workspace')) return 'workspace';
+    if (action.includes('task')) return 'task';
+    if (action.includes('transcript')) return 'transcript';
+    if (action.includes('memory')) return 'memory';
+    return 'message';
+  };
 
   // Format upcoming meetings for display
   const upcomingMeetingsFormatted = shouldShowDummyData ? [
@@ -336,6 +461,12 @@ const WorkspaceOverview = () => {
       })) || [];
       const remainingCount = (meeting.participants?.length || 0) - 3;
       
+      const plat = meeting.platform
+        ? String(meeting.platform)
+            .replace(/-/g, ' ')
+            .replace(/\b\w/g, (c: string) => c.toUpperCase())
+        : null;
+
       return {
         id: meeting.id,
         title: meeting.title,
@@ -344,96 +475,178 @@ const WorkspaceOverview = () => {
         remainingCount: remainingCount > 0 ? remainingCount : 0,
         duration: `${meeting.duration} min`,
         status,
-        meetingLink: meeting.meetingLink
+        meetingLink: meeting.meetingLink,
+        platform: plat,
+        meetingStatus: meeting.status || meeting.computedStatus,
+        participantCount: meeting.participants?.length ?? 0,
       };
     });
 
-  const recentMeetings = shouldShowDummyData ? [
-    { id: 1, title: 'Product Review Q4', date: 'Oct 10, 2025', tasks: 8, transcriptReady: true, memoryLinks: 3, duration: '1h 20m' },
-    { id: 2, title: 'Design Sprint Retro', date: 'Oct 9, 2025', tasks: 5, transcriptReady: true, memoryLinks: 2, duration: '45m' },
-    { id: 3, title: 'API Integration Sync', date: 'Oct 8, 2025', tasks: 12, transcriptReady: true, memoryLinks: 5, duration: '1h 05m' },
-  ] : recentCompletedMeetings.map(meeting => {
-      const endTime = new Date(meeting.endTime);
-      const startTime = new Date(meeting.startTime);
-      const durationMs = endTime.getTime() - startTime.getTime();
-      const durationMins = Math.floor(durationMs / 60000);
-      const hours = Math.floor(durationMins / 60);
-      const mins = durationMins % 60;
-      
-      let durationDisplay = '';
-      if (hours > 0) {
-        durationDisplay = `${hours}h ${mins}m`;
-      } else {
-        durationDisplay = `${mins}m`;
+  const recentMeetings = shouldShowDummyData
+    ? [
+        {
+          id: 1,
+          title: 'Product Review Q4',
+          date: 'Oct 10, 2025',
+          tasks: 8,
+          transcriptReady: true,
+          duration: '1h 20m',
+          status: 'completed',
+          platform: 'Zoom',
+          aiInsightsGenerated: true,
+        },
+        {
+          id: 2,
+          title: 'Design Sprint Retro',
+          date: 'Oct 9, 2025',
+          tasks: 5,
+          transcriptReady: true,
+          duration: '45m',
+          status: 'completed',
+          platform: 'Google Meet',
+          aiInsightsGenerated: true,
+        },
+        {
+          id: 3,
+          title: 'API Integration Sync',
+          date: 'Oct 8, 2025',
+          tasks: 12,
+          transcriptReady: true,
+          duration: '1h 05m',
+          status: 'completed',
+          platform: 'Teams',
+          aiInsightsGenerated: false,
+        },
+      ]
+    : recentCompletedMeetings.map(meeting => {
+        const endTime = new Date(meeting.endTime);
+        const startTime = new Date(meeting.startTime);
+        const durationMs = endTime.getTime() - startTime.getTime();
+        const durationMins = Math.floor(durationMs / 60000);
+        const hours = Math.floor(durationMins / 60);
+        const mins = durationMins % 60;
+
+        let durationDisplay = '';
+        if (hours > 0) {
+          durationDisplay = `${hours}h ${mins}m`;
+        } else {
+          durationDisplay = `${mins}m`;
+        }
+
+        const plat = meeting.platform
+          ? String(meeting.platform)
+              .replace(/-/g, ' ')
+              .replace(/\b\w/g, (c: string) => c.toUpperCase())
+          : null;
+
+        return {
+          id: meeting.id,
+          title: meeting.title,
+          date: endTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          tasks: meeting.actionItems?.length || 0,
+          transcriptReady: !!meeting.transcriptUrl,
+          duration: durationDisplay,
+          status: meeting.status,
+          platform: plat,
+          aiInsightsGenerated: !!meeting.aiInsightsGenerated,
+        };
+      });
+
+  const memoryTopics = useMemo(() => {
+    const raw = workspaceAnalytics?.richTopics;
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw.slice(0, 5).map((t: any, i: number) => ({
+        id: `topic-${i}-${t.label}`,
+        label: t.label,
+        mentions: t.mentions,
+        meetingCount: t.meetingCount,
+        sentiment: t.sentiment,
+      }));
+    }
+    if (shouldShowDummyData) {
+      return [
+        { id: 't1', label: 'API migration', mentions: 14, meetingCount: 3, sentiment: 'neutral' },
+        { id: 't2', label: 'Authentication', mentions: 9, meetingCount: 2, sentiment: 'positive' },
+        { id: 't3', label: 'Roadmap Q2', mentions: 7, meetingCount: 4, sentiment: 'neutral' },
+      ];
+    }
+    return [];
+  }, [workspaceAnalytics, shouldShowDummyData]);
+
+  const activityFeed = useMemo(() => {
+    if (shouldShowDummyData) {
+      return [
+        { id: 'd1', type: 'task', text: 'New task assigned from Sprint Planning', time: '5 min ago', user: 'Ali H.', sortTime: Date.now() },
+        { id: 'd2', type: 'insight', text: 'Insights Generated for "Client Demo"', time: '1 hour ago', user: 'AI', sortTime: Date.now() - 3600000 },
+        { id: 'd3', type: 'meeting_status', text: 'Meeting completed: Product Review', time: '2 hours ago', user: 'System', sortTime: Date.now() - 7200000 },
+        { id: 'd4', type: 'meeting_created', text: 'Meeting Scheduled', time: '3 hours ago', user: 'Areeba R.', sortTime: Date.now() - 10800000 },
+      ];
+    }
+
+    const rawInsightEvents = workspaceAnalytics?.recentInsightEvents || [];
+    const latestByMeeting = new Map<
+      string,
+      { meetingId: string; meetingTitle: string; latestMs: number }
+    >();
+    for (const ev of rawInsightEvents) {
+      const mid = String(ev.meetingId);
+      const t = new Date(ev.createdAt).getTime();
+      const prev = latestByMeeting.get(mid);
+      if (!prev || t > prev.latestMs) {
+        latestByMeeting.set(mid, {
+          meetingId: mid,
+          meetingTitle: ev.meetingTitle || 'Meeting',
+          latestMs: t,
+        });
       }
-      
-      return {
-        id: meeting.id,
-        title: meeting.title,
-        date: endTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        tasks: meeting.actionItems?.length || 0,
-        transcriptReady: !!meeting.transcriptUrl,
-        memoryLinks: 0, // TODO: Add memory links count when available
-        duration: durationDisplay
-      };
-    });
+    }
+    const insightEvents = Array.from(latestByMeeting.values()).map(m => ({
+      id: `insights-${m.meetingId}`,
+      type: 'insight',
+      text: `Insights Generated for "${m.meetingTitle}"`,
+      time: formatActivityTime(new Date(m.latestMs).toISOString()),
+      user: 'AI',
+      sortTime: m.latestMs,
+    }));
 
-  const memoryInsights = shouldShowDummyData ? [
-    { id: 1, topic: 'API v2 Migration', linkedMeetings: 5, lastDiscussed: '2 days ago' },
-    { id: 2, topic: 'User Authentication Flow', linkedMeetings: 3, lastDiscussed: '1 week ago' },
-    { id: 3, topic: 'Q4 Goals', linkedMeetings: 8, lastDiscussed: '3 days ago' },
-  ] : [];
+    const logItems = (activityLogs || []).map((log: any) => ({
+      id: `log-${log.id}`,
+      type: mapActionToActivityType(log.action || ''),
+      text: formatWorkspaceLogMessage(log),
+      time: formatActivityTime(log.createdAt),
+      user: log.user?.name || 'System',
+      sortTime: new Date(log.createdAt).getTime(),
+    }));
 
-  // Format activity logs for display
-  const formatActivityTime = (createdAt: string): string => {
-    const now = new Date();
-    const activityTime = new Date(createdAt);
-    const diffMs = now.getTime() - activityTime.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    return activityTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const mapActionToType = (action: string): string => {
-    if (action.includes('task')) return 'task';
-    if (action.includes('meeting')) return 'meeting';
-    if (action.includes('memory')) return 'memory';
-    if (action.includes('transcript')) return 'transcript';
-    if (action.includes('workspace')) return 'workspace';
-    if (action.includes('member')) return 'member';
-    if (action.includes('complete')) return 'complete';
-    return 'message';
-  };
-
-  const activityFeed = shouldShowDummyData ? [
-    { id: 1, type: 'task', text: 'New task assigned from Sprint Planning', time: '5 min ago', user: 'Ali H.' },
-    { id: 2, type: 'meeting', text: 'Meeting summary ready: Client Demo', time: '1 hour ago', user: 'System' },
-    { id: 3, type: 'memory', text: 'Memory link created between 2 meetings', time: '2 hours ago', user: 'System' },
-    { id: 4, type: 'complete', text: 'API Integration Sync completed', time: '3 hours ago', user: 'Areeba R.' },
-  ] : activityLogs.slice(0, 4).map((log) => ({
-    id: log.id,
-    type: mapActionToType(log.action),
-    text: log.title || log.description,
-    time: formatActivityTime(log.createdAt),
-    user: log.user?.name || 'System'
-  }));
+    return [...insightEvents, ...logItems]
+      .sort((a, b) => b.sortTime - a.sortTime)
+      .slice(0, 16);
+  }, [shouldShowDummyData, workspaceAnalytics, activityLogs]);
 
   const getActivityIcon = (type: string) => {
     switch (type) {
-      case 'task': return CheckSquare;
-      case 'meeting': return Video;
-      case 'memory': return Brain;
-      case 'transcript': return FileText;
-      case 'complete': return TrendingUp;
-      case 'workspace': return Network;
-      case 'member': return Users;
-      default: return MessageSquare;
+      case 'task':
+        return CheckSquare;
+      case 'meeting':
+      case 'meeting_status':
+        return Video;
+      case 'meeting_created':
+      case 'meeting_updated':
+        return Calendar;
+      case 'meeting_deleted':
+        return Video;
+      case 'memory':
+        return Brain;
+      case 'transcript':
+        return FileText;
+      case 'workspace':
+        return Network;
+      case 'member':
+        return Users;
+      case 'insight':
+        return Sparkles;
+      default:
+        return MessageSquare;
     }
   };
 
@@ -653,13 +866,10 @@ const WorkspaceOverview = () => {
           ) : (
             stats.map((stat) => {
               const Icon = stat.icon;
-              const isPositive = stat.change && !stat.change.includes("-");
-              const changeColor = isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400";
-              const ChangeIcon = isPositive ? ArrowUpRight : ArrowDownRight;
-
               return (
-                <div key={stat.id}
-                  className="rounded-xl p-5 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-300 cursor-pointer group"
+                <div
+                  key={stat.id}
+                  className="relative rounded-xl p-5 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-300 group"
                 >
                   <div className="flex flex-col items-start gap-2">
                     <div className="flex items-center gap-3">
@@ -668,22 +878,16 @@ const WorkspaceOverview = () => {
                       >
                         <Icon className="w-5 h-5" />
                       </div>
-                      <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white leading-none">
+                      <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white leading-none tabular-nums">
                         {stat.value}
                       </h3>
                     </div>
 
                     <p className="text-gray-600 dark:text-slate-400 text-sm">{stat.label}</p>
+                    {stat.detail ? (
+                      <p className="text-xs text-gray-500 dark:text-slate-500 leading-snug">{stat.detail}</p>
+                    ) : null}
                   </div>
-
-                  {stat.change && (
-                    <div className="absolute top-4 right-5">
-                      <span className={`${changeColor} text-xs font-medium flex items-center gap-1`}>
-                        <ChangeIcon className="w-3.5 h-3.5" />
-                        {stat.change}
-                      </span>
-                    </div>
-                  )}
                 </div>
               );
             })
@@ -735,13 +939,24 @@ const WorkspaceOverview = () => {
                         <h3 className="font-medium text-sm sm:text-base text-gray-900 dark:text-white mb-2 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors truncate">
                         {meeting.title}
                       </h3>
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-3 gap-1.5 text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-3 gap-1.5 text-xs sm:text-sm text-gray-600 dark:text-slate-400 mb-2">
                         <span className="flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 flex-shrink-0" />
                           <span className="truncate">{meeting.time}</span>
                         </span>
                         <span className="truncate">{meeting.duration}</span>
+                        {!shouldShowDummyData && meeting.platform && (
+                          <span className="truncate capitalize text-gray-500 dark:text-slate-500">{meeting.platform}</span>
+                        )}
                       </div>
+                      {!shouldShowDummyData && (
+                        <p className="text-xs text-gray-500 dark:text-slate-500 mb-3">
+                          {meeting.participantCount} invited
+                          {meeting.meetingStatus && meeting.meetingStatus !== 'scheduled' ? (
+                            <span className="ml-2">· {String(meeting.meetingStatus).replace(/-/g, ' ')}</span>
+                          ) : null}
+                        </p>
+                      )}
                       <div className="flex items-center -space-x-2">
                         {shouldShowDummyData ? (
                           // Show initials for dummy data
@@ -808,7 +1023,7 @@ const WorkspaceOverview = () => {
 
           {/* Memory Insights */}
           <div className="rounded-lg p-4 sm:p-5 bg-white border border-gray-200 dark:bg-slate-800/40 dark:border-slate-700/50">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-2 mb-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-2 mb-4">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <Brain className="w-4 h-4 text-purple-400 flex-shrink-0" />
                 Memory Insights
@@ -820,34 +1035,44 @@ const WorkspaceOverview = () => {
                 View Graph
               </button>
             </div>
-            <div className="space-y-2.5">
-                {memoryInsights.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500 dark:text-slate-400">
-                    No memory insights yet
-                  </div>
-                ) : (
-                  memoryInsights.map((insight) => {
-                    return (
-                    <div
-                      key={insight.id}
-                      className="rounded-lg p-3.5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
-                    >
-                  <div className="flex items-start gap-3">
-                      <Network className="w-4 h-4 text-purple-600 dark:text-purple-400 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-1.5 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors truncate">
-                        {insight.topic}
-                      </p>
-                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-400">
-                        <span>{insight.linkedMeetings} meetings</span>
-                        <span>•</span>
-                        <span>{insight.lastDiscussed}</span>
+            <div className="space-y-5 max-h-52 overflow-y-auto pr-1 overscroll-contain">
+              {memoryTopics.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
+                    <Network className="w-3.5 h-3.5" />
+                    Top topics
+                  </h3>
+                  <div className="space-y-2">
+                    {memoryTopics.map(t => (
+                      <div
+                        key={t.id}
+                        className="rounded-lg p-3 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-purple-300 dark:bg-slate-900/50 dark:border-slate-700/50 dark:hover:border-purple-500/50"
+                        onClick={() => navigate(`/workspace/${workspaceId || currentWorkspace?.id}/memory`)}
+                      >
+                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-1 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors truncate">
+                          {t.label}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-600 dark:text-slate-400">
+                          <span>{t.meetingCount} meeting{t.meetingCount === 1 ? '' : 's'}</span>
+                          <span>·</span>
+                          <span>{t.mentions} mentions</span>
+                          {t.sentiment && (
+                            <>
+                              <span>·</span>
+                              <span className="capitalize">{String(t.sentiment)}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
-              );
-            }))}
+              )}
+              {memoryTopics.length === 0 && (
+                <div className="text-center py-6 text-gray-500 dark:text-slate-400 text-sm">
+                  No topics in this period yet. Complete meetings with AI insights to populate memory.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -890,21 +1115,30 @@ const WorkspaceOverview = () => {
                       <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-gray-600 dark:text-slate-400 flex-wrap">
                         <span className="truncate">{meeting.date}</span>
                         <span className="truncate">{meeting.duration}</span>
+                        {meeting.status && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                            {String(meeting.status).replace(/-/g, ' ')}
+                          </span>
+                        )}
+                        {meeting.platform && (
+                          <span className="truncate text-gray-500 dark:text-slate-500">{meeting.platform}</span>
+                        )}
                         <span className="flex items-center gap-1 flex-shrink-0">
                           <CheckSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                          {meeting.tasks} tasks
+                          {meeting.tasks} action items
                         </span>
                         {meeting.transcriptReady && (
-                          <span className="flex items-center gap-1 text-green-400 flex-shrink-0">
+                          <span className="flex items-center gap-1 text-emerald-500 dark:text-emerald-400 flex-shrink-0">
                             <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             <span className="hidden sm:inline">Transcript</span>
                             <span className="sm:hidden">T</span>
                           </span>
                         )}
-                        {meeting.memoryLinks > 0 && (
-                          <span className="flex items-center gap-1 text-purple-400 flex-shrink-0">
-                            <Brain className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                            {meeting.memoryLinks}
+                        {meeting.aiInsightsGenerated && (
+                          <span className="flex items-center gap-1 text-purple-500 dark:text-purple-400 flex-shrink-0">
+                            <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                            <span className="hidden sm:inline">AI insights</span>
+                            <span className="sm:hidden">AI</span>
                           </span>
                         )}
                       </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ChatMessageMarkdown } from '../../common/ChatMessageMarkdown';
 
 interface LiveChatProps {
   messages: { id: string; role: 'user' | 'bot'; text: string }[];
@@ -80,8 +81,8 @@ const LiveChat: React.FC<LiveChatProps> = ({ messages, input, isLoading = false,
                       msg.role === 'user'
                         ? 'bg-purple-50 border-purple-300 text-purple-800 dark:bg-slate-800/40 dark:border-slate-700/60 dark:text-slate-100'
                         : 'bg-white border-gray-200 text-gray-800 dark:bg-slate-900/50 dark:border-slate-800/70 dark:text-slate-200'
-                    } rounded-md shadow-sm whitespace-pre-wrap transition-all`}> 
-                    {msg.text}
+                    } rounded-md shadow-sm ${msg.role === 'user' ? 'whitespace-pre-wrap' : ''} transition-all`}> 
+                    {msg.role === 'user' ? msg.text : <ChatMessageMarkdown content={msg.text} />}
                     <button
                       type="button"
                       onClick={() => referTextToChat(msg.text)}

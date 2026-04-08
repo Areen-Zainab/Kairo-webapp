@@ -443,19 +443,25 @@ async function tier3Match(speakerLabel, meetingId) {
  * @returns {Promise<object>} Summary of identification results
  */
 async function runForMeeting(meetingId, broadcastFn = null) {
-  console.log(`\n🧠 [SpeakerMatchingEngine] Starting identification for meeting ${meetingId}`);
+  // Normalize meetingId early because callers may pass strings (e.g. "194").
+  const meetingIdNum = typeof meetingId === 'string' ? parseInt(meetingId, 10) : meetingId;
+  if (!Number.isInteger(meetingIdNum)) {
+    throw new Error(`Invalid meetingId for speaker identification: ${meetingId}`);
+  }
+
+  console.log(`\n🧠 [SpeakerMatchingEngine] Starting identification for meeting ${meetingIdNum}`);
   const startTime = Date.now();
 
   // ── Step 1: Gather transcript + audio ──────────────────────────────────────
-  const utterances = getDiarizedTranscript(meetingId);
+  const utterances = getDiarizedTranscript(meetingIdNum);
   if (!utterances.length) {
-    console.log(`  ⚠️  No diarized transcript found for meeting ${meetingId} — skipping`);
+    console.log(`  ⚠️  No diarized transcript found for meeting ${meetingIdNum} — skipping`);
     return { success: false, reason: 'no_diarized_transcript' };
   }
 
-  const audioPath = findCompleteAudioFile(meetingId);
+  const audioPath = findCompleteAudioFile(meetingIdNum);
   if (!audioPath) {
-    console.log(`  ⚠️  No audio file found for meeting ${meetingId} — cannot extract segments`);
+    console.log(`  ⚠️  No audio file found for meeting ${meetingIdNum} — cannot extract segments`);
     return { success: false, reason: 'no_audio_file' };
   }
 
@@ -467,7 +473,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
 
   // ── Step 3: Detect count mismatch (surface in UI) ─────────────────────────
   const participants = await prisma.meetingParticipant.findMany({
-    where: { meetingId },
+    where: { meetingId: meetingIdNum },
     select: { userId: true },
   });
 
@@ -475,7 +481,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
     console.warn(`  ⚠️  COUNT MISMATCH: ${speakerLabels.length} speakers > ${participants.length} participants — flagging for review`);
     // Store mismatch flag in meeting metadata
     await prisma.meeting.update({
-      where: { id: meetingId },
+      where: { id: meetingIdNum },
       data: {
         metadata: {
           speakerCountMismatch: true,
@@ -488,7 +494,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
 
   // ── Step 4: Get enrolled users for this workspace ──────────────────────────
   const meeting = await prisma.meeting.findUnique({
-    where: { id: meetingId },
+    where: { id: meetingIdNum },
     select: { workspaceId: true },
   });
   const enrolledUsers = await SpeakerIdentificationService.getEnrolledWorkspaceUsers(meeting.workspaceId);
@@ -505,7 +511,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
   // Pre-compute Tier 2 mappings (applies to all speakers at once)
   let tier2Mappings = null;
   try {
-    tier2Mappings = await tier2Match(speakerSegments, meetingId);
+    tier2Mappings = await tier2Match(speakerSegments, meetingIdNum);
   } catch (e) {
     console.warn(`  ⚠️  Tier 2 failed: ${e.message}`);
   }
@@ -542,7 +548,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
 
     // ── Tier 3: Historical Persistence ───────────────────────────────────
     if (!identified) {
-      const h = await tier3Match(label, meetingId);
+      const h = await tier3Match(label, meetingIdNum);
       if (h) {
         identified = h;
         tier = 3;
@@ -582,7 +588,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
 
   return {
     success: true,
-    meetingId,
+    meetingId: meetingIdNum,
     speakerCount: speakerLabels.length,
     results,
     summary,

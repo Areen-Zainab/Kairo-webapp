@@ -15,7 +15,10 @@ router.get("/graph/stats", authenticateToken, controller.getWorkspaceGraphStats)
 // Node-neighbour expansion — must be defined before any wildcard graph route
 router.get("/graph/node/:nodeId/neighbours", authenticateToken, controller.getNodeNeighbours);
 
+router.get("/member-insights", authenticateToken, controller.getMemberInsights);
+
 // Memory context endpoints (for graph node details)
+router.get("/meetings/:meetingId/tasks-panel", authenticateToken, controller.getMeetingTasksPanel);
 router.get("/meetings/:meetingId/context", authenticateToken, controller.getMeetingContext);
 router.get("/meetings/:meetingId/related", authenticateToken, controller.getRelatedMeetings);
 

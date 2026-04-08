@@ -22,7 +22,7 @@ const MemoryFAB: React.FC<MemoryFABProps> = ({
   const actions = [
     {
       id: 'chatbot',
-      label: isChatbotOpen ? 'Close Chat' : 'Chat with Memory',
+      label: isChatbotOpen ? 'Close Chat' : 'Kairo Assistant',
       icon: isChatbotOpen ? '❌' : '🤖',
       onClick: onChatbot,
       color: isChatbotOpen ? 'bg-red-500 hover:bg-red-600' : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600',

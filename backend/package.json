@@ -9,7 +9,9 @@
     "seed": "node scripts/seedDemoWorkspace.js",
     "seed:reset": "node scripts/seedDemoWorkspace.js --reset",
     "seed:embed": "node scripts/generateDemoEmbeddings.js",
-    "setup": "node scripts/setup.js"
+    "setup": "node scripts/setup.js",
+    "db:fix-vectors:384": "node scripts/alter-vector-columns.js",
+    "db:verify-vectors": "node tests/verify-pgvector-setup.js"
   },
   "keywords": [],
   "author": "",

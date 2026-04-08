@@ -10,8 +10,19 @@ import ExportDropdown from '../../components/workspace/memory/ExportDropdown';
 import { useGraphData } from '../../hooks/useGraphData';
 import { useQueryMemory } from '../../hooks/useQueryMemory';
 import { useUser } from '../../context/UserContext';
-import type { MemoryNode, MemoryFilter, GraphViewport, FocusMode, WorkspaceMemory } from '../../components/workspace/memory/types';
+import type {
+  MemoryNode,
+  MemoryFilter,
+  GraphViewport,
+  FocusMode,
+  WorkspaceMemory,
+  MemorySearchHit
+} from '../../components/workspace/memory/types';
 import apiService from '../../services/api';
+import {
+  clearWorkspaceMemorySearch,
+  loadWorkspaceMemorySearch
+} from '../../utils/memorySearchSession';
 
 const MemoryView: React.FC = () => {
   const navigate = useNavigate();
@@ -35,6 +46,8 @@ const MemoryView: React.FC = () => {
   const [isQueryPanelOpen, setIsQueryPanelOpen] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [highlightQuery, setHighlightQuery] = useState('');
+  const [semanticSearchHits, setSemanticSearchHits] = useState<MemorySearchHit[]>([]);
+  const [lastMemorySearchQuery, setLastMemorySearchQuery] = useState('');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [workspaceMemory, setWorkspaceMemory] = useState<WorkspaceMemory>({
@@ -59,6 +72,10 @@ const MemoryView: React.FC = () => {
 
   const { graphData, loading: graphLoading, error } = useGraphData(workspaceId || '', filters);
   const { queryMemory, isQuerying } = useQueryMemory(workspaceId || '');
+
+  // Note: Smart Search results are saved to session storage by SmartSearchModal and useQueryMemory,
+  // but we intentionally do NOT auto-restore them here. Stale search terms from a previous Smart
+  // Search session should not cause unrelated words to be highlighted when the user browses the graph.
 
   useEffect(() => {
     let cancelled = false;
@@ -144,7 +161,13 @@ const MemoryView: React.FC = () => {
   };
 
   const handleAIQuery = async (query: string) => {
+    const trimmed = query.trim();
     const results = await queryMemory(query);
+    setSemanticSearchHits(results?.memorySearchHits ?? []);
+    setLastMemorySearchQuery(trimmed);
+    if (trimmed) {
+      setHighlightQuery(trimmed);
+    }
     if (results && results.results.nodes.length > 0) {
       const matchingIds = results.results.nodes;
       // Highlight the matching nodes and dim everything else in the graph.
@@ -178,6 +201,11 @@ const MemoryView: React.FC = () => {
       relatedNodes: [],
       dimmedNodes: []
     });
+    setSemanticSearchHits([]);
+    setLastMemorySearchQuery('');
+    setHighlightQuery('');
+    const wid = workspaceId ? parseInt(workspaceId, 10) : NaN;
+    if (!Number.isNaN(wid)) clearWorkspaceMemorySearch(wid);
   };
 
   const formatLastUpdate = (dateString: string) => {
@@ -342,6 +370,9 @@ const MemoryView: React.FC = () => {
           onClose={() => setIsContextPanelOpen(false)}
           node={selectedNode}
           graphData={graphData}
+          semanticSearchHits={semanticSearchHits}
+          memorySearchQuery={lastMemorySearchQuery}
+          graphHighlightQuery={highlightQuery}
         />
 
         {/* Memory Query Bar */}

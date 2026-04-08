@@ -437,9 +437,9 @@ IMPORTANT INSTRUCTIONS FOR ACTION ITEMS:
 - Create a CONCISE, MEANINGFUL title for each action item (max 80 characters)
 - The title should be action-oriented and clearly state WHAT needs to be done
 - Remove verbal filler like "I will", "We need to", "Let's", etc. from titles
-- Use imperative form when possible (e.g., "Review Q3 budget proposal" not "We need to review Q3 budget proposal")
+- Use imperative form when possible (e.g., "Review budget proposal" not "We need to review the budget proposal")
 - Examples of good titles:
-  * "Review Q3 budget proposal"
+  * "Review budget proposal"
   * "Update database migration timeline"
   * "Schedule follow-up meeting with client"
   * "Prepare sales presentation for board"
@@ -470,11 +470,11 @@ Return ONLY a JSON object with this exact structure:
 {{
   "action_items": [
     {{
-      "title": "Review Q3 budget proposal",
-      "description": "John mentioned he will review the Q3 budget proposal and provide feedback to the team by end of week",
-      "assignee": "John",
-      "dueDate": "2024-03-15",
-      "confidence": 0.9
+      "title": "<concise action title>",
+      "description": "<context and details from transcript>",
+      "assignee": "<name if explicitly mentioned, otherwise null>",
+      "dueDate": "<YYYY-MM-DD if explicitly mentioned, otherwise null>",
+      "confidence": 0.0
     }}
   ]
 }}

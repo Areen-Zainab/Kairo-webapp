@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { AnalyticsChatProps } from './types';
+import { ChatMessageMarkdown } from '../../common/ChatMessageMarkdown';
 
 const AnalyticsChat: React.FC<AnalyticsChatProps> = ({
   isOpen,
@@ -143,7 +144,11 @@ const AnalyticsChat: React.FC<AnalyticsChatProps> = ({
                     : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white'
                 }`}
               >
-                <p className="text-sm">{msg.text}</p>
+                {msg.sender === 'user' ? (
+                  <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                ) : (
+                  <ChatMessageMarkdown content={msg.text} className="text-slate-900 dark:text-white" />
+                )}
                 <p className="text-xs opacity-70 mt-1">
                   {msg.timestamp.toLocaleTimeString()}
                 </p>

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, forwardRef } from 'react';
 import type { GraphData, MemoryNode, GraphViewport, FocusMode } from './types';
+import { getTopicDisplay } from './topicDisplay';
 
 interface GraphCanvasProps {
   data: GraphData;
@@ -143,13 +144,15 @@ const GraphCanvas = forwardRef<HTMLCanvasElement, GraphCanvasProps>(({
     
     ctx.fillText(iconMap[node.type], x, y);
 
-    // Draw label
+    // Draw label (topic labels may be stored as JSON strings — show title only)
     if (viewport.zoom > 0.5) {
+      const labelText =
+        node.type === 'topic' ? getTopicDisplay(node).title : node.label;
       ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
       ctx.font = `${size * 0.3}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText(node.label, x, y + size + 5);
+      ctx.fillText(labelText, x, y + size + 5);
     }
 
     ctx.restore();

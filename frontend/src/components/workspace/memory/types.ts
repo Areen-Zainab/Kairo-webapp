@@ -7,6 +7,7 @@ export interface MemoryNode {
   label: string;
   summary: string;
   data: {
+    mentions: number | undefined;
     // Meeting data
     date?: string;
     duration?: string;
@@ -17,16 +18,31 @@ export interface MemoryNode {
     keywords?: string[];
     importance?: number;
     lastDiscussed?: string;
+    /** When topic comes from structured `key_topics` (name / mentions / sentiment) */
+    sentiment?: string;
     
     // Decision data
     decisionStatus?: 'active' | 'superseded' | 'pending';
     impact?: 'high' | 'medium' | 'low';
     
-    // Action data
+    // Action / task (graph task nodes)
     assignee?: string;
     dueDate?: string;
     priority?: 'urgent' | 'high' | 'medium' | 'low';
     actionStatus?: 'todo' | 'in-progress' | 'completed';
+    taskId?: number;
+    actionItemId?: number;
+    /** Source meeting for this task (graph link) */
+    meetingId?: number;
+    /** Kanban column name at graph build time */
+    kanbanColumnName?: string;
+    /** Populated for task nodes derived from a confirmed action item */
+    sourceActionItem?: {
+      id: number;
+      title: string;
+      description?: string;
+      status?: string;
+    };
     
     // Member data
     role?: string;
@@ -76,6 +92,15 @@ export interface ContextPanelTab {
   icon: string;
 }
 
+/** One row from hybrid memory search (per meeting after dedupe, best chunk). */
+export interface MemorySearchHit {
+  meetingId: number;
+  snippet: string;
+  content?: string;
+  matchedTerms?: string[];
+  contentType?: string;
+}
+
 export interface AIQuery {
   query: string;
   timestamp: number;
@@ -84,6 +109,8 @@ export interface AIQuery {
     edges: string[];
     confidence: number;
   };
+  /** Raw search hits so the context panel can show the retrieved chunk, not only the first transcript chunk on the graph node. */
+  memorySearchHits?: MemorySearchHit[];
 }
 
 export interface MemoryExport {

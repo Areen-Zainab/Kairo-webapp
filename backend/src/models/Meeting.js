@@ -547,20 +547,29 @@ class Meeting {
         throw new Error('Meeting not found');
       }
 
+      const statusChanged = existingMeeting.status !== status;
+
       // Update status
       const updatedMeeting = await tx.meeting.update({
         where: { id },
         data: { status }
       });
 
+      // Skip notifications if status did not change (idempotent PATCH) or if completion
+      // is handled by NotificationService.notifyMeetingEnded in the status route (bulk workspace).
+      if (!statusChanged) {
+        return updatedMeeting;
+      }
+
+      if (status === 'completed') {
+        return updatedMeeting;
+      }
+
       // Determine status change message
       let statusMessage = '';
       switch (status) {
         case 'cancelled':
           statusMessage = 'cancelled';
-          break;
-        case 'completed':
-          statusMessage = 'completed';
           break;
         case 'in-progress':
           statusMessage = 'is now in progress';

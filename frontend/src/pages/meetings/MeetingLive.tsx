@@ -221,12 +221,52 @@ const LiveMeetingView = () => {
   const joinRequestInProgressRef = useRef(false); // Atomic flag to prevent duplicate join requests
   const privacyToggleRequestIdRef = useRef(0);
 
-  const participants: Participant[] = [
-    { id: '1', name: 'Kairo Bot', avatar: 'KB', isMuted: false, isVideoOn: false, isSpeaking: false },
-    { id: '2', name: 'Sana Khan', avatar: 'SK', isMuted: false, isVideoOn: true, isSpeaking: true },
-    { id: '3', name: 'Muhammad Ali', avatar: 'MA', isMuted: true, isVideoOn: true, isSpeaking: false },
-    { id: '4', name: 'Fatima Sheikh', avatar: 'FS', isMuted: false, isVideoOn: false, isSpeaking: false },
-  ];
+  const getInitials = (name: string) => {
+    const cleaned = (name || '').trim();
+    if (!cleaned) return '?';
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    const letters = parts.slice(0, 2).map(p => p[0]?.toUpperCase()).filter(Boolean);
+    if (letters.length >= 2) return `${letters[0]}${letters[1]}`;
+    const single = parts[0] || cleaned;
+    return single.slice(0, 2).toUpperCase();
+  };
+
+  const participants: Participant[] = (() => {
+    const meetingParticipants = Array.isArray(meeting?.participants) ? meeting.participants : [];
+
+    const mapped: Participant[] = meetingParticipants.map((p: any) => {
+      const user = p?.user ?? p;
+      const name = user?.name || user?.email || p?.name || p?.email || 'Participant';
+      const id = String(user?.id ?? p?.id ?? user?.email ?? name);
+      return {
+        id,
+        name,
+        avatar: getInitials(name),
+        isMuted: false,
+        isVideoOn: true,
+        isSpeaking: false,
+      };
+    });
+
+    const bot: Participant = {
+      id: 'kairo-bot',
+      name: 'Kairo Bot',
+      avatar: 'KB',
+      isMuted: false,
+      isVideoOn: false,
+      isSpeaking: false,
+    };
+
+    // Keep bot first, then unique real participants (by id).
+    const seen = new Set<string>([bot.id]);
+    const uniqueMapped = mapped.filter(p => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+
+    return [bot, ...uniqueMapped];
+  })();
 
   // Get live transcript entries from backend
   const meetingId = meeting ? parseInt(meeting.id) : null;
@@ -374,7 +414,7 @@ const LiveMeetingView = () => {
       setIsPrivacyMode(enabled);
       const id = Date.now().toString();
       const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      const type = (enabled ? 'privacy-on' : 'privacy-off') as const;
+      const type: TranscriptEntry['systemMessageType'] = enabled ? 'privacy-on' : 'privacy-off';
       setSystemMessages(prevMsgs => {
         const last = prevMsgs[prevMsgs.length - 1];
         if (last && last.isSystemMessage && last.systemMessageType === type) {

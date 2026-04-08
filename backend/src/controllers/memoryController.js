@@ -6,6 +6,54 @@ const memoryGraphAssemblyService = require("../services/MemoryGraphAssemblyServi
 const meetingMemoryChatService = require("../services/MeetingMemoryChatService");
 const { getLiveTranscriptEntries } = require("../utils/meetingFileStorage");
 
+const HIGHLIGHT_STOP_WORDS = new Set([
+  "the", "and", "for", "are", "but", "not", "you", "all", "can", "her", "was", "one", "our", "out", "day", "get", "has", "him", "his", "how", "its", "may", "new", "now", "old", "see", "two", "way", "who", "boy", "did", "had", "let", "put", "say", "she", "too", "use",
+  "what", "when", "where", "which", "from", "that", "this", "with", "have", "were", "will", "into", "about", "them", "they", "their", "your", "does", "then", "than", "also", "just", "some"
+]);
+
+/**
+ * Prefer a window around the first literal match of the query or any term (embedding chunks are long).
+ */
+function buildSnippetAroundMatch(content, effectiveQuery, terms, maxLen = 320) {
+  const text = typeof content === "string" ? content.trim() : "";
+  if (!text) return "";
+  if (text.length <= maxLen) return text;
+
+  const lower = text.toLowerCase();
+  const qNorm = String(effectiveQuery || "").trim().toLowerCase().replace(/\s+/g, " ");
+  let bestPos = -1;
+
+  if (qNorm.length >= 2) {
+    const idx = lower.indexOf(qNorm);
+    if (idx >= 0) bestPos = idx;
+  }
+
+  const sortedTerms = [...(terms || [])].map((t) => String(t || "").trim()).filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const t of sortedTerms) {
+    if (t.length < 2) continue;
+    const idx = lower.indexOf(t.toLowerCase());
+    if (idx >= 0 && (bestPos < 0 || idx < bestPos)) bestPos = idx;
+  }
+
+  if (bestPos < 0) {
+    return text.length > maxLen ? `${text.slice(0, maxLen).trim()}…` : text;
+  }
+
+  const half = Math.floor(maxLen / 2);
+  let start = Math.max(0, bestPos - half);
+  let end = Math.min(text.length, start + maxLen);
+  if (end - start < maxLen) start = Math.max(0, end - maxLen);
+
+  if (start > 0) {
+    const sp = text.lastIndexOf(" ", start);
+    if (sp > start - 48 && sp >= 0) start = sp + 1;
+  }
+
+  const prefix = start > 0 ? "…" : "";
+  const suffix = end < text.length ? "…" : "";
+  return `${prefix}${text.slice(start, end).trim()}${suffix}`;
+}
+
 /**
  * Perform a hybrid (semantic + full-text) search on the workspace's meeting memories
  */
@@ -39,13 +87,12 @@ exports.semanticSearch = async (req, res) => {
       return res.status(403).json({ error: "You do not have access to this workspace." });
     }
 
-    // Extract meaningful terms from query (strip stop words shorter than 3 chars)
-    const STOP_WORDS = new Set(['the','and','for','are','but','not','you','all','can','her','was','one','our','out','day','get','has','him','his','how','its','may','new','now','old','see','two','way','who','boy','did','had','let','put','say','she','too','use']);
+    // Terms for client highlighting (2+ chars so "ui", "qa", etc. still mark when present in text)
     const matchedTerms = effectiveQuery
       .toLowerCase()
       .split(/\s+/)
-      .map(w => w.replace(/[^a-z0-9]/gi, ''))
-      .filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+      .map((w) => w.replace(/[^a-z0-9]/gi, ""))
+      .filter((w) => w.length >= 2 && !HIGHLIGHT_STOP_WORDS.has(w));
 
     // Use hybrid search (pgvector + FTS)
     const results = await meetingEmbeddingService.hybridSearchWorkspaceMeetings(
@@ -57,7 +104,7 @@ exports.semanticSearch = async (req, res) => {
     // Format results and dedupe so each meeting appears once (best match wins).
     const formattedResults = (results || []).map((r) => {
       const content = typeof r.content === "string" ? r.content : "";
-      const snippet = content.length > 200 ? `${content.slice(0, 200)}…` : content;
+      const snippet = buildSnippetAroundMatch(content, effectiveQuery, matchedTerms, 320);
 
       return {
         id: r.id,
@@ -422,5 +469,304 @@ exports.getNodeNeighbours = async (req, res) => {
   } catch (error) {
     console.error("Error in getNodeNeighbours:", error);
     res.status(500).json({ error: "An error occurred while fetching node neighbours." });
+  }
+};
+
+/**
+ * Meeting Tasks tab: board tasks from this meeting + pending action items not yet tasks.
+ * GET /api/workspaces/:workspaceId/memory/meetings/:meetingId/tasks-panel
+ */
+exports.getMeetingTasksPanel = async (req, res) => {
+  try {
+    const workspaceIdInt = parseInt(req.params.workspaceId, 10);
+    const meetingId = parseInt(req.params.meetingId, 10);
+
+    if (Number.isNaN(workspaceIdInt) || Number.isNaN(meetingId)) {
+      return res.status(400).json({ error: "Valid workspace and meeting IDs are required." });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: workspaceIdInt, userId: req.user.id } }
+    });
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    const meeting = await prisma.meeting.findFirst({
+      where: { id: meetingId, workspaceId: workspaceIdInt },
+      select: { id: true }
+    });
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found in this workspace." });
+    }
+
+    const tasks = await prisma.task.findMany({
+      where: {
+        workspaceId: workspaceIdInt,
+        actionItem: { is: { meetingId } }
+      },
+      include: {
+        column: { select: { name: true } },
+        actionItem: { select: { id: true, title: true, status: true } }
+      },
+      orderBy: { updatedAt: "desc" }
+    });
+
+    const pendingActionItems = await prisma.actionItem.findMany({
+      where: {
+        meetingId,
+        status: "pending",
+        task: null
+      },
+      orderBy: [{ lastSeenAt: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        assignee: true,
+        dueDate: true,
+        lastSeenAt: true
+      }
+    });
+
+    const formatTask = (t) => ({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      assignee: t.assignee,
+      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+      priority: t.priority,
+      columnName: t.column?.name || null,
+      actionItemId: t.actionItemId,
+      updatedAt: t.updatedAt.toISOString()
+    });
+
+    const formatPending = (a) => ({
+      id: a.id,
+      title: a.title,
+      description: a.description,
+      assignee: a.assignee,
+      dueDate: a.dueDate ? a.dueDate.toISOString() : null,
+      lastSeenAt: a.lastSeenAt ? a.lastSeenAt.toISOString() : null
+    });
+
+    res.json({
+      success: true,
+      tasks: tasks.map(formatTask),
+      pendingActionItems: pendingActionItems.map(formatPending)
+    });
+  } catch (error) {
+    console.error("Error in getMeetingTasksPanel:", error);
+    res.status(500).json({ error: "An error occurred while loading meeting tasks." });
+  }
+};
+
+function normalizePersonLabel(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Member graph node: resolve workspace user + meetings + assigned tasks + stats.
+ * GET /api/workspaces/:workspaceId/memory/member-insights?label=Display+Name
+ */
+exports.getMemberInsights = async (req, res) => {
+  try {
+    const workspaceIdInt = parseInt(req.params.workspaceId, 10);
+    const label = typeof req.query.label === "string" ? req.query.label.trim() : "";
+
+    if (Number.isNaN(workspaceIdInt)) {
+      return res.status(400).json({ error: "Valid workspace ID is required." });
+    }
+    if (!label) {
+      return res.status(400).json({ error: "Query parameter label is required." });
+    }
+
+    const membership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: workspaceIdInt, userId: req.user.id } }
+    });
+    if (!membership || !membership.isActive) {
+      return res.status(403).json({ error: "You do not have access to this workspace." });
+    }
+
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspaceId: workspaceIdInt, isActive: true },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      }
+    });
+
+    const normLabel = normalizePersonLabel(label);
+    let matched = members.find((m) => normalizePersonLabel(m.user.name) === normLabel);
+    if (!matched) {
+      matched = members.find(
+        (m) => m.user.email.toLowerCase() === label.toLowerCase()
+      );
+    }
+    if (!matched && normLabel.length >= 2) {
+      const words = normLabel.split(" ").filter((w) => w.length >= 2);
+      if (words.length) {
+        matched = members.find((m) => {
+          const nn = normalizePersonLabel(m.user.name);
+          return words.every((w) => nn.includes(w));
+        });
+      }
+    }
+
+    const isCompleteColumn = (name) => {
+      const n = String(name || "").toLowerCase();
+      return n.includes("complete") || n === "done";
+    };
+
+    if (!matched) {
+      const tasksByAssignee = await prisma.task.findMany({
+        where: {
+          workspaceId: workspaceIdInt,
+          assignee: { contains: label, mode: "insensitive" }
+        },
+        include: {
+          column: { select: { name: true } },
+          actionItem: {
+            include: {
+              meeting: { select: { id: true, title: true, startTime: true } }
+            }
+          }
+        },
+        orderBy: { updatedAt: "desc" }
+      });
+
+      const completed = tasksByAssignee.filter((t) => isCompleteColumn(t.column?.name));
+      const latestDone = completed[0] || null;
+
+      return res.json({
+        success: true,
+        resolved: false,
+        label,
+        user: null,
+        meetings: [],
+        tasks: tasksByAssignee.map((t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          assignee: t.assignee,
+          dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+          priority: t.priority,
+          columnName: t.column?.name || null,
+          updatedAt: t.updatedAt.toISOString(),
+          meetingId: t.actionItem?.meetingId || null,
+          meetingTitle: t.actionItem?.meeting?.title || null
+        })),
+        stats: {
+          meetingsAttended: 0,
+          tasksAssigned: tasksByAssignee.length,
+          tasksCompleted: completed.length,
+          latestMeeting: null,
+          latestCompletedTask: latestDone
+            ? {
+                id: latestDone.id,
+                title: latestDone.title,
+                updatedAt: latestDone.updatedAt.toISOString()
+              }
+            : null
+        }
+      });
+    }
+
+    const userId = matched.userId;
+    const user = matched.user;
+
+    const meetings = await prisma.meeting.findMany({
+      where: {
+        workspaceId: workspaceIdInt,
+        participants: { some: { userId } }
+      },
+      select: {
+        id: true,
+        title: true,
+        startTime: true,
+        endTime: true,
+        status: true,
+        duration: true
+      },
+      orderBy: { startTime: "desc" }
+    });
+
+    const tasks = await prisma.task.findMany({
+      where: {
+        workspaceId: workspaceIdInt,
+        OR: [
+          { assignee: { equals: user.name, mode: "insensitive" } },
+          { assignee: { equals: user.email, mode: "insensitive" } }
+        ]
+      },
+      include: {
+        column: { select: { name: true } },
+        actionItem: {
+          include: {
+            meeting: { select: { id: true, title: true, startTime: true } }
+          }
+        }
+      },
+      orderBy: { updatedAt: "desc" }
+    });
+
+    const completed = tasks.filter((t) => isCompleteColumn(t.column?.name));
+    const latestDone = completed[0] || null;
+    const latestMeeting = meetings[0] || null;
+
+    res.json({
+      success: true,
+      resolved: true,
+      label,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      },
+      meetings: meetings.map((m) => ({
+        id: m.id,
+        title: m.title,
+        startTime: m.startTime.toISOString(),
+        endTime: m.endTime ? m.endTime.toISOString() : null,
+        status: m.status,
+        duration: m.duration
+      })),
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        assignee: t.assignee,
+        dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+        priority: t.priority,
+        columnName: t.column?.name || null,
+        updatedAt: t.updatedAt.toISOString(),
+        meetingId: t.actionItem?.meetingId || null,
+        meetingTitle: t.actionItem?.meeting?.title || null
+      })),
+      stats: {
+        meetingsAttended: meetings.length,
+        tasksAssigned: tasks.length,
+        tasksCompleted: completed.length,
+        latestMeeting: latestMeeting
+          ? {
+              id: latestMeeting.id,
+              title: latestMeeting.title,
+              startTime: latestMeeting.startTime.toISOString()
+            }
+          : null,
+        latestCompletedTask: latestDone
+          ? {
+              id: latestDone.id,
+              title: latestDone.title,
+              updatedAt: latestDone.updatedAt.toISOString()
+            }
+          : null
+      }
+    });
+  } catch (error) {
+    console.error("Error in getMemberInsights:", error);
+    res.status(500).json({ error: "An error occurred while loading member insights." });
   }
 };

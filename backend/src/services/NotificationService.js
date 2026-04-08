@@ -298,6 +298,78 @@ class NotificationService {
   }
 
   /**
+   * Resolve assignee string (email, full name, or first name) to a workspace member user id.
+   * @returns {Promise<number|null>}
+   */
+  static async resolveAssigneeToUserId(assigneeString, workspaceId) {
+    if (!assigneeString || !String(assigneeString).trim()) return null;
+    const norm = (s) => String(s).trim().toLowerCase();
+    const a = norm(assigneeString);
+
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspaceId: parseInt(String(workspaceId), 10), isActive: true },
+      include: {
+        user: { select: { id: true, email: true, name: true } }
+      }
+    });
+
+    for (const m of members) {
+      const u = m.user;
+      if (!u) continue;
+      if (norm(u.email) === a) return u.id;
+      if (u.name && norm(u.name) === a) return u.id;
+      const first = (u.name || '').split(/\s+/)[0];
+      if (first && norm(first) === a) return u.id;
+    }
+    return null;
+  }
+
+  /**
+   * In-app notification when a user is assigned a task (create or assignee change).
+   * Skips self-assignment, unresolved assignee strings, and duplicate assignee on update.
+   */
+  static async notifyTaskAssigned({
+    task,
+    workspaceId,
+    workspaceName,
+    actorUserId,
+    previousAssignee
+  }) {
+    try {
+      const assigneeStr = task.assignee;
+      if (!assigneeStr || !String(assigneeStr).trim()) return;
+
+      const norm = (s) => (s == null || s === '' ? '' : String(s).trim().toLowerCase());
+      const prev = previousAssignee === undefined ? null : norm(previousAssignee);
+      const next = norm(assigneeStr);
+      if (prev !== null && prev === next) return;
+
+      const assigneeUserId = await this.resolveAssigneeToUserId(assigneeStr, workspaceId);
+      if (!assigneeUserId) return;
+
+      if (actorUserId != null && assigneeUserId === actorUserId) return;
+
+      const settings = await prisma.notificationSettings.findUnique({
+        where: { userId: assigneeUserId }
+      });
+      if (settings && settings.inAppSharedWithYou === false) return;
+
+      await this.createNotification({
+        userId: assigneeUserId,
+        title: 'Task assigned to you',
+        message: `You were assigned "${task.title || 'Task'}" in ${workspaceName || 'your workspace'}`,
+        type: 'task_assigned',
+        priority: 'high',
+        workspace: workspaceName || null,
+        actionRequired: true,
+        relatedId: `task_${task.id}`
+      });
+    } catch (error) {
+      console.error('[NotificationService] notifyTaskAssigned:', error);
+    }
+  }
+
+  /**
    * Notify when workspace is deleted
    */
   static async notifyWorkspaceDeleted(workspace) {

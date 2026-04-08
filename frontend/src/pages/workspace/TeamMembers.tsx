@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { UserPlus, Search, MoreVertical, Crown, Trash2, Shield, Eye, Edit3, TrendingUp, Users, BarChart3, Clock, MessageSquare, Loader2 } from 'lucide-react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { UserPlus, Search, MoreVertical, Crown, Trash2, Shield, Eye, Edit3, Users, BarChart3, Loader2, CalendarDays, Mic, ClipboardList, CheckCircle2, Activity, ArrowUpRight } from 'lucide-react';
 import Layout from '../../components/Layout';
 import AddMemberModal from '../../modals/workspace/AddMember';
 import { useUser } from '../../context/UserContext';
@@ -17,6 +17,43 @@ const MOCK_MEMBERS = [
   { id: 5, userId: 5, name: 'Javeria Butt', email: 'javeria.b@company.com', role: 'Observer', status: 'invited' as const, avatar: 'JB', contributions: 0, meetings: 0, messages: 0 },
   { id: 6, userId: 6, name: 'Ali Hassan', email: 'ali.h@company.com', role: 'Member', status: 'active' as const, avatar: 'AH', contributions: 89, meetings: 17, messages: 612 },
 ];
+
+/** Demo-only payload shaped like workspace analytics for the Insights tab */
+const buildDemoTeamAnalytics = () => {
+  const active = MOCK_MEMBERS.filter(m => m.status === 'active');
+  return {
+    totalMeetings: 42,
+    completedMeetings: 38,
+    totalParticipants: active.length,
+    participantsWithAttendance: active.length,
+    averageAttendanceRate: 88.2,
+    totalActionItems: 156,
+    taskStats: {
+      total: 89,
+      byAssignee: [...active]
+        .sort((a, b) => b.contributions - a.contributions)
+        .map(m => ({
+          assignee: m.name,
+          total: Math.max(1, Math.round(m.contributions / 4)),
+          completed: Math.max(0, Math.round(m.contributions / 10)),
+          pending: 3,
+          overdue: 0,
+        })),
+    },
+    topParticipants: [...active]
+      .map(m => ({
+        userId: m.userId,
+        name: m.name,
+        email: m.email,
+        profilePictureUrl: undefined as string | undefined,
+        meetingsAttended: m.meetings,
+        totalMeetings: m.meetings + 2,
+        hostedMeetings: m.role === 'Owner' ? 12 : m.role === 'Admin' ? 5 : m.meetings >= 20 ? 2 : 0,
+        attendanceRate: Math.min(100, Math.round((m.meetings / (m.meetings + 2)) * 100)),
+      }))
+      .sort((a, b) => b.meetingsAttended - a.meetingsAttended),
+  };
+};
 
 interface WorkspaceMember {
   id: number;
@@ -70,6 +107,10 @@ export default function WorkspaceMembersPage() {
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const [activeTab, setActiveTab] = useState('members');
   const [currentUserRole, setCurrentUserRole] = useState<string>('member'); // Track current user's role
+
+  const [workspaceAnalytics, setWorkspaceAnalytics] = useState<Record<string, unknown> | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsTimeRange, setInsightsTimeRange] = useState<'week' | 'month' | 'quarter' | 'year' | 'all'>('all');
 
   // Check if demo account
   const shouldShowDummyData = user?.email?.toLowerCase() === 'areeba@kairo.com';
@@ -173,6 +214,33 @@ export default function WorkspaceMembersPage() {
 
     fetchData();
   }, [workspaceId, shouldShowDummyData, user]);
+
+  useEffect(() => {
+    if (shouldShowDummyData) {
+      setWorkspaceAnalytics(buildDemoTeamAnalytics() as unknown as Record<string, unknown>);
+      return;
+    }
+    if (!workspaceId || !user) return;
+
+    let cancelled = false;
+    (async () => {
+      setInsightsLoading(true);
+      try {
+        const res = await apiService.getWorkspaceAnalytics(parseInt(workspaceId, 10), insightsTimeRange);
+        if (!cancelled) {
+          if (res.data?.analytics) setWorkspaceAnalytics(res.data.analytics as Record<string, unknown>);
+          else setWorkspaceAnalytics(null);
+        }
+      } catch {
+        if (!cancelled) setWorkspaceAnalytics(null);
+      } finally {
+        if (!cancelled) setInsightsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, shouldShowDummyData, user, insightsTimeRange]);
 
   // Refresh data after inviting members
   const handleInviteClose = async () => {
@@ -349,25 +417,54 @@ export default function WorkspaceMembersPage() {
     }
   };
 
-  const activeOnlyMembers = members.filter(m => m.status === 'active');
-  
-  const topContributors = [...activeOnlyMembers]
-    .sort((a, b) => b.contributions - a.contributions)
-    .slice(0, 3);
-
-  const topMeetingSpeakers = [...activeOnlyMembers]
-    .sort((a, b) => b.meetings - a.meetings)
-    .slice(0, 3);
-
-  const topMessagers = [...activeOnlyMembers]
-    .sort((a, b) => b.messages - a.messages)
-    .slice(0, 3);
-
   const totalMembers = allMembers.length;
   const activeMembers = members.length;
   const pendingInvitesCount = pendingInvites.length;
-  const totalContributions = members.reduce((sum, m) => sum + m.contributions, 0);
-  const totalMeetings = members.reduce((sum, m) => sum + m.meetings, 0);
+
+  type ParticipantInsight = {
+    userId: number;
+    name: string;
+    email?: string;
+    profilePictureUrl?: string;
+    meetingsAttended: number;
+    totalMeetings: number;
+    hostedMeetings: number;
+    attendanceRate: number;
+  };
+
+  const insights = workspaceAnalytics as {
+    totalMeetings?: number;
+    completedMeetings?: number;
+    totalParticipants?: number;
+    participantsWithAttendance?: number;
+    averageAttendanceRate?: number;
+    totalActionItems?: number;
+    taskStats?: {
+      total?: number;
+      byAssignee?: Array<{ assignee: string; total: number; completed: number; pending: number; overdue: number }>;
+    };
+    topParticipants?: ParticipantInsight[];
+  } | null;
+
+  const topParticipantsSorted = [...(insights?.topParticipants || [])].sort(
+    (a, b) => b.meetingsAttended - a.meetingsAttended
+  );
+  const topByAttendance = topParticipantsSorted.slice(0, 3);
+  const topHosts = [...topParticipantsSorted]
+    .filter(p => p.hostedMeetings > 0)
+    .sort((a, b) => b.hostedMeetings - a.hostedMeetings)
+    .slice(0, 3);
+  const topAssignees = [...(insights?.taskStats?.byAssignee || [])]
+    .sort((a, b) => (b.total || 0) - (a.total || 0))
+    .slice(0, 3);
+
+  const timeRangeLabel: Record<typeof insightsTimeRange, string> = {
+    week: 'Last 7 days',
+    month: 'Last 30 days',
+    quarter: 'Last 90 days',
+    year: 'Last 12 months',
+    all: 'All time',
+  };
 
   return (
     <Layout>
@@ -641,128 +738,258 @@ export default function WorkspaceMembersPage() {
         </>
         ) : (
           <div className="space-y-6">
-            {/* Overview Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm">Total Members</p>
-                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">{totalMembers}</p>
+            {insightsLoading && !shouldShowDummyData ? (
+              <div className="rounded-lg border p-12 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50 flex flex-col items-center justify-center">
+                <Loader2 className="w-10 h-10 animate-spin text-purple-600 mb-4" />
+                <p className="text-gray-600 dark:text-gray-400">Loading team insights…</p>
+              </div>
+            ) : !insightsLoading && !insights && !shouldShowDummyData ? (
+              <div className="rounded-lg border p-12 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50 flex flex-col items-center text-center">
+                <BarChart3 className="w-12 h-12 text-gray-400 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Could not load insights</h3>
+                <p className="text-gray-600 dark:text-gray-400 max-w-md text-sm">Try refreshing the page. If the problem continues, open Analytics from the workspace menu.</p>
+              </div>
+            ) : (() => {
+              const hasInsightData =
+                insights &&
+                ((insights.totalMeetings ?? 0) > 0 ||
+                  (insights.topParticipants?.length ?? 0) > 0 ||
+                  (insights.taskStats?.total ?? 0) > 0);
+              if (!hasInsightData) {
+                return (
+                  <div className="rounded-lg border p-12 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50 flex flex-col items-center text-center">
+                    <CalendarDays className="w-12 h-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No meeting data in this range</h3>
+                    <p className="text-gray-600 dark:text-gray-400 max-w-md text-sm">
+                      {insightsTimeRange === 'all'
+                        ? 'Create meetings in this workspace to see who attends, hosts, and owns tasks.'
+                        : `Nothing in ${timeRangeLabel[insightsTimeRange].toLowerCase()}. Try "All time" or a wider range.`}
+                    </p>
                   </div>
-                  <Users className="text-purple-400" size={32} />
+                );
+              }
+              return (
+              <>
+            {shouldShowDummyData && (
+              <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/25 rounded-lg px-3 py-2 border border-amber-200 dark:border-amber-800/50">
+                Showing sample insight data for this demo account.
+              </p>
+            )}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Based on workspace meetings and the task board. Period: <span className="font-medium text-gray-800 dark:text-gray-200">{timeRangeLabel[insightsTimeRange]}</span>.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {(['week', 'month', 'quarter', 'year', 'all'] as const).map(range => (
+                  <button
+                    key={range}
+                    type="button"
+                    disabled={shouldShowDummyData}
+                    onClick={() => setInsightsTimeRange(range)}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                      shouldShowDummyData
+                        ? 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-600'
+                        : insightsTimeRange === range
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {range === 'all' ? 'All' : range.charAt(0).toUpperCase() + range.slice(1)}
+                  </button>
+                ))}
+                {workspaceId && (
+                  <Link
+                    to={`/workspace/${workspaceId}/analytics`}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 hover:text-purple-500 dark:text-purple-400"
+                  >
+                    Full analytics <ArrowUpRight className="w-3.5 h-3.5" />
+                  </Link>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="rounded-lg border p-5 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-gray-600 dark:text-gray-400 text-sm">Workspace meetings</p>
+                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1 tabular-nums">{insights?.totalMeetings ?? 0}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                      {insights?.completedMeetings ?? 0} completed
+                    </p>
+                  </div>
+                  <CalendarDays className="text-purple-400 shrink-0" size={28} />
                 </div>
               </div>
-              <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
-                <div className="flex items-center justify-between">
+              <div className="rounded-lg border p-5 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+                <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm">Active Members</p>
-                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">{activeMembers}</p>
-                    {pendingInvitesCount > 0 && (
-                      <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                        +{pendingInvitesCount} pending
-                      </p>
-                    )}
+                    <p className="text-gray-600 dark:text-gray-400 text-sm">Team roster</p>
+                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1 tabular-nums">{totalMembers}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                      {activeMembers} active
+                      {pendingInvitesCount > 0 ? ` · ${pendingInvitesCount} invited` : ''}
+                    </p>
                   </div>
-                  <TrendingUp className="text-green-400" size={32} />
+                  <Users className="text-indigo-400 shrink-0" size={28} />
                 </div>
               </div>
-              <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm">Total Contributions</p>
-                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">{totalContributions}</p>
+              <div className="rounded-lg border p-5 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-gray-600 dark:text-gray-400 text-sm">In meetings</p>
+                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1 tabular-nums">{insights?.totalParticipants ?? 0}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                      {insights?.participantsWithAttendance ?? 0} attended ≥1
+                    </p>
                   </div>
-                  <BarChart3 className="text-blue-400" size={32} />
+                  <Activity className="text-emerald-400 shrink-0" size={28} />
                 </div>
               </div>
-              <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm">Total Meetings</p>
-                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">{totalMeetings}</p>
+              <div className="rounded-lg border p-5 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-gray-600 dark:text-gray-400 text-sm">Avg attendance</p>
+                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1 tabular-nums">
+                      {(insights?.averageAttendanceRate ?? 0).toFixed(0)}%
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                      {insights?.totalActionItems ?? 0} action items tracked
+                    </p>
                   </div>
-                  <Clock className="text-yellow-400" size={32} />
+                  <CheckCircle2 className="text-amber-400 shrink-0" size={28} />
                 </div>
               </div>
             </div>
-  
-            {/* Top Contributors */}
+
             <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
-              <div className="flex items-center gap-2 mb-4">
-                <TrendingUp size={20} className="text-purple-400" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Top Contributors</h2>
+              <div className="flex items-center gap-2 mb-1">
+                <Activity size={20} className="text-purple-400" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Most active in meetings</h2>
               </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Ranked by meetings attended (joined live, marked attended, or present when the meeting completed).
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {topContributors.map((member, index) => (
-                  <div key={member.id} className="rounded-md p-4 border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/30">
+                {topByAttendance.length > 0 ? topByAttendance.map((p, index) => (
+                  <div key={p.userId} className="rounded-md p-4 border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/30">
                     <div className="flex items-center gap-3 mb-2">
-                      <UserAvatar name={member.name} profilePictureUrl={member.profilePictureUrl} size="md" />
-                      <div className="flex-1">
-                        <p className="text-gray-900 dark:text-white font-medium text-sm">{member.name}</p>
-                        <p className="text-gray-600 dark:text-gray-400 text-xs">{member.role}</p>
+                      <UserAvatar name={p.name} profilePictureUrl={p.profilePictureUrl} size="md" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-gray-900 dark:text-white font-medium text-sm truncate">{p.name}</p>
+                        <p className="text-gray-600 dark:text-gray-400 text-xs truncate">{p.email}</p>
                       </div>
-                      <div className="text-2xl">{['🥇', '🥈', '🥉'][index]}</div>
+                      <span className="text-xl shrink-0">{['🥇', '🥈', '🥉'][index]}</span>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700/50 space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">Attended</span>
+                        <span className="font-semibold text-purple-600 dark:text-purple-400 tabular-nums">{p.meetingsAttended}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">On calendar</span>
+                        <span className="text-gray-700 dark:text-gray-300 tabular-nums">{p.totalMeetings}</span>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-600 dark:text-gray-400">Attendance rate</span>
+                          <span className="font-medium text-gray-800 dark:text-gray-200 tabular-nums">{p.attendanceRate.toFixed(0)}%</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              p.attendanceRate >= 80 ? 'bg-emerald-500' : p.attendanceRate >= 50 ? 'bg-amber-500' : 'bg-red-500'
+                            }`}
+                            style={{ width: `${Math.min(p.attendanceRate, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 col-span-full">No participant data for this range.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
+              <div className="flex items-center gap-2 mb-1">
+                <Mic size={20} className="text-blue-400" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Top hosts</h2>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                People who hosted or owned the meeting session in this workspace (by count).
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {topHosts.length > 0 ? topHosts.map((p, index) => (
+                  <div key={`host-${p.userId}`} className="rounded-md p-4 border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/30">
+                    <div className="flex items-center gap-3 mb-2">
+                      <UserAvatar name={p.name} profilePictureUrl={p.profilePictureUrl} size="md" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-gray-900 dark:text-white font-medium text-sm truncate">{p.name}</p>
+                        <p className="text-gray-600 dark:text-gray-400 text-xs truncate">{p.email}</p>
+                      </div>
+                      <span className="text-lg shrink-0">{index + 1}</span>
                     </div>
                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700/50">
-                      <p className="text-gray-600 dark:text-gray-400 text-xs">Total Contributions</p>
-                      <p className="text-purple-400 font-bold text-lg">{member.contributions}</p>
+                      <p className="text-gray-600 dark:text-gray-400 text-xs">Meetings hosted</p>
+                      <p className="text-blue-500 dark:text-blue-400 font-bold text-lg tabular-nums">{p.hostedMeetings}</p>
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 col-span-full">No host roles recorded in this range.</p>
+                )}
               </div>
             </div>
-  
-            {/* Top Meeting Speakers */}
+
             <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
-              <div className="flex items-center gap-2 mb-4">
-                <Clock size={20} className="text-blue-400" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Most Active in Meetings</h2>
+              <div className="flex items-center gap-2 mb-1">
+                <ClipboardList size={20} className="text-amber-500" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Task board load</h2>
               </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Kanban tasks assigned by name ({insights?.taskStats?.total ?? 0} total on the board). Matches workspace task assignees.
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {topMeetingSpeakers.map((member, index) => (
-                  <div key={member.id} className="rounded-md p-4 border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/30">
+                {topAssignees.length > 0 ? topAssignees.map((row, index) => (
+                  <div key={`${row.assignee}-${index}`} className="rounded-md p-4 border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/30">
                     <div className="flex items-center gap-3 mb-2">
-                      <UserAvatar name={member.name} profilePictureUrl={member.profilePictureUrl} size="md" />
-                      <div className="flex-1">
-                        <p className="text-gray-900 dark:text-white font-medium text-sm">{member.name}</p>
-                        <p className="text-gray-600 dark:text-gray-400 text-xs">{member.role}</p>
+                      <UserAvatar name={row.assignee} size="md" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-gray-900 dark:text-white font-medium text-sm truncate">{row.assignee}</p>
+                        <p className="text-gray-600 dark:text-gray-400 text-xs">Assignee</p>
                       </div>
-                      <div className="text-2xl">{['🎤', '🎙️', '🔊'][index]}</div>
+                      <span className="text-xl shrink-0">{['🥇', '🥈', '🥉'][index]}</span>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700/50">
-                      <p className="text-gray-600 dark:text-gray-400 text-xs">Meetings Participated</p>
-                      <p className="text-blue-400 font-bold text-lg">{member.meetings}</p>
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700/50 space-y-1 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Total tasks</span>
+                        <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">{row.total}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                        <span>Done</span>
+                        <span className="tabular-nums">{row.completed}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                        <span>Open</span>
+                        <span className="tabular-nums">{row.pending}</span>
+                      </div>
+                      {row.overdue > 0 && (
+                        <div className="flex justify-between text-red-600 dark:text-red-400">
+                          <span>Overdue</span>
+                          <span className="tabular-nums">{row.overdue}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 col-span-full">No assigned tasks on the board yet.</p>
+                )}
               </div>
             </div>
-  
-            {/* Top Messagers */}
-            <div className="rounded-lg border p-6 bg-white border-gray-200 dark:bg-gray-900/50 dark:border-gray-700/50">
-              <div className="flex items-center gap-2 mb-4">
-                <MessageSquare size={20} className="text-green-400" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Most Active Messengers</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {topMessagers.map((member, index) => (
-                  <div key={member.id} className="rounded-md p-4 border bg-white border-gray-200 dark:bg-gray-800/50 dark:border-gray-700/30">
-                    <div className="flex items-center gap-3 mb-2">
-                      <UserAvatar name={member.name} profilePictureUrl={member.profilePictureUrl} size="md" />
-                      <div className="flex-1">
-                        <p className="text-gray-900 dark:text-white font-medium text-sm">{member.name}</p>
-                        <p className="text-gray-600 dark:text-gray-400 text-xs">{member.role}</p>
-                      </div>
-                      <div className="text-2xl">{['💬', '✉️', '📨'][index]}</div>
-                    </div>
-                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700/50">
-                      <p className="text-gray-600 dark:text-gray-400 text-xs">Messages Sent</p>
-                      <p className="text-green-400 font-bold text-lg">{member.messages}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+              </>
+              );
+            })()}
           </div>
         )}
   

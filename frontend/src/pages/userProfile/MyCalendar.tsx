@@ -1,140 +1,55 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Calendar, Clock, Users, MapPin, Plus, Filter, X, Search, Edit, Trash } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Clock, Users, MapPin, Plus, Filter, X, Search, Edit, Trash, Loader2 } from 'lucide-react';
 import Layout from '../../components/Layout';
 import NewMeetingModal from '../../modals/NewMeetingModal';
-import { apiService } from '../../services/api';
-import { useUser } from '../../context/UserContext';
+import apiService from '../../services/api';
+import { useUser, type UserProfile } from '../../context/UserContext';
 
-interface Meeting {
+/** Calendar row: meetings from the API plus your kanban tasks with a due date */
+interface CalendarItem {
   id: string;
   title: string;
   startTime: Date;
   endTime: Date;
   workspace: string;
+  workspaceId?: number;
+  /** Set for kanban-backed items — used to open the workspace task board */
+  taskId?: number;
   participants: string[];
   location?: string;
   type: 'meeting' | 'task' | 'deadline';
   status: 'upcoming' | 'completed' | 'cancelled';
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
 }
 
-// Mock meetings generated once outside component
-const getMockMeetings = (): Meeting[] => {
-  const today = new Date();
-  return [
-    {
-      id: '1',
-      title: 'Sprint Planning',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 10, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 11, 30),
-      workspace: 'Product Team Alpha',
-      participants: ['Sana Khan', 'Muhammad Ali', 'Fatima Sheikh'],
-      location: 'Conference Room A',
-      type: 'meeting',
-      status: 'upcoming',
-      priority: 'high',
-    },
-    {
-      id: '2',
-      title: 'Code Review Deadline',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3, 17, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3, 17, 0),
-      workspace: 'Design Sprint Team',
-      participants: ['Daniyal Ahmed'],
-      type: 'deadline',
-      status: 'upcoming',
-      priority: 'high',
-    },
-    {
-      id: '3',
-      title: 'Client Presentation',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5, 14, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5, 15, 0),
-      workspace: 'Client Solutions',
-      participants: ['Ali Hassan', 'Javeria Butt'],
-      location: 'Zoom',
-      type: 'meeting',
-      status: 'upcoming',
-      priority: 'high',
-    },
-    {
-      id: '4',
-      title: 'Bug Fix Task',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 9, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 12, 0),
-      workspace: 'Product Team Alpha',
-      participants: ['Muhammad Ali'],
-      type: 'task',
-      status: 'upcoming',
-      priority: 'medium',
-    },
-    {
-      id: '5',
-      title: 'Team Standup',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10, 0),
-      workspace: 'Product Team Alpha',
-      participants: ['Team'],
-      type: 'meeting',
-      status: 'upcoming',
-      priority: 'low',
-    },
-    // Add some past meetings to show calendar history
-    {
-      id: '6',
-      title: 'Retrospective Meeting',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2, 15, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2, 16, 30),
-      workspace: 'Product Team Alpha',
-      participants: ['Team'],
-      location: 'Zoom',
-      type: 'meeting',
-      status: 'completed',
-      priority: 'medium',
-    },
-    {
-      id: '7',
-      title: 'Design Review',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5, 11, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5, 12, 0),
-      workspace: 'Design Sprint Team',
-      participants: ['Fatima Sheikh'],
-      location: 'Google Meet',
-      type: 'meeting',
-      status: 'completed',
-      priority: 'low',
-    },
-    // Add more upcoming meetings
-    {
-      id: '8',
-      title: 'Product Demo',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7, 14, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7, 15, 30),
-      workspace: 'Client Solutions',
-      participants: ['Ali Hassan', 'Javeria Butt', 'Sarah Ahmed'],
-      location: 'Zoom',
-      type: 'meeting',
-      status: 'upcoming',
-      priority: 'high',
-    },
-    {
-      id: '9',
-      title: 'Release Deadline',
-      startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 10, 17, 0),
-      endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 10, 17, 0),
-      workspace: 'Product Team Alpha',
-      participants: ['Muhammad Ali'],
-      type: 'deadline',
-      status: 'upcoming',
-      priority: 'high',
-    },
-  ];
-};
+function mapColumnToTaskStatus(columnName: string): 'todo' | 'in-progress' | 'completed' {
+  const lower = columnName.toLowerCase();
+  if (lower === 'complete' || lower === 'completed') return 'completed';
+  if (lower === 'in-progress') return 'in-progress';
+  if (lower === 'review') return 'in-progress';
+  return 'todo';
+}
+
+function normalizeTaskPriority(p: string): CalendarItem['priority'] {
+  if (p === 'low' || p === 'medium' || p === 'high' || p === 'urgent') return p;
+  return 'medium';
+}
+
+function assigneeMatchesUser(assignee: string | null | undefined, profile: UserProfile): boolean {
+  if (!assignee?.trim()) return false;
+  const norm = (s: string) => s.trim().toLowerCase();
+  const a = norm(assignee);
+  if (a === norm(profile.email)) return true;
+  if (a === norm(profile.name)) return true;
+  const first = profile.name.split(/\s+/)[0];
+  if (first && a === norm(first)) return true;
+  return false;
+}
 
 const MyCalendar = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, loading } = useUser();
+  const { isAuthenticated, loading: authLoading, user, workspaces } = useUser();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -142,114 +57,150 @@ const MyCalendar = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredMeeting, setHoveredMeeting] = useState<string | null>(null);
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
-  const [realMeetings, setRealMeetings] = useState<any[]>([]);
+  const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
   const [workspacesList, setWorkspacesList] = useState<string[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
 
-  // Redirect to login if not authenticated
   useEffect(() => {
-    if (!loading && !isAuthenticated) {
+    if (!authLoading && !isAuthenticated) {
       navigate('/login');
     }
-  }, [isAuthenticated, loading, navigate]);
+  }, [isAuthenticated, authLoading, navigate]);
 
-  // Fetch real meetings from all workspaces
-  useEffect(() => {
-    const fetchAllMeetings = async () => {
-      try {
-        // First, get all workspaces the user is a member of
-        const workspacesResponse = await apiService.getUserWorkspaces();
-        
-        if (!workspacesResponse.data?.workspaces) {
-          console.error('No workspaces found');
-          return;
-        }
-
-        const allMeetings: any[] = [];
-        const uniqueWorkspacesSet = new Set<string>();
-
-        // Fetch meetings from each workspace
-        for (const workspace of workspacesResponse.data.workspaces) {
-          try {
-            const meetingsResponse = await apiService.getMeetingsByWorkspace(workspace.id);
-            
-            if (meetingsResponse.data?.meetings) {
-              // Add workspace info to each meeting
-              const meetingsWithWorkspace = meetingsResponse.data.meetings.map((m: any) => ({
-                ...m,
-                workspace: {
-                  id: workspace.id,
-                  name: workspace.name
-                }
-              }));
-              
-              allMeetings.push(...meetingsWithWorkspace);
-              uniqueWorkspacesSet.add(workspace.name);
-            }
-          } catch (error) {
-            console.error(`Error fetching meetings for workspace ${workspace.name}:`, error);
-          }
-        }
-
-        // Filter out meetings with invalid dates
-        const validMeetings = allMeetings.filter((m: any) => {
-          return m.startTime && m.endTime && !isNaN(new Date(m.startTime).getTime()) && !isNaN(new Date(m.endTime).getTime());
-        });
-        
-        console.log(`Fetched ${validMeetings.length} meetings from ${uniqueWorkspacesSet.size} workspaces`);
-        
-        setRealMeetings(validMeetings);
-        
-        // Extract unique workspace names
-        const uniqueWorkspaces = Array.from(uniqueWorkspacesSet);
-        setWorkspacesList(uniqueWorkspaces);
-      } catch (error) {
-        console.error('Error fetching meetings:', error);
-      }
-    };
-
-    fetchAllMeetings();
-  }, []);
-
-  // Use real meetings if available, otherwise use mock data
-  const useRealData = realMeetings.length > 0;
-  
-  // Get mock meetings (using useMemo to prevent regeneration on every render)
-  const mockMeetings = useMemo(() => getMockMeetings(), []);
-  
-  // Transform real meetings to match the Meeting interface
-  const realMeetingsTransformed = useMemo(() => {
-    const transformed: Meeting[] = [];
-    for (const m of realMeetings) {
-      if (!m.startTime || !m.endTime) continue;
-      
-      const startTime = new Date(m.startTime);
-      const endTime = new Date(m.endTime);
-      
-      // Validate dates
-      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-        continue;
-      }
-      
-      transformed.push({
-        id: String(m.id),
-        title: m.title || 'Untitled Meeting',
-        startTime,
-        endTime,
-        workspace: m.workspace?.name || 'Unknown',
-        participants: m.participants?.map((p: any) => p.user?.name || 'Unknown') || [],
-        location: m.location || undefined,
-        type: 'meeting' as const,
-        status: m.status === 'scheduled' || m.status === 'in-progress' ? 'upcoming' as const : 
-                m.status === 'completed' ? 'completed' as const : 
-                'upcoming' as const,
-        priority: 'medium' as const,
-      });
+  const loadCalendarData = useCallback(async () => {
+    if (!user) {
+      setCalendarItems([]);
+      setWorkspacesList([]);
+      setDataLoading(false);
+      return;
     }
-    return transformed;
-  }, [realMeetings]);
 
-  const meetings = useRealData ? realMeetingsTransformed : mockMeetings;
-  const workspaces = useRealData ? workspacesList : ['Product Team Alpha', 'Design Sprint Team', 'Client Solutions'];
+    if (workspaces.length === 0) {
+      setCalendarItems([]);
+      setWorkspacesList([]);
+      setDataLoading(false);
+      return;
+    }
+
+    setDataLoading(true);
+    const items: CalendarItem[] = [];
+    const nameSet = new Set<string>();
+
+    try {
+      await Promise.all(
+        workspaces.map(async (ws) => {
+          try {
+          const [meetingsRes, kanbanRes] = await Promise.all([
+            apiService.getMeetingsByWorkspace(ws.id),
+            apiService.getKanbanColumns(ws.id),
+          ]);
+
+          nameSet.add(ws.name);
+
+          if (meetingsRes.data?.meetings) {
+            for (const m of meetingsRes.data.meetings) {
+              if (!m.startTime || !m.endTime) continue;
+              const startTime = new Date(m.startTime);
+              const endTime = new Date(m.endTime);
+              if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) continue;
+
+              const statusRaw = m.status as string | undefined;
+              const calStatus: CalendarItem['status'] =
+                statusRaw === 'completed'
+                  ? 'completed'
+                  : statusRaw === 'cancelled'
+                    ? 'cancelled'
+                    : 'upcoming';
+
+              items.push({
+                id: `meeting-${m.id}`,
+                title: m.title || 'Untitled Meeting',
+                startTime,
+                endTime,
+                workspace: ws.name,
+                workspaceId: ws.id,
+                participants: m.participants?.map((p: { user?: { name?: string }; name?: string }) => p.user?.name || p.name || 'Unknown') || [],
+                location: m.location || undefined,
+                type: 'meeting',
+                status: calStatus,
+                priority: 'medium',
+              });
+            }
+          }
+
+          if (!kanbanRes.error && kanbanRes.data?.columns) {
+            for (const col of kanbanRes.data.columns) {
+              for (const t of col.tasks) {
+                if (!assigneeMatchesUser(t.assignee, user)) continue;
+                if (!t.dueDate) continue;
+
+                const rowStatus = mapColumnToTaskStatus(col.name);
+                const startTime = new Date(t.dueDate);
+                if (isNaN(startTime.getTime())) continue;
+
+                const endTime = new Date(startTime.getTime());
+                endTime.setHours(endTime.getHours() + 1);
+
+                const priority = normalizeTaskPriority(t.priority);
+                const calStatus: CalendarItem['status'] = rowStatus === 'completed' ? 'completed' : 'upcoming';
+                const displayType: CalendarItem['type'] =
+                  priority === 'urgent' && calStatus !== 'completed' ? 'deadline' : 'task';
+
+                items.push({
+                  id: `task-${t.id}`,
+                  taskId: t.id,
+                  workspaceId: ws.id,
+                  title: t.title || 'Task',
+                  startTime,
+                  endTime,
+                  workspace: ws.name,
+                  participants: [t.assignee?.trim() || user.name],
+                  type: displayType,
+                  status: calStatus,
+                  priority,
+                });
+              }
+            }
+          }
+          } catch {
+            nameSet.add(ws.name);
+          }
+        })
+      );
+
+      items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+      setCalendarItems(items);
+      setWorkspacesList(Array.from(nameSet).sort());
+    } catch {
+      setCalendarItems([]);
+      setWorkspacesList(Array.from(nameSet).sort());
+    } finally {
+      setDataLoading(false);
+    }
+  }, [user, workspaces]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated || !user) {
+      setCalendarItems([]);
+      setDataLoading(false);
+      return;
+    }
+    void loadCalendarData();
+  }, [authLoading, isAuthenticated, user, loadCalendarData]);
+
+  const displayEvents = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return calendarItems;
+    return calendarItems.filter(
+      (m) =>
+        m.title.toLowerCase().includes(q) ||
+        m.workspace.toLowerCase().includes(q) ||
+        m.participants.some((p) => p.toLowerCase().includes(q))
+    );
+  }, [calendarItems, searchQuery]);
+
+  const workspacesForFilters = workspacesList.length > 0 ? workspacesList : workspaces.map((w) => w.name);
 
   // Helper functions
   const navigateDate = (direction: 'prev' | 'next') => {
@@ -285,11 +236,13 @@ const MyCalendar = () => {
   };
 
   const getWeekDays = (date: Date) => {
-    const day = date.getDay();
-    const diff = date.getDate() - day;
-    const sunday = new Date(date.setDate(diff));
-    
-    const days = [];
+    const d = new Date(date.getTime());
+    const day = d.getDay();
+    const diff = d.getDate() - day;
+    d.setDate(diff);
+    const sunday = new Date(d.getTime());
+
+    const days: Date[] = [];
     for (let i = 0; i < 7; i++) {
       const currentDay = new Date(sunday);
       currentDay.setDate(sunday.getDate() + i);
@@ -299,14 +252,16 @@ const MyCalendar = () => {
   };
 
   const getMeetingsForDate = (date: Date) => {
-    return meetings.filter(meeting => {
-      const meetingDate = new Date(meeting.startTime);
-      return (
-        meetingDate.getDate() === date.getDate() &&
-        meetingDate.getMonth() === date.getMonth() &&
-        meetingDate.getFullYear() === date.getFullYear()
-      );
-    }).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    return displayEvents
+      .filter((meeting) => {
+        const meetingDate = new Date(meeting.startTime);
+        return (
+          meetingDate.getDate() === date.getDate() &&
+          meetingDate.getMonth() === date.getMonth() &&
+          meetingDate.getFullYear() === date.getFullYear()
+        );
+      })
+      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   };
 
   const isToday = (date: Date) => {
@@ -329,10 +284,15 @@ const MyCalendar = () => {
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'high': return 'bg-red-500';
-      case 'medium': return 'bg-amber-500';
-      case 'low': return 'bg-emerald-500';
-      default: return 'bg-gray-500';
+      case 'urgent':
+      case 'high':
+        return 'bg-red-500';
+      case 'medium':
+        return 'bg-amber-500';
+      case 'low':
+        return 'bg-emerald-500';
+      default:
+        return 'bg-gray-500';
     }
   };
 
@@ -354,19 +314,14 @@ const MyCalendar = () => {
     }
   };
 
-  const handleEventClick = (meeting: Meeting) => {
-    switch (meeting.type) {
-      case 'meeting':
-        navigate(`/workspace/meetings/${meeting.id}`);
-        break;
-      case 'task':
-        navigate(`/workspace/tasks?task=${meeting.id}`);
-        break;
-      case 'deadline':
-        navigate(`/workspace/tasks?task=${meeting.id}`);
-        break;
-      default:
-        break;
+  const handleEventClick = (item: CalendarItem) => {
+    if (item.type === 'meeting') {
+      const rawId = item.id.startsWith('meeting-') ? item.id.slice('meeting-'.length) : item.id;
+      navigate(`/workspace/meetings/${rawId}`);
+      return;
+    }
+    if ((item.type === 'task' || item.type === 'deadline') && item.workspaceId != null && item.taskId != null) {
+      navigate(`/workspace/${item.workspaceId}/tasks?task=${item.taskId}`);
     }
   };
 
@@ -417,7 +372,10 @@ const MyCalendar = () => {
                 <div
                   key={meeting.id}
                   className={`text-xs p-1.5 rounded border transition-all cursor-pointer ${getEventColor(meeting.type)}`}
-                  onClick={() => handleEventClick(meeting)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEventClick(meeting);
+                  }}
                 >
                   <div className="flex items-center gap-1.5 truncate">
                     <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getPriorityColor(meeting.priority)}`} />
@@ -442,7 +400,7 @@ const MyCalendar = () => {
 
   // Render Week View
   const renderWeekView = () => {
-    const weekDays = getWeekDays(new Date(currentDate));
+    const weekDays = getWeekDays(new Date(currentDate.getTime()));
     const hours = Array.from({ length: 24 }, (_, i) => i);
 
     return (
@@ -499,7 +457,10 @@ const MyCalendar = () => {
                       key={meeting.id}
                       className={`absolute left-1 right-1 rounded border p-1 cursor-pointer transition-all ${getEventColor(meeting.type)}`}
                       style={{ top: `${top}px`, height: `${height}px` }}
-                      onClick={() => handleEventClick(meeting)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEventClick(meeting);
+                      }}
                     >
                       <div className="text-xs font-semibold truncate">{meeting.title}</div>
                       <div className="text-xs opacity-75 truncate">
@@ -713,7 +674,7 @@ const MyCalendar = () => {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Workspaces</label>
                 <div className="space-y-3">
-                  {workspaces.map((workspace) => (
+                  {workspacesForFilters.map((workspace) => (
                     <label key={workspace} className="flex items-center gap-3 text-sm text-gray-700 cursor-pointer hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors">
                       <input type="checkbox" className="rounded border-gray-300 text-purple-600 focus:ring-purple-500/50 dark:border-gray-600 dark:bg-gray-800/50 dark:text-purple-500" />
                       <span>{workspace}</span>
@@ -772,7 +733,7 @@ const MyCalendar = () => {
               <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-purple-500 shadow-md shadow-purple-500/50"></div>
               <span className="text-gray-600 dark:text-gray-400 hidden sm:inline">Meetings</span>
               <span className="text-gray-900 dark:text-white font-semibold">
-                {meetings.filter(m => m.type === 'meeting').length}
+                {displayEvents.filter((m) => m.type === 'meeting').length}
               </span>
             </div>
 
@@ -781,7 +742,7 @@ const MyCalendar = () => {
               <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-blue-500 shadow-md shadow-blue-500/50"></div>
               <span className="text-gray-600 dark:text-gray-400 hidden sm:inline">Tasks</span>
               <span className="text-gray-900 dark:text-white font-semibold">
-                {meetings.filter(m => m.type === 'task').length}
+                {displayEvents.filter((m) => m.type === 'task').length}
               </span>
             </div>
 
@@ -790,7 +751,7 @@ const MyCalendar = () => {
               <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-rose-500 shadow-md shadow-rose-500/50"></div>
               <span className="text-gray-600 dark:text-gray-400 hidden sm:inline">Deadlines</span>
               <span className="text-gray-900 dark:text-white font-semibold">
-                {meetings.filter(m => m.type === 'deadline').length}
+                {displayEvents.filter((m) => m.type === 'deadline').length}
               </span>
             </div>
           </div>
@@ -828,9 +789,18 @@ const MyCalendar = () => {
           </div>
 
           {/* Calendar Views */}
-          {viewMode === 'month' && renderMonthView()}
-          {viewMode === 'week' && renderWeekView()}
-          {viewMode === 'day' && renderDayView()}
+          {dataLoading ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-500 dark:text-gray-400 gap-3">
+              <Loader2 size={40} className="animate-spin text-purple-500" />
+              <p>Loading meetings and your tasks…</p>
+            </div>
+          ) : (
+            <>
+              {viewMode === 'month' && renderMonthView()}
+              {viewMode === 'week' && renderWeekView()}
+              {viewMode === 'day' && renderDayView()}
+            </>
+          )}
         </div>
 
         {/* Selected Date Details */}
@@ -970,9 +940,8 @@ const MyCalendar = () => {
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {meetings
+            {displayEvents
               .filter((m) => {
-                // Show upcoming meetings (status is 'upcoming' OR start time is in the future)
                 return m.status === 'upcoming' || m.startTime > new Date();
               })
               .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())

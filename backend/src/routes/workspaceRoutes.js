@@ -422,7 +422,13 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
             }
           }
         },
-        actionItems: true
+        actionItems: {
+          select: {
+            id: true, status: true,
+            confirmedAt: true, rejectedAt: true, sourceChunk: true,
+            createdAt: true, lastSeenAt: true
+          }
+        }
       }
     });
 
@@ -431,10 +437,93 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
     // ===== BASIC STATS =====
     const totalMeetings = meetings.length;
     const completedMeetings = meetings.filter(m => m.status === 'completed').length;
-    const totalActionItems = meetings.reduce((sum, m) => sum + (m.actionItems?.length || 0), 0);
-    const completedActionItems = meetings.reduce((sum, m) => 
-      sum + (m.actionItems?.filter(ai => ai.status === 'completed').length || 0), 0
-    );
+
+    // Identified action items (AI-extracted from meetings)
+    // sourceChunk !== null  →  identified during live session
+    // sourceChunk === null  →  identified post-meeting
+    const allActionItems = meetings.flatMap(m => m.actionItems || []);
+    const totalActionItems       = allActionItems.length;
+    const completedActionItems   = allActionItems.filter(ai => ai.status === 'completed').length;
+    const confirmedActionItems   = allActionItems.filter(ai => ai.confirmedAt !== null).length;
+    const rejectedActionItems    = allActionItems.filter(ai => ai.rejectedAt  !== null).length;
+    const pendingActionItems     = allActionItems.filter(
+      ai => ai.status === 'pending' && ai.confirmedAt === null && ai.rejectedAt === null
+    ).length;
+    const liveActionItems        = allActionItems.filter(ai => ai.sourceChunk !== null).length;
+    const postMeetingActionItems = allActionItems.filter(ai => ai.sourceChunk === null).length;
+
+    // Tasks (Kanban board)
+    let taskStats = {
+      total: 0, completedTasks: 0, pendingTasks: 0, overdueTasks: 0,
+      tasksFromActionItems: 0, byColumn: [], byPriority: {}, byAssignee: []
+    };
+    try {
+      const now = new Date();
+      const [tasks, columns] = await Promise.all([
+        prisma.task.findMany({
+          where: { workspaceId },
+          select: { id: true, priority: true, columnId: true, dueDate: true, actionItemId: true, assignee: true }
+        }),
+        prisma.kanbanColumn.findMany({
+          where: { workspaceId },
+          select: { id: true, name: true, isDefault: true },
+          orderBy: { position: 'asc' }
+        })
+      ]);
+
+      // Any column whose name contains "done", "complete", "finish" is treated as a completed column
+      const completeColIds = new Set(
+        columns
+          .filter(c => /done|complet|finish/i.test(c.name))
+          .map(c => c.id)
+      );
+
+      const columnMap = {};
+      columns.forEach(c => { columnMap[c.id] = c.name; });
+
+      const colCounts = {};
+      const priCounts = {};
+      const assigneeMap = {};
+      let completedTasks = 0, pendingTasks = 0, overdueTasks = 0, tasksFromActionItems = 0;
+
+      tasks.forEach(t => {
+        const isComplete = completeColIds.has(t.columnId);
+        const isOverdue  = !isComplete && t.dueDate && new Date(t.dueDate) < now;
+
+        if (isComplete)      completedTasks++;
+        else if (isOverdue)  overdueTasks++;
+        else                 pendingTasks++;
+
+        if (t.actionItemId) tasksFromActionItems++;
+
+        const col = columnMap[t.columnId] || 'Unknown';
+        colCounts[col] = (colCounts[col] || 0) + 1;
+        priCounts[t.priority || 'medium'] = (priCounts[t.priority || 'medium'] || 0) + 1;
+
+        if (t.assignee) {
+          if (!assigneeMap[t.assignee]) {
+            assigneeMap[t.assignee] = { assignee: t.assignee, total: 0, completed: 0, pending: 0, overdue: 0 };
+          }
+          assigneeMap[t.assignee].total++;
+          if (isComplete)     assigneeMap[t.assignee].completed++;
+          else if (isOverdue) assigneeMap[t.assignee].overdue++;
+          else                assigneeMap[t.assignee].pending++;
+        }
+      });
+
+      taskStats = {
+        total: tasks.length,
+        completedTasks,
+        pendingTasks,
+        overdueTasks,
+        tasksFromActionItems,
+        byColumn: Object.entries(colCounts).map(([name, count]) => ({ name, count })),
+        byPriority: priCounts,
+        byAssignee: Object.values(assigneeMap)
+      };
+    } catch (_e) {
+      // Non-critical
+    }
 
     // Get member count
     const memberCount = await prisma.workspaceMember.count({
@@ -488,21 +577,38 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
             email: participant.user?.email,
             profilePictureUrl: participant.user?.profilePictureUrl,
             meetingsAttended: 0,
-            totalMeetings: 0
+            totalMeetings: 0,
+            hostedMeetings: 0
           };
         }
         participantStats[userId].totalMeetings++;
-        if (participant.status === 'attended') {
+        if (participant.role === 'host') participantStats[userId].hostedMeetings++;
+        // Count as attended if: explicitly marked attended, joined a live session,
+        // or the meeting completed and they were accepted (not declined)
+        const didAttend = participant.status === 'attended'
+          || participant.joinedAt !== null
+          || (meeting.status === 'completed' && participant.status !== 'declined');
+        if (didAttend) {
           participantStats[userId].meetingsAttended++;
         }
       });
     });
 
-    const topParticipants = Object.values(participantStats)
-      .map(p => ({
-        ...p,
-        attendanceRate: p.totalMeetings > 0 ? (p.meetingsAttended / p.totalMeetings) * 100 : 0
-      }))
+    const allParticipantsWithRate = Object.values(participantStats).map(p => ({
+      ...p,
+      attendanceRate: p.totalMeetings > 0 ? (p.meetingsAttended / p.totalMeetings) * 100 : 0
+    }));
+    const participantsWithAttendance = allParticipantsWithRate.filter(p => p.meetingsAttended > 0).length;
+    const averageAttendanceRate =
+      allParticipantsWithRate.length > 0
+        ? Math.round(
+            (allParticipantsWithRate.reduce((s, p) => s + p.attendanceRate, 0) /
+              allParticipantsWithRate.length) *
+              10
+          ) / 10
+        : 0;
+
+    const topParticipants = [...allParticipantsWithRate]
       .sort((a, b) => b.meetingsAttended - a.meetingsAttended)
       .slice(0, 10);
 
@@ -560,7 +666,7 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
       // Action item trends
       const created = dayMeetings.reduce((sum, m) => sum + (m.actionItems?.length || 0), 0);
       const completed = dayMeetings.reduce((sum, m) => 
-        sum + (m.actionItems?.filter(ai => ai.status === 'completed' && new Date(ai.updatedAt) >= date && new Date(ai.updatedAt) < nextDate).length || 0), 0
+        sum + (m.actionItems?.filter(ai => ai.status === 'completed' && new Date(ai.lastSeenAt) >= date && new Date(ai.lastSeenAt) < nextDate).length || 0), 0
       );
       
       actionItemTrends.push({
@@ -576,6 +682,148 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
         value: dayMeetings.length,
         label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       });
+    }
+
+    // ===== KNOWLEDGE, TOPICS & SENTIMENT (from AiInsight records) =====
+    let richTopics = [];  // [{label, mentions, sentiment, meetingCount}]
+    let sentimentData = { positive: 0, neutral: 0, negative: 0, total: 0, overall: 'neutral' };
+    let totalDecisions = 0;
+    let meetingsWithAI = 0;
+    let recentDecisions = []; // [{ text, meetingId, meetingTitle, createdAt }]
+    let recentInsightEvents = []; // [{ insightType, meetingId, meetingTitle, createdAt }]
+
+    try {
+      const meetingIdStrings = meetings.map(m => String(m.id));
+      const meetingTitleById = {};
+      meetings.forEach(m => {
+        meetingTitleById[String(m.id)] = m.title;
+      });
+
+      if (meetingIdStrings.length > 0) {
+        // Count meetings that have any AI insight (proxy for AI-processed)
+        const aiInsightCounts = await prisma.aiInsight.groupBy({
+          by: ['meetingId'],
+          where: { meetingId: { in: meetingIdStrings } }
+        });
+        meetingsWithAI = aiInsightCounts.length;
+
+        // ── Decisions ──────────────────────────────────────────────────────
+        const decisionInsights = await prisma.aiInsight.findMany({
+          where: { meetingId: { in: meetingIdStrings }, insightType: 'decisions' },
+          select: { content: true }
+        });
+        decisionInsights.forEach(di => {
+          try {
+            const parsed = JSON.parse(di.content);
+            const list = Array.isArray(parsed) ? parsed : (parsed.decisions || []);
+            const realDecisions = list.filter(d => {
+              const text = (d.decision || d.title || d.text || '').toLowerCase();
+              return text && text !== 'no decisions identified.' && text !== 'no decisions made';
+            });
+            totalDecisions += realDecisions.length;
+          } catch (_) {}
+        });
+
+        // ── Sentiment ─────────────────────────────────────────────────────
+        const sentimentInsights = await prisma.aiInsight.findMany({
+          where: { meetingId: { in: meetingIdStrings }, insightType: 'sentiment' },
+          select: { content: true }
+        });
+        sentimentInsights.forEach(si => {
+          try {
+            const data = JSON.parse(si.content);
+            const raw = String(data.overall_sentiment || data.overall || data.sentiment || '').toLowerCase();
+            if (raw.includes('positive')) { sentimentData.positive++; sentimentData.total++; }
+            else if (raw.includes('negative')) { sentimentData.negative++; sentimentData.total++; }
+            else if (raw) { sentimentData.neutral++; sentimentData.total++; }
+          } catch (_) {}
+        });
+        if (sentimentData.total > 0) {
+          if (sentimentData.positive >= sentimentData.negative && sentimentData.positive >= sentimentData.neutral) {
+            sentimentData.overall = 'positive';
+          } else if (sentimentData.negative >= sentimentData.positive && sentimentData.negative >= sentimentData.neutral) {
+            sentimentData.overall = 'negative';
+          } else {
+            sentimentData.overall = 'neutral';
+          }
+        }
+
+        // ── Topics (from AiInsight — structured, not JSON strings) ────────
+        const topicInsights = await prisma.aiInsight.findMany({
+          where: { meetingId: { in: meetingIdStrings }, insightType: 'topics' },
+          select: { content: true }
+        });
+        const topicMap = {};
+        topicInsights.forEach(ti => {
+          try {
+            const topics = JSON.parse(ti.content);
+            if (!Array.isArray(topics)) return;
+            topics.forEach(t => {
+              if (!t || typeof t !== 'object') return;
+              const name = String(t.name || t.topic || t.title || t.label || '').trim();
+              if (!name || name.length < 2) return;
+              const key = name.toLowerCase();
+              const mentions = typeof t.mentions === 'number' ? t.mentions : 1;
+              const sentiment = String(t.sentiment || 'neutral').toLowerCase();
+              if (!topicMap[key]) {
+                topicMap[key] = { label: name, mentions: 0, sentiment, meetingCount: 0 };
+              }
+              topicMap[key].mentions += mentions;
+              topicMap[key].meetingCount++;
+              if (t.sentiment) topicMap[key].sentiment = sentiment;
+            });
+          } catch (_) {}
+        });
+        richTopics = Object.values(topicMap)
+          .sort((a, b) => b.mentions - a.mentions)
+          .slice(0, 15);
+
+        // Recent decision snippets (for dashboards)
+        const decisionRows = await prisma.aiInsight.findMany({
+          where: { meetingId: { in: meetingIdStrings }, insightType: "decisions" },
+          orderBy: { createdAt: "desc" },
+          take: 12,
+          select: { content: true, meetingId: true, createdAt: true }
+        });
+        recentDecisions = decisionRows
+          .map(row => {
+            let text = "";
+            try {
+              const parsed = JSON.parse(row.content);
+              const list = Array.isArray(parsed) ? parsed : parsed.decisions || [];
+              const first = list.find(d => {
+                const t = (d.decision || d.title || d.text || "").trim();
+                return t && !/^no decisions/i.test(t);
+              });
+              text = (first?.decision || first?.title || first?.text || "").trim();
+            } catch (_) {}
+            const clipped = text.slice(0, 180);
+            return {
+              text: clipped,
+              meetingId: row.meetingId,
+              meetingTitle: meetingTitleById[row.meetingId] || "Meeting",
+              createdAt: row.createdAt
+            };
+          })
+          .filter(r => r.text.length > 0)
+          .slice(0, 8);
+
+        // Recent AI insight saves (for activity feeds)
+        const insightRows = await prisma.aiInsight.findMany({
+          where: { meetingId: { in: meetingIdStrings } },
+          orderBy: { createdAt: "desc" },
+          take: 25,
+          select: { insightType: true, meetingId: true, createdAt: true }
+        });
+        recentInsightEvents = insightRows.map(row => ({
+          insightType: row.insightType,
+          meetingId: row.meetingId,
+          meetingTitle: meetingTitleById[row.meetingId] || "Meeting",
+          createdAt: row.createdAt
+        }));
+      }
+    } catch (_e) {
+      // Non-critical — skip if AI insights are unavailable
     }
 
     // ===== MEETINGS BY PLATFORM =====
@@ -601,8 +849,16 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
         totalMembers: memberCount,
         totalMeetings,
         completedMeetings,
+        // Identified action items
         totalActionItems,
         completedActionItems,
+        confirmedActionItems,
+        rejectedActionItems,
+        pendingActionItems,
+        liveActionItems,
+        postMeetingActionItems,
+        // Tasks (Kanban)
+        taskStats,
         averageDuration: Math.round(averageDuration),
         engagementRate: Math.round(((completedMeetings / (totalMeetings || 1)) * 100) * 10) / 10,
         
@@ -618,6 +874,8 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
         // Participant analytics
         topParticipants,
         totalParticipants: Object.keys(participantStats).length,
+        participantsWithAttendance,
+        averageAttendanceRate,
         
         // Time patterns
         timePatterns: timePatternData,
@@ -625,7 +883,15 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
         // Trends
         actionItemTrends,
         timeSeriesData,
-        meetingTypesData
+        meetingTypesData,
+
+        // Knowledge, topics & sentiment
+        richTopics,
+        sentimentData,
+        totalDecisions,
+        meetingsWithAI,
+        recentDecisions,
+        recentInsightEvents
       }
     });
   } catch (error) {
@@ -634,11 +900,15 @@ router.get("/:id/analytics", authenticateToken, async (req, res) => {
   }
 });
 
-// Get workspace dashboard stats
+// Get workspace dashboard stats (optional ?period=today|week|month|quarter|all — filters by meeting startTime)
 router.get("/:id/dashboard", authenticateToken, async (req, res) => {
   try {
     const workspaceId = parseInt(req.params.id);
-    
+    const allowedPeriods = new Set(["today", "week", "month", "quarter", "all"]);
+    const period = allowedPeriods.has(String(req.query.period))
+      ? String(req.query.period)
+      : "all";
+
     if (isNaN(workspaceId)) {
       return res.status(400).json({ error: "Invalid workspace ID" });
     }
@@ -657,226 +927,100 @@ router.get("/:id/dashboard", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "You are not a member of this workspace" });
     }
 
-    // Get workspace with members count
     const workspace = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      include: {
-        _count: {
-          select: {
-            members: true,
-            meetings: true
-          }
-        }
-      }
+      where: { id: workspaceId }
     });
 
-    // Get meetings stats
-    const totalMeetings = workspace._count.meetings;
-    
+    if (!workspace) {
+      return res.status(404).json({ error: "Workspace not found" });
+    }
+
     const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-    
-    const meetingsThisWeek = await prisma.meeting.count({
-      where: {
-        workspaceId,
-        createdAt: {
-          gte: startOfWeek
+
+    /** @returns {Record<string, unknown>} Prisma where fragment on Meeting (startTime) */
+    const getMeetingStartTimeFilter = () => {
+      switch (period) {
+        case "today": {
+          const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const end = new Date(start);
+          end.setDate(end.getDate() + 1);
+          return { startTime: { gte: start, lt: end } };
         }
-      }
-    });
-
-    // Get completed meetings count
-    const completedMeetings = await prisma.meeting.count({
-      where: {
-        workspaceId,
-        status: 'completed'
-      }
-    });
-
-    // Get total action items
-    const totalActionItems = await prisma.actionItem.count({
-      where: {
-        meeting: {
-          workspaceId
+        case "week": {
+          const start = new Date(now);
+          start.setDate(now.getDate() - now.getDay());
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(start);
+          end.setDate(end.getDate() + 7);
+          return { startTime: { gte: start, lt: end } };
         }
+        case "month": {
+          const start = new Date(now.getFullYear(), now.getMonth(), 1);
+          const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+          return { startTime: { gte: start, lt: end } };
+        }
+        case "quarter": {
+          const start = new Date(now);
+          start.setMonth(now.getMonth() - 3);
+          start.setHours(0, 0, 0, 0);
+          return { startTime: { gte: start } };
+        }
+        case "all":
+        default:
+          return {};
       }
-    });
+    };
 
-    // Get confirmed action items
-    const confirmedActionItems = await prisma.actionItem.count({
-      where: {
-        meeting: {
-          workspaceId
-        },
-        status: 'confirmed'
-      }
-    });
+    const startFilter = getMeetingStartTimeFilter();
+    const meetingBaseWhere = { workspaceId, ...startFilter };
+
+    const periodLabels = {
+      today: "Today",
+      week: "This week",
+      month: "This month",
+      quarter: "Last 3 months",
+      all: "All time"
+    };
+
+    const [totalMeetings, completedMeetings, totalActionItems, confirmedActionItems, totalMembers] =
+      await Promise.all([
+        prisma.meeting.count({ where: meetingBaseWhere }),
+        prisma.meeting.count({
+          where: { ...meetingBaseWhere, status: "completed" }
+        }),
+        prisma.actionItem.count({
+          where: {
+            meeting: meetingBaseWhere
+          }
+        }),
+        prisma.actionItem.count({
+          where: {
+            confirmedAt: { not: null },
+            meeting: meetingBaseWhere
+          }
+        }),
+        prisma.workspaceMember.count({
+          where: { workspaceId, isActive: true }
+        })
+      ]);
+
+    const completionRate =
+      totalActionItems > 0 ? Math.round((confirmedActionItems / totalActionItems) * 100) : 0;
 
     res.json({
       stats: {
+        period: ["today", "week", "month", "quarter", "all"].includes(period) ? period : "all",
+        periodLabel: periodLabels[period] || periodLabels.all,
         totalMeetings,
-        meetingsThisWeek,
         completedMeetings,
-        totalMembers: workspace._count.members,
+        totalMembers,
         totalActionItems,
         confirmedActionItems,
-        completionRate: totalActionItems > 0 
-          ? Math.round((confirmedActionItems / totalActionItems) * 100) 
-          : 0
+        completionRate
       }
     });
   } catch (error) {
     console.error("Get workspace dashboard error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Get workspace analytics
-router.get("/:id/analytics", authenticateToken, async (req, res) => {
-  try {
-    const workspaceId = parseInt(req.params.id);
-    const { timeRange = 'month' } = req.query;
-    
-    if (isNaN(workspaceId)) {
-      return res.status(400).json({ error: "Invalid workspace ID" });
-    }
-
-    // Check if user is a member of the workspace
-    const membership = await prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: {
-          workspaceId,
-          userId: req.user.id
-        }
-      }
-    });
-
-    if (!membership) {
-      return res.status(403).json({ error: "You are not a member of this workspace" });
-    }
-
-    // Calculate date range based on timeRange
-    const now = new Date();
-    let startDate = new Date();
-    
-    switch (timeRange) {
-      case 'week':
-        startDate.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-      case 'quarter':
-        startDate.setMonth(now.getMonth() - 3);
-        break;
-      case 'year':
-        startDate.setFullYear(now.getFullYear() - 1);
-        break;
-      default:
-        startDate.setMonth(now.getMonth() - 1);
-    }
-
-    // Get workspace with members count
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      include: {
-        _count: {
-          select: {
-            members: true,
-            meetings: true
-          }
-        }
-      }
-    });
-
-    // Get all meetings in time range
-    const meetings = await prisma.meeting.findMany({
-      where: {
-        workspaceId,
-        createdAt: {
-          gte: startDate
-        }
-      },
-      include: {
-        actionItems: true
-      },
-      orderBy: {
-        createdAt: 'asc'
-      }
-    });
-
-    // Calculate stats
-    const totalMeetings = meetings.length;
-    const completedMeetings = meetings.filter(m => m.status === 'completed').length;
-    const pastMeetings = meetings.filter(m => new Date(m.endTime) < now);
-    const totalActionItems = meetings.reduce((sum, m) => sum + (m.actionItems?.length || 0), 0);
-    const completedActionItems = meetings.reduce((sum, m) => 
-      sum + (m.actionItems?.filter(ai => ai.status === 'confirmed')?.length || 0), 0
-    );
-
-    // Calculate average duration
-    const meetingsWithDuration = pastMeetings.filter(m => m.startTime && m.endTime);
-    const avgDuration = meetingsWithDuration.length > 0
-      ? Math.round(
-          meetingsWithDuration.reduce((sum, m) => {
-            const duration = (new Date(m.endTime).getTime() - new Date(m.startTime).getTime()) / 60000;
-            return sum + duration;
-          }, 0) / meetingsWithDuration.length
-        )
-      : 0;
-
-    // Calculate engagement rate (% of meetings attended/completed)
-    const engagementRate = totalMeetings > 0 
-      ? (completedMeetings / totalMeetings) * 100 
-      : 0;
-
-    // Group meetings by platform for charts
-    const meetingsByPlatform = meetings.reduce((acc, m) => {
-      const platform = m.platform || 'other';
-      acc[platform] = (acc[platform] || 0) + 1;
-      return acc;
-    }, {});
-
-    const meetingTypesData = Object.entries(meetingsByPlatform).map(([platform, count], index) => {
-      const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
-      return {
-        label: platform.charAt(0).toUpperCase() + platform.slice(1),
-        value: count,
-        color: colors[index % colors.length]
-      };
-    });
-
-    // Create time series data (meetings created over time)
-    const timeSeriesData = [];
-    const groupedByDate = meetings.reduce((acc, m) => {
-      const date = new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      acc[date] = (acc[date] || 0) + 1;
-      return acc;
-    }, {});
-
-    Object.entries(groupedByDate).forEach(([date, count]) => {
-      timeSeriesData.push({ date, value: count });
-    });
-
-    res.json({
-      analytics: {
-        totalMembers: workspace._count.members,
-        totalMeetings,
-        completedMeetings,
-        totalActionItems,
-        completedActionItems,
-        averageDuration: avgDuration,
-        engagementRate: parseFloat(engagementRate.toFixed(1)),
-        meetingTypesData: meetingTypesData.length > 0 ? meetingTypesData : [
-          { label: 'No data', value: 1, color: '#94a3b8' }
-        ],
-        timeSeriesData
-      }
-    });
-  } catch (error) {
-    console.error("Get workspace analytics error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

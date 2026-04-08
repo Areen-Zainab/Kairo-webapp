@@ -77,7 +77,7 @@ const mapBackendTask = (backendTask: any, columnName: string): Task => {
 const TaskBoard: React.FC = () => {
   const navigate = useNavigate();
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { isAuthenticated, loading: userLoading, workspaces } = useUser();
+  const { user, isAuthenticated, loading: userLoading, workspaces } = useUser();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -292,6 +292,23 @@ const TaskBoard: React.FC = () => {
   const filteredTasks = useMemo(() => {
     let filtered = [...tasks];
 
+    // Personal scope: only show tasks assigned to current user
+    if (scope === 'personal') {
+      const meName = user?.name?.trim().toLowerCase();
+      const meEmail = user?.email?.trim().toLowerCase();
+
+      filtered = filtered.filter(task => {
+        const assigneeRaw = task.assignee?.trim();
+        if (!assigneeRaw) return false;
+        const assignee = assigneeRaw.toLowerCase();
+
+        // Handle common formats: "name", "email", "Name <email>"
+        const matchesName = !!meName && assignee.includes(meName);
+        const matchesEmail = !!meEmail && assignee.includes(meEmail);
+        return matchesName || matchesEmail;
+      });
+    }
+
     // Filter by assignee
     if (filters.assignee) {
       filtered = filtered.filter(task => task.assignee === filters.assignee);
@@ -364,7 +381,7 @@ const TaskBoard: React.FC = () => {
     });
 
     return filtered;
-  }, [tasks, filters]);
+  }, [tasks, filters, scope, user?.name, user?.email]);
 
   // Update overdue status
   useEffect(() => {
@@ -542,87 +559,87 @@ const TaskBoard: React.FC = () => {
               </button>
             </div>
 
-            {/* Add Column Button (only for owners/admins in kanban view) */}
-            {canManageColumns && view === 'kanban' && !loading && (
-              <button
-                onClick={() => setShowAddColumnModal(true)}
-                className="px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-2 shadow-sm"
-                title="Add Column"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add Column</span>
-                <span className="sm:hidden">Add</span>
-              </button>
-            )}
+            {/* Add Column + Filters (right side: Add Column immediately left of Filters) */}
+            <div className="ml-auto flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              {canManageColumns && view === 'kanban' && !loading && (
+                <button
+                  onClick={() => setShowAddColumnModal(true)}
+                  className="px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs sm:text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/40 flex items-center gap-2 shadow-sm"
+                  title="Add Column"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add Column</span>
+                  <span className="sm:hidden">Add</span>
+                </button>
+              )}
+              <TaskFiltersComponent
+                filters={filters}
+                onFiltersChange={setFilters}
+                availableTags={tags}
+                availableAssignees={availableAssignees}
+              />
+            </div>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
-            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
-              <div className="flex items-center">
-                <div className="p-2 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg">
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* Stats — compact */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-4">
+            <div className="rounded-lg p-2 sm:p-2.5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-md shrink-0">
+                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                 </div>
-                <div className="ml-3 sm:ml-4">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">Total Tasks</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] sm:text-xs font-medium text-gray-600 dark:text-slate-400 leading-tight">Total Tasks</p>
+                  <p className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white leading-tight tabular-nums">{stats.total}</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
-              <div className="flex items-center">
-                <div className="p-2 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg">
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="rounded-lg p-2 sm:p-2.5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-gradient-to-br from-green-500 to-emerald-500 rounded-md shrink-0">
+                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <div className="ml-3 sm:ml-4">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">Completed</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.completed}</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] sm:text-xs font-medium text-gray-600 dark:text-slate-400 leading-tight">Completed</p>
+                  <p className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white leading-tight tabular-nums">{stats.completed}</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
-              <div className="flex items-center">
-                <div className="p-2 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-lg">
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="rounded-lg p-2 sm:p-2.5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-md shrink-0">
+                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <div className="ml-3 sm:ml-4">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">In Progress</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.inProgress}</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] sm:text-xs font-medium text-gray-600 dark:text-slate-400 leading-tight">In Progress</p>
+                  <p className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white leading-tight tabular-nums">{stats.inProgress}</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg p-3 sm:p-4 md:p-5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
-              <div className="flex items-center">
-                <div className="p-2 bg-gradient-to-br from-rose-500 to-red-500 rounded-lg">
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="rounded-lg p-2 sm:p-2.5 transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-gradient-to-br from-rose-500 to-red-500 rounded-md shrink-0">
+                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                   </svg>
                 </div>
-                <div className="ml-3 sm:ml-4">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400">Overdue</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{stats.overdue}</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] sm:text-xs font-medium text-gray-600 dark:text-slate-400 leading-tight">Overdue</p>
+                  <p className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white leading-tight tabular-nums">{stats.overdue}</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Filters */}
-        <TaskFiltersComponent
-          filters={filters}
-          onFiltersChange={setFilters}
-          availableTags={tags}
-          availableAssignees={availableAssignees}
-        />
 
         {/* Task Board Content */}
         <div className="mb-8">

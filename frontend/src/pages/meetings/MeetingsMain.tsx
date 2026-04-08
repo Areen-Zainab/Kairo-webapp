@@ -47,6 +47,7 @@ interface Meeting {
   memoryLinks?: number;
   meetingLink?: string;
   backendId?: number;
+  startTimeIso?: string;
 }
 
 const MeetingsDashboard = () => {
@@ -106,12 +107,17 @@ const MeetingsDashboard = () => {
   useEffect(() => {
     const incomingEndedId = location?.state?.endedMeetingId;
     if (incomingEndedId) {
-      setEndedMeetingId(String(incomingEndedId));
+      const idStr = String(incomingEndedId);
+      setEndedMeetingId(idStr);
       setDismissEndedBanner(false);
 
-      // Show initial toast and start tracking for insights
-      toastInfo('Meeting ended. You will be notified when AI insights are ready.', 'Processing', 5000);
-      setPendingInsightsMeetings(prev => new Set(prev).add(String(incomingEndedId)));
+      // Dedupe toast (React Strict Mode runs this effect twice before location state clears)
+      const dedupeKey = `kairo:ended-insights-toast:${idStr}`;
+      if (typeof sessionStorage !== 'undefined' && !sessionStorage.getItem(dedupeKey)) {
+        sessionStorage.setItem(dedupeKey, '1');
+        toastInfo('Meeting ended. You will be notified when AI insights are ready.', 'Processing', 5000);
+      }
+      setPendingInsightsMeetings(prev => new Set(prev).add(idStr));
 
       // Clear state so back/forward doesn't re-trigger
       navigate(location.pathname, { replace: true, state: {} });
@@ -317,6 +323,11 @@ const MeetingsDashboard = () => {
     // Format time
     const timeStr = `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 
+    const startIso =
+      typeof meeting.startTime === 'string'
+        ? meeting.startTime
+        : new Date(meeting.startTime).toISOString();
+
     return {
       id: String(meeting.id),
       title: meeting.title,
@@ -332,7 +343,8 @@ const MeetingsDashboard = () => {
       summary: meeting.description || undefined,
       transcriptReady: !!meeting.transcriptUrl,
       meetingLink: meeting.meetingLink,
-      backendId: meeting.id
+      backendId: meeting.id,
+      startTimeIso: startIso,
     };
   });
 
@@ -456,23 +468,32 @@ const MeetingsDashboard = () => {
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const addDays = (d: number) => new Date(startOfDay.getTime() + d * 86400000);
 
-    // Handle shorthand labels in sample data
     let meetingDate: Date | null = null;
-    const raw = meeting.date;
-    if (raw.toLowerCase().includes('today')) meetingDate = startOfDay;
-    else if (raw.toLowerCase().includes('tomorrow')) meetingDate = addDays(1);
-    else {
-      const parsed = new Date(raw);
-      meetingDate = isNaN(parsed.getTime()) ? null : parsed;
+    if (meeting.startTimeIso) {
+      meetingDate = new Date(meeting.startTimeIso);
+    } else {
+      const raw = meeting.date;
+      if (raw.toLowerCase().includes('today')) meetingDate = startOfDay;
+      else if (raw.toLowerCase().includes('tomorrow')) meetingDate = addDays(1);
+      else {
+        const parsed = new Date(raw);
+        meetingDate = isNaN(parsed.getTime()) ? null : parsed;
+      }
     }
-    if (!meetingDate) return true; // if unknown, don't exclude
+    if (!meetingDate || isNaN(meetingDate.getTime())) return true;
+
+    const dayStart = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate());
 
     if (timeFilter === 'today') {
-      return meetingDate >= startOfDay && meetingDate < addDays(1);
+      return dayStart.getTime() === startOfDay.getTime();
     }
     if (timeFilter === 'week') {
-      const end = addDays(7);
-      return meetingDate >= startOfDay && meetingDate < end;
+      const dayOfWeek = startOfDay.getDay();
+      const weekStart = new Date(startOfDay);
+      weekStart.setDate(weekStart.getDate() - dayOfWeek);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      return dayStart >= weekStart && dayStart < weekEnd;
     }
     if (timeFilter === 'month') {
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -607,8 +628,32 @@ const MeetingsDashboard = () => {
                 aria-expanded={showTimeFilterMenu}
               >
                 <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-500 dark:text-slate-300" />
-                <span className="hidden sm:inline capitalize">{timeFilter === 'week' ? 'This Week' : timeFilter === 'today' ? 'Today' : timeFilter === 'month' ? 'This Month' : 'This Quarter'}</span>
-                <span className="sm:hidden capitalize">{timeFilter === 'week' ? 'Week' : timeFilter === 'today' ? 'Today' : timeFilter === 'month' ? 'Month' : 'Quarter'}</span>
+                <span className="hidden sm:inline">
+                  {timeFilter === 'all'
+                    ? 'All'
+                    : timeFilter === 'today'
+                      ? 'Today'
+                      : timeFilter === 'week'
+                        ? 'This Week'
+                        : timeFilter === 'month'
+                          ? 'This Month'
+                          : timeFilter === 'quarter'
+                            ? 'This Quarter'
+                            : 'All'}
+                </span>
+                <span className="sm:hidden">
+                  {timeFilter === 'all'
+                    ? 'All'
+                    : timeFilter === 'today'
+                      ? 'Today'
+                      : timeFilter === 'week'
+                        ? 'Week'
+                        : timeFilter === 'month'
+                          ? 'Month'
+                          : timeFilter === 'quarter'
+                            ? 'Qtr'
+                            : 'All'}
+                </span>
               </button>
               {showTimeFilterMenu && (
                 <div className="absolute left-0 top-full mt-2 w-48 rounded-lg shadow-xl z-50 bg-white border border-gray-200 dark:bg-slate-900/95 dark:border-slate-700/60" role="menu">
@@ -616,7 +661,7 @@ const MeetingsDashboard = () => {
                     <button onClick={() => { setTimeFilter('all'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'all' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">All</button>
                     <button onClick={() => { setTimeFilter('today'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'today' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">Today</button>
                     <button onClick={() => { setTimeFilter('week'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'week' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Week</button>
-                    <button onClick={() => { setTimeFilter('month'); setShowTimeFilterMenu(false); }} className={`w/full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'month' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Month</button>
+                    <button onClick={() => { setTimeFilter('month'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'month' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Month</button>
                     <button onClick={() => { setTimeFilter('quarter'); setShowTimeFilterMenu(false); }} className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-gray-700 dark:hover:bg-white/5 dark:text-slate-200 ${timeFilter === 'quarter' ? 'bg-gray-100 dark:bg-white/5' : ''}`} role="menuitem">This Quarter</button>
                   </div>
                 </div>
@@ -662,27 +707,29 @@ const MeetingsDashboard = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5 mb-5 sm:mb-7">
           {stats.map((stat, idx) => {
             const Icon = stat.icon;
             return (
               <div
                 key={idx}
-                className="rounded-lg p-3 sm:p-4 lg:p-5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50"
+                className="rounded-lg p-2.5 sm:p-3.5 transition-all duration-200 group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 shadow-sm dark:bg-slate-800/40 dark:border-slate-700/50"
               >
-                <div className="flex items-start justify-between mb-3 sm:mb-4">
-                  <div className={`p-1.5 sm:p-2 lg:p-2.5 bg-gradient-to-br ${stat.color} rounded-lg group-hover:scale-105 transition-transform duration-200`}>
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-2 bg-gradient-to-br ${stat.color} rounded-lg shrink-0 group-hover:scale-105 transition-transform duration-200`}>
                     <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400 leading-snug">{stat.label}</p>
+                    <p className="text-xl font-bold text-gray-900 dark:text-white leading-tight tabular-nums sm:text-[1.375rem]">{stat.value}</p>
+                  </div>
                   {stat.change && (
-                    <span className="text-green-600 dark:text-green-400 text-xs font-medium flex items-center gap-0.5">
-                      <ArrowUpRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                    <span className="text-green-600 dark:text-green-400 text-xs font-medium flex items-center gap-0.5 shrink-0">
+                      <ArrowUpRight className="w-3.5 h-3.5" />
                       {stat.change}
                     </span>
                   )}
                 </div>
-                <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-0.5">{stat.value}</h3>
-                <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400">{stat.label}</p>
               </div>
             );
           })}
@@ -783,7 +830,10 @@ const MeetingsDashboard = () => {
         )}
 
         {!isLoadingMeetings && viewType === 'calendar' && (
-          <CalendarView meetings={filteredMeetings} />
+          <CalendarView
+            meetings={filteredMeetings}
+            onMeetingClick={handleMeetingClick}
+          />
         )}
 
         {!workspaceId && !currentWorkspace?.id && (

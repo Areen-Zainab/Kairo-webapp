@@ -57,6 +57,13 @@ class MemoryGraphAssemblyService {
     return typeof v === "string" ? v : v == null ? "" : String(v);
   }
 
+  /** Truncate for graph panel payloads; returns undefined when empty. */
+  truncateText(v, maxLen) {
+    const s = this.safeString(v).trim();
+    if (!s) return undefined;
+    return s.length > maxLen ? `${s.slice(0, maxLen).trim()}…` : s;
+  }
+
   pickDecisionLabel(decisionItem) {
     if (!decisionItem) return "Decision";
     if (typeof decisionItem === "string") return decisionItem;
@@ -86,6 +93,79 @@ class MemoryGraphAssemblyService {
   pickDecisionStatus(decisionItem) {
     if (!decisionItem || typeof decisionItem !== "object") return undefined;
     return this.safeString(decisionItem.decisionStatus || decisionItem.status || "").toLowerCase() || undefined;
+  }
+
+  /**
+   * `meeting_memory_contexts.key_topics` entries may be plain strings, JSON strings,
+   * or objects with name/topic/title, mentions, and sentiment.
+   */
+  parseTopicEntry(topic) {
+    const fallback = (label, slugSource) => ({
+      label: label || "Topic",
+      summary: label || "",
+      mentions: undefined,
+      sentiment: undefined,
+      slugSource: slugSource || label || "topic",
+    });
+
+    if (topic == null) {
+      return fallback("Topic", "topic");
+    }
+
+    if (typeof topic === "object" && !Array.isArray(topic)) {
+      const o = topic;
+      const label = this.safeString(o.name || o.topic || o.title || o.label || "").trim() || "Topic";
+      let mentions;
+      if (typeof o.mentions === "number" && Number.isFinite(o.mentions)) {
+        mentions = o.mentions;
+      } else if (o.mentions != null) {
+        const n = parseInt(String(o.mentions), 10);
+        mentions = Number.isNaN(n) ? undefined : n;
+      }
+      const sentiment = o.sentiment != null ? this.safeString(o.sentiment).trim() : undefined;
+      const summary = this.safeString(o.summary || o.description || label);
+      return {
+        label,
+        summary,
+        mentions,
+        sentiment: sentiment || undefined,
+        slugSource: label,
+      };
+    }
+
+    if (typeof topic === "string") {
+      const s = topic.trim();
+      if (s.startsWith("{") && s.endsWith("}")) {
+        try {
+          const o = JSON.parse(s);
+          if (o && typeof o === "object" && !Array.isArray(o)) {
+            const label = this.safeString(o.name || o.topic || o.title || o.label || "").trim() || s;
+            let mentions;
+            if (typeof o.mentions === "number" && Number.isFinite(o.mentions)) {
+              mentions = o.mentions;
+            } else if (o.mentions != null) {
+              const n = parseInt(String(o.mentions), 10);
+              mentions = Number.isNaN(n) ? undefined : n;
+            }
+            const sentiment = o.sentiment != null ? this.safeString(o.sentiment).trim() : undefined;
+            const summary = this.safeString(o.summary || o.description || label);
+            return {
+              label,
+              summary,
+              mentions,
+              sentiment: sentiment || undefined,
+              slugSource: label,
+            };
+          }
+        } catch (_) {
+          /* fall through */
+        }
+      }
+      return fallback(s, s);
+    }
+
+    const str = this.safeString(topic);
+    return fallback(str, str);
   }
 
   nodeBaseLayout(nodeType) {
@@ -199,14 +279,34 @@ class MemoryGraphAssemblyService {
       for (const t of topics) topicsAll.add(String(t));
     }
 
-    const rawActionItems = await prisma.actionItem.findMany({
-      where: { meetingId: { in: meetingIds }, status: "pending" },
-      orderBy: { lastSeenAt: "desc" },
+    // Tasks created from confirmed action items only (pending AI suggestions are not shown).
+    const tasksForGraph = await prisma.task.findMany({
+      where: {
+        workspaceId: workspaceIdInt,
+        actionItemId: { not: null },
+        actionItem: { meetingId: { in: meetingIds } }
+      },
+      include: {
+        actionItem: {
+          select: {
+            id: true,
+            meetingId: true,
+            title: true,
+            description: true,
+            assignee: true,
+            dueDate: true,
+            status: true
+          }
+        },
+        column: { select: { name: true } }
+      },
+      orderBy: { updatedAt: "desc" },
       take: Math.max(0, limitActions)
     });
 
-    for (const ai of rawActionItems) {
-      if (ai.assignee) participantsSet.add(String(ai.assignee));
+    for (const t of tasksForGraph) {
+      const assignee = t.assignee || t.actionItem?.assignee;
+      if (assignee) participantsSet.add(String(assignee));
     }
 
     // Transcript snippet: grab the earliest transcript chunk per meeting.
@@ -233,9 +333,8 @@ class MemoryGraphAssemblyService {
     const decisionIds = new Set();
 
     const nodeIdMeeting = (meetingId) => `meeting:${meetingId}`;
-    const nodeIdTopic = (topic) => `topic:${workspaceIdInt}:${this.normalizeName(topic)}`;
     const nodeIdDecision = (meetingId, index) => `decision:${meetingId}:${index}`;
-    const nodeIdAction = (actionItemId) => `action:${actionItemId}`;
+    const nodeIdTask = (taskId) => `task:${taskId}`;
     const nodeIdMember = (name) => `member:${this.normalizeName(name)}`;
 
     // Keep deterministic ordering for stable layout.
@@ -270,17 +369,22 @@ class MemoryGraphAssemblyService {
       const topics = topicSetByMeeting.get(ctx.meetingId) || [];
       for (let t = 0; t < topics.length; t++) {
         const topic = topics[t];
-        const topicNodeId = nodeIdTopic(topic);
+        const parsed = this.parseTopicEntry(topic);
+        const topicNodeId = `topic:${workspaceIdInt}:${this.normalizeName(parsed.slugSource)}`;
         if (!topicIds.has(topicNodeId)) {
           topicIds.add(topicNodeId);
+          const summaryText =
+            parsed.summary.length > 160 ? `${parsed.summary.slice(0, 160)}...` : parsed.summary;
           nodes.push({
             id: topicNodeId,
             type: "topic",
-            label: this.safeString(topic),
-            summary: this.safeString(topic),
+            label: parsed.label,
+            summary: summaryText,
             data: {
-              keywords: [this.safeString(topic)],
-              lastDiscussed: start
+              keywords: [parsed.label],
+              lastDiscussed: start,
+              ...(parsed.mentions != null ? { mentions: parsed.mentions } : {}),
+              ...(parsed.sentiment ? { sentiment: parsed.sentiment } : {})
             }
           });
         }
@@ -361,34 +465,61 @@ class MemoryGraphAssemblyService {
       }
     }
 
-    // action nodes + action-member edges
-    const actionNodes = [];
-    for (let i = 0; i < rawActionItems.length; i++) {
-      const ai = rawActionItems[i];
+    const pickTaskActionStatus = (columnName) => {
+      const s = this.safeString(columnName).toLowerCase();
+      if (s.includes("complete") || s === "done") return "completed";
+      if (s.includes("progress")) return "in-progress";
+      return "todo";
+    };
+
+    const normalizeTaskPriority = (p) => {
+      const s = this.safeString(p).toLowerCase();
+      if (s === "urgent" || s === "high" || s === "medium" || s === "low") return s;
+      return "medium";
+    };
+
+    // Task nodes (from board) + meeting-task + task-assignee edges
+    const taskNodes = [];
+    for (let i = 0; i < tasksForGraph.length; i++) {
+      const task = tasksForGraph[i];
+      const ai = task.actionItem;
       if (!ai) continue;
-      const actionNodeId = nodeIdAction(ai.id);
+
+      const taskNodeId = nodeIdTask(task.id);
       const meetingNodeId = nodeIdMeeting(ai.meetingId);
 
-      const dueDate = ai.dueDate ? new Date(ai.dueDate).toISOString() : undefined;
-      const assignee = ai.assignee ? String(ai.assignee) : undefined;
+      const dueRaw = task.dueDate || ai.dueDate;
+      const dueDate = dueRaw ? new Date(dueRaw).toISOString() : undefined;
+      const assigneeRaw = task.assignee || ai.assignee;
+      const assignee = assigneeRaw ? String(assigneeRaw) : undefined;
 
-      actionNodes.push({
-        id: actionNodeId,
+      taskNodes.push({
+        id: taskNodeId,
         type: "action",
-        label: this.safeString(ai.title) || `Action ${ai.id}`,
-        summary: this.safeString(ai.description) || "",
+        label: this.safeString(task.title) || this.safeString(ai.title) || `Task ${task.id}`,
+        summary: this.safeString(task.description || ai.description) || "",
         data: {
           assignee,
           dueDate,
-          priority: "medium",
-          actionStatus: ai.status === "pending" ? "todo" : "todo"
+          priority: normalizeTaskPriority(task.priority),
+          actionStatus: pickTaskActionStatus(task.column?.name),
+          kanbanColumnName: this.safeString(task.column?.name) || undefined,
+          meetingId: ai.meetingId,
+          taskId: task.id,
+          actionItemId: ai.id,
+          sourceActionItem: {
+            id: ai.id,
+            title: this.safeString(ai.title) || `Action item #${ai.id}`,
+            description: this.truncateText(ai.description, 12000),
+            status: this.safeString(ai.status) || undefined
+          }
         }
       });
 
       edges.push({
-        id: `e:${meetingNodeId}:${actionNodeId}:meeting-action`,
+        id: `e:${meetingNodeId}:${taskNodeId}:meeting-action`,
         source: meetingNodeId,
-        target: actionNodeId,
+        target: taskNodeId,
         type: "meeting-action",
         weight: 0.9,
         color: "#64748B",
@@ -410,8 +541,8 @@ class MemoryGraphAssemblyService {
         }
 
         edges.push({
-          id: `e:${actionNodeId}:${memberNodeId}:action-member`,
-          source: actionNodeId,
+          id: `e:${taskNodeId}:${memberNodeId}:action-member`,
+          source: taskNodeId,
           target: memberNodeId,
           type: "action-member",
           weight: 0.9,
@@ -421,7 +552,7 @@ class MemoryGraphAssemblyService {
         });
       }
     }
-    nodes.push(...actionNodes);
+    nodes.push(...taskNodes);
 
     // Apply a hard cap to avoid overwhelming the canvas.
     // Keep edges consistent by capping nodes first then filtering edges.

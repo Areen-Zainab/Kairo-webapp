@@ -14,6 +14,7 @@ const { getMeetingStats } = require("../utils/meetingStats");
 const AIInsightsService = require("../services/AIInsightsService");
 const NotificationService = require("../services/NotificationService");
 const PrivacyModeService = require("../services/PrivacyModeService");
+const MeetingReprocessService = require("../services/MeetingReprocessService");
 
 const router = express.Router();
 const { spawn } = require('child_process');
@@ -490,6 +491,62 @@ router.post("/:id/regenerate-embeddings", authenticateToken, async (req, res) =>
   }
 });
 
+// Reprocess a meeting (organiser-only):
+// - retranscribe from stored chunks
+// - regenerate diarized outputs
+// - regenerate embeddings
+// - regenerate AI insights
+router.post("/:id/reprocess", authenticateToken, async (req, res) => {
+  try {
+    const meetingId = parseInt(req.params.id, 10);
+    if (Number.isNaN(meetingId)) {
+      return res.status(400).json({ error: "Invalid meeting ID" });
+    }
+
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: { id: true, workspaceId: true, createdById: true }
+    });
+    if (!meeting) {
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+
+    // Must be a workspace member (basic access control)
+    const membership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: meeting.workspaceId,
+          userId: req.user.id
+        }
+      }
+    });
+    if (!membership) {
+      return res.status(403).json({ error: "You do not have access to this meeting" });
+    }
+
+    // Organiser-only (meeting creator)
+    if (meeting.createdById !== req.user.id) {
+      return res.status(403).json({ error: "Only the meeting organiser can reprocess this meeting" });
+    }
+
+    // Respond immediately, then run in background
+    res.status(202).json({
+      success: true,
+      meetingId,
+      message: "Meeting reprocess started"
+    });
+
+    MeetingReprocessService.reprocessMeeting(meetingId, req.user.id)
+      .then(() => console.log(`✅ [reprocess] Completed for meeting ${meetingId}`))
+      .catch((err) => console.error(`❌ [reprocess] Failed for meeting ${meetingId}:`, err.message));
+  } catch (error) {
+    console.error("Reprocess meeting error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+});
+
 // Get meeting by ID
 router.get("/:id", authenticateToken, async (req, res) => {
   try {
@@ -839,6 +896,14 @@ router.patch("/:id/status", authenticateToken, async (req, res) => {
       if (!isOwnerOrAdmin && !isCreator) {
         return res.status(403).json({ error: "Only workspace owner, admin, or the meeting creator can mark this meeting as completed" });
       }
+    }
+
+    // Idempotent: avoid duplicate notifications, logs, and side effects
+    if (meeting.status === status) {
+      return res.json({
+        message: 'Meeting status unchanged',
+        meeting
+      });
     }
 
     // Update meeting status first (respond quickly to frontend)

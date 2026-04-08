@@ -65,23 +65,23 @@ function ensureConversationalClosing(answer) {
     return 'I could not find enough context to answer that clearly right now. Do you want to ask anything else?';
   }
 
-  if (/do you want to ask anything else\?/i.test(trimmed)) {
-    return trimmed;
-  }
-
-  return `${trimmed}\n\nDo you want to ask anything else?`;
+  const withoutClosing = trimmed.replace(/\s*do you want to ask anything else\??\s*$/i, '').trim();
+  return `${withoutClosing}\n\nDo you want to ask anything else?`;
 }
 
 function buildSystemPrompt() {
   return [
-    'You are Kairo, an in-meeting assistant.',
-    'Answer in a warm, natural, conversational tone.',
+    'You are Kairo, a professional in-meeting assistant.',
+    'Lead with facts, not yourself. Avoid filler phrases like "I recall", "I found", "I don\'t have", "It seems that", or "I can try".',
+    'Instead of "I recall that in Meeting X...", say "In Meeting X, the team discussed...".',
     'Use ONLY the provided context from meeting memory and live transcript.',
     'Never output raw diarization labels like [UNKNOWN], [SPEAKER_00], or timestamp ranges.',
-    'If referencing previous meetings, explicitly mention the meeting title.',
-    'If context is insufficient, say that clearly and ask one short follow-up question.',
-    'Keep answers concise but useful. Prefer 1-3 short paragraphs.',
-    'Do not fabricate decisions, dates, owners, or action items.'
+    'Always cite the meeting title when referencing previous meetings.',
+    'Be direct and concise. Prefer short 1-2 paragraphs. No filler, no hedging, no repetition.',
+    'Do not repeat information already stated in the same response.',
+    'If context is genuinely insufficient, say so directly and concisely.',
+    'Do not fabricate decisions, dates, owners, or action items.',
+    'You are ONLY a meeting assistant. You answer questions about meetings, discussions, decisions, and action items from the provided meeting context. If a question is unrelated to the context or meetings (e.g. coding, general knowledge, math, recipes), respond with exactly: "I am only a meeting assistant. Unfortunately, I can only help with questions about your meetings. Do you want to ask anything else?"',
   ].join(' ');
 }
 
@@ -116,7 +116,7 @@ function buildUserPrompt({ question, semanticResults, liveTranscriptEntries, cha
     'Live/ongoing meeting transcript context:',
     liveContext || '(none found)',
     '',
-    'Write the final answer as a conversational assistant response ending with: "Do you want to ask anything else?"'
+    'Write the final answer as a professional, conversational and to-the-point assistant.'
   ].join('\n');
 }
 
@@ -226,7 +226,7 @@ class MeetingMemoryChatService {
     const apiKeys = [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2].filter(Boolean);
     const model = process.env.MEMORY_CHAT_GROQ_MODEL || process.env.WHISPER_MODE_GROQ_MODEL || 'llama-3.1-8b-instant';
     const maxTokens = parseInt(process.env.MEMORY_CHAT_GROQ_MAX_TOKENS || '480', 10);
-    const temperature = parseFloat(process.env.MEMORY_CHAT_GROQ_TEMPERATURE || '0.55');
+    const temperature = parseFloat(process.env.MEMORY_CHAT_GROQ_TEMPERATURE || '0.5');
     const timeoutMs = parseInt(process.env.MEMORY_CHAT_GROQ_TIMEOUT_MS || '45000', 10);
     const minIntervalMs = parseInt(process.env.MEMORY_CHAT_GROQ_MIN_INTERVAL_MS || '1500', 10);
     const retries = parseInt(process.env.MEMORY_CHAT_GROQ_MAX_RETRIES || '2', 10);

@@ -36,7 +36,7 @@ const MemoryFilterBar: React.FC<MemoryFilterBarProps> = ({
     { type: 'meeting', label: 'Meetings', color: 'bg-blue-500', count: workspaceMemory.meetings },
     { type: 'topic', label: 'Topics', color: 'bg-purple-500', count: workspaceMemory.topics },
     { type: 'decision', label: 'Decisions', color: 'bg-green-500', count: workspaceMemory.decisions },
-    { type: 'action', label: 'Actions', color: 'bg-yellow-500', count: workspaceMemory.actions },
+    { type: 'action', label: 'Tasks', color: 'bg-yellow-500', count: workspaceMemory.actions },
     { type: 'member', label: 'Members', color: 'bg-orange-500', count: workspaceMemory.members },
   ];
 
