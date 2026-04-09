@@ -4,12 +4,16 @@ import { useUser } from '../context/UserContext';
 import { KairoAssistantFAB } from './meetings/details';
 
 /**
- * Global "Ask Kairo" floating popup across the app.
+ * Global "Ask Kairo" floating popup for workspace routes only.
  * Excluded from the workspace memory graph page (it already has its own chatbot UI).
  */
 const GlobalKairoAssistantFAB: React.FC = () => {
   const location = useLocation();
   const { currentWorkspace } = useUser();
+
+  if (!location.pathname.startsWith('/workspace')) {
+    return null;
+  }
 
   const workspaceIdFromUrl = location.pathname.match(/\/workspace\/(\d+)/)?.[1];
   const workspaceIdFromUrlNum = workspaceIdFromUrl ? parseInt(workspaceIdFromUrl, 10) : undefined;
