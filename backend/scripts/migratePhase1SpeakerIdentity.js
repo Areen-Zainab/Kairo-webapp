@@ -3,8 +3,11 @@
  * 
  * Applies the 3 schema changes needed for Phase 1:
  * 1. biometric_consent + consent_given_at columns on users table
- * 2. user_voice_embeddings table (pgvector 256-dim)
+ * 2. user_voice_embeddings table (pgvector **192-dim** — matches Prisma + VoiceEmbeddingService.py)
  * 3. speaker_identity_maps table
+ *
+ * Legacy: databases created with vector(256) pre-alignment need a manual migration
+ * (new column / re-enroll) — PostgreSQL cannot widen/narrow pgvector dims in-place safely.
  * 
  * Run with: node scripts/migratePhase1SpeakerIdentity.js
  */
@@ -52,7 +55,7 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS user_voice_embeddings (
         id            TEXT        NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
         user_id       INTEGER     NOT NULL,
-        embedding     vector(256),
+        embedding     vector(192),
         version       INTEGER     NOT NULL DEFAULT 1,
         snr_score     DOUBLE PRECISION,
         is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -123,7 +126,7 @@ async function migrate() {
     console.log('\n🎉 Phase 1 Migration Complete!');
     console.log('================================');
     console.log('✅ biometric_consent, consent_given_at → users');
-    console.log('✅ user_voice_embeddings (pgvector 256-dim)');
+    console.log('✅ user_voice_embeddings (pgvector 192-dim, aligned with Prisma schema)');
     console.log('✅ speaker_identity_maps (meeting ↔ user + confidence)');
     console.log('\nReady for Phase 2: Building the embedding service.');
 

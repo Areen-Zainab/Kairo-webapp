@@ -191,7 +191,7 @@ async function enrollUserVoice(userId, audioPath, prisma) {
   `;
   const nextVersion = (Number(versions[0]?.max_version) || 0) + 1;
 
-  // Store the embedding into postgres
+  // Store the embedding into postgres (canonical dim = 192; see Prisma UserVoiceEmbedding + VoiceEmbeddingService.py)
   // Note: pgvector stores as array literal: '[0.1, 0.2, ...]'
   const embeddingLiteral = `[${result.embedding.join(',')}]`;
   const insertResult = await prisma.$queryRaw`

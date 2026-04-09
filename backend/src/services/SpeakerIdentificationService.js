@@ -6,7 +6,7 @@
  * Handles:
  * - User biometric consent management (grant/revoke)
  * - Storing and retrieving speaker identity maps per meeting
- * - Voice embedding CRUD (Phase 2 will populate the actual embeddings)
+ * - Voice embedding storage is populated via `VoiceEmbeddingBridge` + `user_voice_embeddings` (192-dim vectors)
  */
 
 const { PrismaClient } = require('@prisma/client');
@@ -233,12 +233,11 @@ class SpeakerIdentificationService {
   }
 
   // ============================================================
-  // VOICE EMBEDDING PLACEHOLDERS (Phase 2 will fill these)
+  // VOICE EMBEDDING QUERIES
   // ============================================================
 
   /**
-   * Check if a user has active voice embeddings.
-   * Phase 2 will populate the actual vectors.
+   * Check if a user has active voice embeddings (pgvector 192-dim, see UserVoiceEmbedding).
    * @param {number} userId
    * @returns {Promise<boolean>}
    */
@@ -253,7 +252,7 @@ class SpeakerIdentificationService {
 
   /**
    * Get all workspace users who have consented and have active embeddings.
-   * Used by the matching engine in Phase 2.
+   * Used by `SpeakerMatchingEngine` (Tier 1).
    * @param {number} workspaceId
    * @returns {Promise<Array>}
    */

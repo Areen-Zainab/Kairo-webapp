@@ -96,32 +96,71 @@
 
 ### 2. Real-Time Transcription (WhisperX-based)
 **Status:** ✅ 90% COMPLETE
-**Technologies:** WhisperX, Pyannote-audio, Python, WebSocket, Node.js
+**Technologies:** WhisperX, Pyannote (via WhisperX diarization path), Python, WebSocket, Node.js, pgvector
 
 #### ✅ What's Working:
 - WhisperX model preloaded at server startup (`ModelPreloader.js`)
-- Audio chunks transcribed in real-time (`TranscriptionService.js`)
-- Speaker diarization using Pyannote after meeting completion *(produces Speaker_0, Speaker_1 labels)*
-- Transcripts saved in JSON and text formats
-- WebSocket broadcasting of live transcript to clients
-- Hybrid processing: real-time + post-meeting refinement
+- Audio chunks transcribed in real-time (`TranscriptionService.js`) — **no live diarization**; WebSocket uses placeholder speaker until post-meeting processing
+- **Post-meeting** speaker diarization on the **complete recording**: Python `transcribe-whisper.py … --diarize` (WhisperX + `DiarizationPipeline` + `assign_word_speakers`); Node maps segments onto chunk utterances by time overlap → **`transcript_diarized.json` / `.txt` / `.srt`** with labels like **`SPEAKER_00`**
+- **Speaker identification (names):** `SpeakerMatchingEngine` (Tier 1 voice fingerprint vs `user_voice_embeddings`, Tier 3 historical maps, Tier 4 manual) + `speaker_identity_maps`; **`TranscriptPanel`** + **`SpeakerAssignmentPopover`** + **`/api/speakers/*`**
+- Voice enrollment: **`VoiceEmbeddingService.py`** → **`VoiceEmbeddingBridge.enrollUserVoice`**; stored vectors are **192-dimensional** (canonical ECAPA-TDNN; fallbacks normalized to 192 — aligned with Prisma `UserVoiceEmbedding`)
+- Transcripts saved in JSON and text formats; WebSocket broadcasting of **live** transcript text to clients
+- Hybrid processing: real-time ASR + post-meeting diarization + async identification
 - **Privacy gate**: `TranscriptionService.js` checks `PrivacyModeService.isEnabled()` per chunk; drops chunk silently if privacy mode active
 
 #### ⚠️ What's Missing:
-- Speaker identification by name (only `Speaker_0`, `Speaker_1` labels)
+- **Live** diarization (real `SPEAKER_XX` on streaming chunks) — see **Streaming diarization outline** below *(not started)*
 - First chunk delay ~25s due to model loading
 - No multilingual support
 - Live captions not synchronized with video tiles
+- No WebSocket push when automatic speaker ID finishes (UI refetches on load / after manual assign)
+
+#### 📋 Streaming diarization service path (live labels — design only)
+
+*Goal:* produce **updating** speaker cluster labels during the meeting without waiting for `finalize()`, while keeping **post-meeting full-file diarization** as the timing source of truth where possible.
+
+1. **Audio path**  
+   - Reuse the same captured stream the bot already writes to chunk files / optional ring buffer.  
+   - Maintain a **rolling buffer** (e.g. last 15–30s, or overlapping windows every *T* seconds) in memory or on disk for a dedicated worker.
+
+2. **Worker process**  
+   - **Separate long-lived Python process** (or pool) from the per-chunk Whisper line: e.g. `StreamingDiarizationWorker` subscribed to a queue (Redis, stdin line protocol, or local IPC).  
+   - Each job: window WAV/PCM + **meeting-relative time base** → run a **windowed** diarization pass (WhisperX segment + diarization on the window, or a lighter online diarization model if adopted later).  
+   - Output: list of `{ startSec, endSec, speakerLabel }` for that window only.
+
+3. **Label stability (cross-window)**  
+   - **Session state** in Node or worker: map each window’s cluster id to a stable **`SPEAKER_XX`** (Hungarian matching / cosine similarity on short per-window embeddings, or incremental clustering).  
+   - Expect **label permutation** across windows; do not treat raw pyannote indices as stable without reconciliation.
+
+4. **Integration with live ASR**  
+   - **Option A (lower coupling):** keep current chunk transcription; merge speaker by **time overlap** between chunk `[start,end]` and latest window diarization (same idea as `assignSpeakersToUtterances`).  
+   - **Option B:** single pipeline that emits both text + speaker for a window (heavier latency).  
+   - **Broadcast:** extend WebSocket `transcript` payload (or add `speaker_labels_update`) with resolved `SPEAKER_XX` + optional **display name** once `speaker_identity_maps` exists.
+
+5. **End-of-meeting reconciliation**  
+   - Run existing **full-file** `performDiarization` unchanged.  
+   - Define policy: **replace** live labels in stored JSON with full-file result; or keep live as preview and mark final from `transcript_diarized.json`.  
+   - Re-run or patch **`SpeakerMatchingEngine`** after final JSON is written.
+
+6. **Privacy, load, and ops**  
+   - Respect **privacy mode**: skip or blank diarization windows when enabled.  
+   - Cap CPU/GPU: throttle window frequency, max concurrent meetings, feature flag per workspace.  
+   - Document **HF / pyannote auth** same as batch diarization.
+
+7. **Phased delivery**  
+   - **P1:** Buffer + worker skeleton + WS field for “best-effort” speaker on live chunks.  
+   - **P2:** Stable `SPEAKER_XX` mapping across windows + metrics (latency, mismatch vs final).  
+   - **P3:** Tie-in to enrollment / historical ID for **live** display names (higher risk; strict consent).
 
 #### 📋 To-Do:
 
 **HIGH PRIORITY:**
-- [ ] Allow manual speaker assignment in post-meeting transcript review UI
-- [ ] Display actual names instead of Speaker_0, Speaker_1
+- [ ] Implement streaming diarization path (see outline above) behind a feature flag
 
 **LOW PRIORITY:**
 - [ ] Add multilingual transcription support
 - [ ] Migrate to Faster-Whisper (see `Faster_Whisper_Migration_Roadmap.md`)
+- [ ] WebSocket notification when automatic speaker resolution completes (optional polish)
 
 ---
 

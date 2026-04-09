@@ -3,11 +3,16 @@
 VoiceEmbeddingService.py
 Phase 2: Speaker Identification — Voice Fingerprint Engine
 
+Canonical storage (must match Prisma `UserVoiceEmbedding.embedding`):
+  pgvector **vector(192)** — SpeechBrain ECAPA-TDNN outputs 192-dim natively; if the
+  pyannote fallback yields 256-dim, `generate_embedding` trims or zero-pads to 192
+  before JSON output and DB insert (see Dimension Guard below).
+
 Responsibilities:
   1. Load an audio file (signup sample OR meeting segment)
   2. Validate Signal-to-Noise Ratio (reject noisy audio)
-  3. Generate a normalized 256-dim speaker embedding via SpeechBrain ECAPA-TDNN
-     (fallback: pyannote Inference if SpeechBrain unavailable)
+  3. Generate a normalized L2 speaker embedding (192 floats for DB) — prefer
+     SpeechBrain ECAPA-TDNN (192-dim); optional pyannote ResNet34 (256-dim → normalized to 192)
   4. Compare two embeddings via cosine similarity
   5. Output results as JSON to stdout (stderr for logs)
 
@@ -22,7 +27,7 @@ Usage:
   python VoiceEmbeddingService.py validate <audio_path>
 
 Output format (stdout, JSON):
-  { "status": "ok", "embedding": [...256 floats...], "snr_db": 22.4 }
+  { "status": "ok", "embedding": [...192 floats...], "dimensions": 192, "snr_db": 22.4 }
   { "status": "error", "reason": "snr_too_low", "snr_db": 8.1, "threshold": 15.0 }
   { "status": "ok", "similarity": 0.91, "identified": true }
 """
