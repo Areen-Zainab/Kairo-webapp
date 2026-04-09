@@ -3,6 +3,8 @@ import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LogIn";
 import SignUpPage from "./pages/SignUp";
+import TermsPage from "./pages/Terms";
+import PrivacyPage from "./pages/Privacy";
 import Dashboard from "./pages/userProfile/Dashboard";
 
 import KairoOnboarding from "./pages/Onboarding";
@@ -42,6 +44,8 @@ function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/signup" element={<SignUpPage />} /> 
         <Route path="/onboarding" element={<KairoOnboarding />} />     
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
 
         {/* User Profile Routes */}
         <Route path="/dashboard" element={<Dashboard />} />

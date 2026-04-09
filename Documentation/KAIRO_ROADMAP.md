@@ -14,9 +14,9 @@
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~93% Complete
+### Overall Progress: ~95% Complete
 
-> **Last Updated:** April 4, 2026 *(code-verified — not self-reported)*
+> **Last Updated:** April 9, 2026 *(code-verified — not self-reported)*
 
 **Corrected Since Earlier Audits (previously mis-reported as incomplete):**
 - ✅ **Quiet hours enforcement** — `ReminderService._isInQuietHours()` IS implemented and IS called on line 69 of `checkAndSendReminders()`. Handles overnight ranges (e.g. 22:00–07:00 UTC).
@@ -25,7 +25,7 @@
 - ✅ **Privacy Mode (full stack)** — Backend: `PrivacyModeService.js`, `PATCH /api/meetings/:id/privacy-mode`, transcription gate, AI insights filter. **Frontend:** `MeetingLive.tsx` — Kairo Bot dropdown toggle (`togglePrivacyMode` → `apiService.updateMeetingPrivacyMode`), optimistic UI, top-bar “Privacy Mode ON” badge, status indicator; `TranscriptTab.tsx` shows privacy state and system messages.
 
 **Remaining Gaps (verified, non-optional product work):**
-- ❌ **Speaker identification by name** — Pyannote diarization produces `Speaker_0`/`Speaker_1` labels; no user ↔ speaker mapping or post-meeting assignment UI.
+- 🔄 **Speaker identification** — Post-meeting biometric matching, manual assignment UI, cascade name propagation, and **live per-chunk identification** all implemented. Remaining: within-meeting guest profiling (unresolved speakers labelled "Guest A/B" with their own embeddings).
 - ❌ **Task Contextual Micro-Channels** — 70% implemented.
 - ⚠️ **Knowledge Graph — no persistent storage** *(optional scale-up)* — graph is regenerated per request (with 60s cache); no `graph_nodes`/`graph_edges` tables.
 - ⚠️ **Graph click-to-expand UI** — `/neighbours` endpoint exists and `apiService.getNodeNeighbours()` is defined; `MemoryView` node click only opens the context panel — neighbour expansion is not merged into the canvas.
@@ -60,7 +60,7 @@
 
 ### 🔄 PARTIALLY IMPLEMENTED (2/21 core)
 
-18. **Speaker Diarization** — 30% Complete *(Pyannote diarization runs post-meeting; produces Speaker_0/Speaker_1 labels; no name mapping to real users)*
+18. **Speaker Diarization** — 85% Complete *(Full post-meeting pipeline: diarization → biometric matching → cascade name propagation → UI assignment. Live per-chunk identification during meetings also implemented. Remaining: within-meeting guest profiling for unresolved speakers.)*
 19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion API, real query-bar integration done; optional persistent storage + click-to-expand UI pending)*
 20. **Task Contextual Micro-Channels** — 70% Complete
 
@@ -92,25 +92,28 @@
 ---
 
 ### 2. Real-Time Transcription (WhisperX-based)
-**Status:** ✅ 90% COMPLETE
-**Technologies:** WhisperX, Pyannote (via WhisperX diarization path), Python, WebSocket, Node.js, pgvector
+**Status:** ✅ 95% COMPLETE
+**Technologies:** WhisperX, Pyannote (via WhisperX diarization path), Python, WebSocket, Node.js, pgvector, SpeechBrain ECAPA-TDNN
 
 #### ✅ What's Working:
 - WhisperX model preloaded at server startup (`ModelPreloader.js`)
-- Audio chunks transcribed in real-time (`TranscriptionService.js`) — **no live diarization**; WebSocket uses placeholder speaker until post-meeting processing
-- **Post-meeting** speaker diarization on the **complete recording**: Python `transcribe-whisper.py … --diarize` (WhisperX + `DiarizationPipeline` + `assign_word_speakers`); Node maps segments onto chunk utterances by time overlap → **`transcript_diarized.json` / `.txt` / `.srt`** with labels like **`SPEAKER_00`**
-- **Speaker identification (names):** `SpeakerMatchingEngine` (Tier 1 voice fingerprint vs `user_voice_embeddings`, Tier 3 historical maps, Tier 4 manual) + `speaker_identity_maps`; **`TranscriptPanel`** + **`SpeakerAssignmentPopover`** + **`/api/speakers/*`**
-- Voice enrollment: **`VoiceEmbeddingService.py`** → **`VoiceEmbeddingBridge.enrollUserVoice`**; stored vectors are **192-dimensional** (canonical ECAPA-TDNN; fallbacks normalized to 192 — aligned with Prisma `UserVoiceEmbedding`)
-- Transcripts saved in JSON and text formats; WebSocket broadcasting of **live** transcript text to clients
-- Hybrid processing: real-time ASR + post-meeting diarization + async identification
+- Audio chunks transcribed in real-time (`TranscriptionService.js`); WebSocket broadcasts live text to clients
+- **Live speaker identification per chunk**: `LiveSpeakerIdentifier` + `EmbeddingServerProcess` (persistent warm Python encoder); each ~3s chunk is embedded, compared to enrolled workspace users via cosine similarity (threshold 0.55), majority-voted over a 4-chunk window, and broadcast as a `live_speaker_update` WebSocket event; `useLiveTranscript.ts` patches the displayed speaker label in real-time
+- **Post-meeting** speaker diarization on the **complete recording**: Python `transcribe-whisper.py … --diarize` (WhisperX + `DiarizationPipeline` + `assign_word_speakers`) → **`transcript_diarized.json` / `.txt` / `.srt`** with labels like **`SPEAKER_00`**
+- **Post-meeting speaker identification (names):** `SpeakerMatchingEngine` (Tier 1 voice fingerprint threshold 0.72, Tier 3 historical maps, Tier 4 manual) + `speaker_identity_maps`; runs **synchronously before AI insights** so insights use real names
+- **Cascade name propagation**: resolved names overwrite `action_items`, `ai_insights`, `meeting_memory_contexts`, `meeting_embeddings`, `transcript_diarized.json`
+- **Manual assignment UI**: `TranscriptPanel` + `SpeakerAssignmentPopover` + `/api/speakers/*`; IDENTIFY button shows for any unresolved speaker regardless of label format
+- **Identification badges**: Biometric (green), Manual (amber), Historical (blue) visible per transcript entry
+- **Manual assignment preservation**: UPSERT logic preserves tier-4 (manual) assignments unless a stronger biometric match replaces them
+- Voice enrollment: `VoiceEmbeddingService.py` → `VoiceEmbeddingBridge.enrollUserVoice`; **192-dimensional** ECAPA-TDNN embeddings; auto-enrolled from ProfileTab and Onboarding when consent is present
+- Transcripts saved in JSON and text formats
 - **Privacy gate**: `TranscriptionService.js` checks `PrivacyModeService.isEnabled()` per chunk; drops chunk silently if privacy mode active
 
 #### ⚠️ What's Missing:
-- **Live** diarization (real `SPEAKER_XX` on streaming chunks) — see **Streaming diarization outline** below *(not started)*
+- **Full streaming diarization** (pyannote windowed segmentation on live audio, producing stable SPEAKER_XX clusters in real-time) — the current live ID uses a simpler single-speaker-per-chunk assumption without cross-speaker segmentation; see outline below
 - First chunk delay ~25s due to model loading
 - No multilingual support
 - Live captions not synchronized with video tiles
-- No WebSocket push when automatic speaker ID finishes (UI refetches on load / after manual assign)
 
 #### 📋 Streaming diarization service path (live labels — design only)
 
@@ -151,13 +154,13 @@
 
 #### 📋 To-Do:
 
-**HIGH PRIORITY:**
-- [ ] Implement streaming diarization path (see outline above) behind a feature flag
+**MEDIUM PRIORITY:**
+- [ ] Within-meeting guest profiling: label unresolved speakers as "Guest A", "Guest B" with their own embeddings (see `speaker-diarization.md` Layer 8)
+- [ ] Full streaming diarization (windowed pyannote on live audio for stable multi-speaker SPEAKER_XX labels — distinct from the current per-chunk ID approach)
 
 **LOW PRIORITY:**
 - [ ] Add multilingual transcription support
 - [ ] Migrate to Faster-Whisper (see `Faster_Whisper_Migration_Roadmap.md`)
-- [ ] WebSocket notification when automatic speaker resolution completes (optional polish)
 
 ---
 
@@ -477,7 +480,7 @@
 
 | # | Task | Effort | Status |
 |---|---|---|---|
-| 1 | **Speaker assignment UI** — manual speaker name mapping in post-meeting transcript review | 2-3 days | ⬜ TODO |
+| 1 | **Speaker guest profiling** — label unresolved SPEAKER_XX as "Guest A/B" with their own embeddings; surface in UI | 2-3 days | ⬜ TODO |
 | 2 | **Knowledge Graph click-to-expand** — wire `getNodeNeighbours` / `/neighbours` to node-click in `MemoryView` + `GraphCanvas` (merge neighbour nodes into graph state) | ~1 day | ⬜ TODO |
 
 ### ⚡ MEDIUM PRIORITY
@@ -498,7 +501,11 @@
 | — | Quiet hours enforcement in `ReminderService` | `ReminderService.js` (`checkAndSendReminders`, `_isInQuietHours`) |
 | — | Hybrid search (pgvector + FTS) | `MeetingEmbeddingService.js` (`hybridSearchWorkspaceMeetings`) |
 | — | Result highlighting in `SmartSearchModal` | `SmartSearchModal.tsx` (`HighlightedSnippet`) |
-| — | Privacy Mode — backend + live UI | `PrivacyModeService.js`, `meetingRoutes.js` (`PATCH .../privacy-mode`), `TranscriptionService.js`, `AIInsightsService.js`; `MeetingLive.tsx`, `TranscriptTab.tsx`, `api.ts` (`updateMeetingPrivacyMode`) |
+| — | Privacy Mode — backend + live UI | `PrivacyModeService.js`, `meetingRoutes.js`, `TranscriptionService.js`, `MeetingLive.tsx`, `TranscriptTab.tsx` |
+| — | Speaker assignment UI (manual name mapping) | `SpeakerAssignmentPopover.tsx`, `TranscriptPanel.tsx`, `/api/speakers/meetings/:id/assign` |
+| — | Post-meeting biometric speaker identification | `SpeakerMatchingEngine.js`, `SpeakerIdentificationService.js`, `MeetingReprocessService.js` |
+| — | Live per-chunk speaker identification | `EmbeddingServerProcess.js`, `LiveSpeakerIdentifier.js`, `TranscriptionService.js`, `useLiveTranscript.ts` |
+| — | Cascade name propagation (transcript, insights, action items) | `SpeakerIdentificationService.cascadeNameUpdate` |
 
 ### 📊 LOW PRIORITY / POST-FYP
 
@@ -515,14 +522,21 @@
 
 ## CONCLUSION
 
-Kairo is **~93% complete** on core scope (code-verified, April 4, 2026). Earlier audits understated completion for quiet hours, hybrid search, result highlighting, and **Privacy Mode**, which is now **end-to-end**: backend services and routes plus live-meeting UI (`MeetingLive.tsx`, `TranscriptTab.tsx`, `apiService.updateMeetingPrivacyMode`).
+Kairo is **~95% complete** on core scope (code-verified, April 9, 2026). The core product is essentially feature-complete. Speaker diarization has advanced significantly: post-meeting biometric identification, cascade name propagation, manual assignment UI with identification badges, and **live per-chunk speaker identification** during meetings are all fully implemented.
 
-**Remaining core work (non-optional):**
+**The only non-optional remaining work:**
 
-1. **Speaker name assignment** — map `Speaker_0` / `Speaker_1` to real people in transcript review
-2. **Knowledge Graph click-to-expand** — use existing `/neighbours` API from a node click to expand the canvas graph
-3. **Task Contextual Micro-Channels** — 70% complete
-4. **Medium-priority memory & tasks** — assignee fuzzy-match to workspace users, manual embeddings regeneration, embeddings for notes/action items, optional `/context`/`/related` caching
+1. **Speaker guest profiling** — label unresolved `SPEAKER_XX` speakers as "Guest A/B" with meeting-scoped embeddings (see `speaker-diarization.md` Layer 8)
+2. **Knowledge Graph click-to-expand** — wire the existing `/neighbours` API to a node click in `MemoryView` / `GraphCanvas`
+3. **Task Contextual Micro-Channels** — 70% complete; finish "View full meeting" navigation and manual task–meeting linking
+
+Everything else is either done or explicitly out of scope.
+
+**Medium-priority polish (non-blocking):**
+- Assignee fuzzy-match to workspace users in `TaskCreationService`
+- Manual embeddings regeneration endpoint
+- Embeddings for notes and confirmed action items
+- Optional `/context`/`/related` caching
 
 **Optional / stretch:** Calendar, third-party integrations, multimodal capture, graph table persistence (`graph_nodes`/`graph_edges`), Faster-Whisper migration, multilingual transcription, email/push reminders, enterprise privacy (retention, audit, GDPR).
 
@@ -531,5 +545,5 @@ Kairo is **~93% complete** on core scope (code-verified, April 4, 2026). Earlier
 ---
 
 *Last Updated: April 9, 2026*
-*Last audit: cross-checked against `MeetingLive.tsx` (privacy UI), `PrivacyModeService.js`, `MemoryView.tsx` / `GraphCanvas.tsx` (neighbours not wired), `TaskCreationService.js`, roadmap optional sections*
+*Last audit: cross-checked against `EmbeddingServerProcess.js`, `LiveSpeakerIdentifier.js`, `TranscriptionService.js`, `useLiveTranscript.ts`, `TranscriptPanel.tsx`, `SpeakerMatchingEngine.js`, `MeetingReprocessService.js`, `SpeakerAssignmentPopover.tsx`, `MemoryView.tsx` / `GraphCanvas.tsx` (neighbours not wired), `TaskCreationService.js`*
 *Maintained by: Kairo Team*

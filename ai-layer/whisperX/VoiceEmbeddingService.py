@@ -71,6 +71,7 @@ def emit(data: dict):
 SNR_THRESHOLD_DB = 6.0    # (Frontend enforces 15dB; backend keeps forgiving SNR but still rejects too-short)
 MIN_ENROLL_DURATION_SEC = 15.0  # Enrollment: require a clean 15s+ sample
 MIN_IDENTIFY_DURATION_SEC = 5.0 # Identification: any clean 5s+ segment is usable
+MIN_LIVE_DURATION_SEC = 2.5     # Live chunks (~3s): accept shorter audio for real-time matching
 MIN_DURATION_SEC = MIN_ENROLL_DURATION_SEC  # Kept for validate (enrollment path)
 RECOMMENDED_DURATION_SEC = 30.0
 
@@ -406,6 +407,98 @@ def cmd_compare(audio_path_1: str, audio_path_2: str):
         import traceback; traceback.print_exc(file=sys.stderr)
 
 
+def cmd_embed_live(audio_path: str) -> dict:
+    """
+    Generate an embedding for a live ~3s meeting chunk.
+    Uses MIN_LIVE_DURATION_SEC (2.5s) instead of the stricter identification floor.
+    Returns a plain dict (not emitted to stdout) so server_mode can annotate reqId.
+    """
+    fname = os.path.basename(audio_path)
+    try:
+        audio_np, sr = load_audio(audio_path)
+        duration_sec = len(audio_np) / sr
+
+        if duration_sec < MIN_LIVE_DURATION_SEC:
+            log(f"[live] {fname}: skip — too short ({duration_sec:.1f}s < {MIN_LIVE_DURATION_SEC}s)")
+            return {"status": "skip", "reason": "audio_too_short",
+                    "duration_sec": round(duration_sec, 2)}
+
+        snr_db = compute_snr(audio_np, sr)
+        if snr_db < SNR_THRESHOLD_DB:
+            log(f"[live] {fname}: skip — snr too low ({snr_db:.1f}dB < {SNR_THRESHOLD_DB}dB)")
+            return {"status": "skip", "reason": "snr_too_low",
+                    "snr_db": round(snr_db, 2), "threshold_db": SNR_THRESHOLD_DB}
+
+        embedding = generate_embedding(audio_np, sr)
+        log(f"[live] {fname}: ok — {len(embedding)}-dim, snr={snr_db:.1f}dB, dur={duration_sec:.1f}s")
+        return {
+            "status": "ok",
+            "embedding": embedding.tolist(),
+            "dimensions": len(embedding),
+            "snr_db": round(snr_db, 2),
+            "duration_sec": round(duration_sec, 2),
+        }
+    except FileNotFoundError:
+        log(f"[live] {fname}: skip — file not found")
+        return {"status": "skip", "reason": "file_not_found"}
+    except Exception as e:
+        log(f"[live] {fname}: skip — error: {e}")
+        return {"status": "skip", "reason": f"processing_error: {e}"}
+
+
+def server_mode():
+    """
+    Persistent stdin/stdout server mode. Keeps the ECAPA-TDNN encoder warm across
+    multiple requests so per-chunk overhead is near-zero.
+
+    Protocol (newline-delimited JSON):
+      request:  {"reqId":"abc","action":"embed_live","path":"/abs/path/chunk.wav"}
+      response: {"reqId":"abc","status":"ok","embedding":[...],"snr_db":18.2,"duration_sec":2.9}
+               {"reqId":"abc","status":"skip","reason":"snr_too_low","snr_db":3.1}
+               {"reqId":"abc","status":"error","reason":"unknown_action"}
+    """
+    log("Server mode started — warming up encoder eagerly")
+    try:
+        # Warm up the encoder now so the first real request has near-zero latency.
+        # Any stdout from library loading is suppressed by redirecting during load.
+        import io as _io
+        _orig_stdout = sys.stdout
+        sys.stdout = _io.StringIO()  # capture any stray library stdout during model load
+        try:
+            get_encoder()
+        finally:
+            sys.stdout = _orig_stdout
+        log("Encoder ready — accepting requests")
+    except Exception as e:
+        log(f"Encoder warm-up failed (will retry on first request): {e}")
+
+    for raw_line in sys.stdin:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        req_id = ""
+        try:
+            req = json.loads(raw_line)
+            req_id = req.get("reqId", "")
+            action = req.get("action", "")
+
+            if action == "embed_live":
+                result = cmd_embed_live(req["path"])
+                result["reqId"] = req_id
+                print(json.dumps(result), flush=True)
+            elif action == "ping":
+                print(json.dumps({"reqId": req_id, "status": "pong"}), flush=True)
+            else:
+                print(json.dumps({"reqId": req_id, "status": "error",
+                                  "reason": f"unknown_action: {action}"}), flush=True)
+        except json.JSONDecodeError as e:
+            print(json.dumps({"reqId": req_id, "status": "error",
+                              "reason": f"invalid_json: {e}"}), flush=True)
+        except Exception as e:
+            print(json.dumps({"reqId": req_id, "status": "error",
+                              "reason": str(e)}), flush=True)
+
+
 def cmd_validate(audio_path: str):
     """
     Validate audio quality only (no embedding). Fast check before recording acceptance.
@@ -437,6 +530,11 @@ def cmd_validate(audio_path: str):
 # ============================================================
 
 def main():
+    # Persistent server mode — must be checked before the arg-count guard below.
+    if "--server" in sys.argv:
+        server_mode()
+        sys.exit(0)
+
     if len(sys.argv) < 3:
         emit({
             "status": "error",

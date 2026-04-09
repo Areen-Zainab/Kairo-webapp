@@ -268,6 +268,42 @@ function broadcastTaskMention(meetingId, payload) {
 }
 
 /**
+ * Broadcast a live speaker identification result for a single audio chunk.
+ * Fired during a live meeting after each ~3s chunk is identified.
+ * The frontend patches the displayed speaker label for that chunkIndex.
+ *
+ * @param {number} meetingId
+ * @param {number} chunkIndex - The chunk sequence number from TranscriptionService
+ * @param {string} userName   - Identified speaker display name
+ * @param {number|null} userId
+ * @param {number} confidence - Cosine similarity score
+ */
+function broadcastLiveSpeakerUpdate(meetingId, chunkIndex, userName, userId, confidence) {
+  const connections = meetingConnections.get(meetingId);
+  if (!connections || connections.size === 0) return;
+
+  const message = JSON.stringify({
+    type: 'live_speaker_update',
+    data: { chunkIndex, speaker: userName, userId, confidence, isLive: true },
+  });
+
+  let sentCount = 0;
+  connections.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try { ws.send(message); sentCount++; }
+      catch (_) { connections.delete(ws); }
+    } else {
+      connections.delete(ws);
+    }
+  });
+
+  if (connections.size === 0) meetingConnections.delete(meetingId);
+  if (sentCount > 0) {
+    console.log(`📡 Live speaker update: chunk ${chunkIndex} → ${userName} (sent to ${sentCount} client(s) for meeting ${meetingId})`);
+  }
+}
+
+/**
  * Broadcast resolved speaker identity mappings to all connected clients for a meeting.
  * Fired once after post-meeting speaker identification completes.
  * @param {number} meetingId
@@ -318,6 +354,7 @@ module.exports = {
   broadcastWhisperRecap,
   broadcastTaskMention,
   broadcastSpeakerIdentified,
+  broadcastLiveSpeakerUpdate,
   getConnectionCount,
   closeMeetingConnections
 };

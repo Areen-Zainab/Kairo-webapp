@@ -1018,7 +1018,13 @@ export default function KairoHomePage() {
                   {column.links.map((link) => (
                     <a 
                       key={link}
-                      href="#" 
+                      href={
+                        link === "Privacy"
+                          ? "/privacy"
+                          : link === "Terms"
+                          ? "/terms"
+                          : "#"
+                      }
                       className="block text-sm text-slate-400 hover:text-purple-400 transition-colors hover:translate-x-1 transform"
                     >
                       {link}
@@ -1034,8 +1040,8 @@ export default function KairoHomePage() {
               © 2025 Kairo AI. All rights reserved.
             </div>
             <div className="flex items-center flex-wrap justify-center gap-4 md:gap-6 text-sm text-slate-400">
-              <a href="#" className="hover:text-purple-400 transition-colors">Privacy Policy</a>
-              <a href="#" className="hover:text-purple-400 transition-colors">Terms of Service</a>
+              <a href="/privacy" className="hover:text-purple-400 transition-colors">Privacy Policy</a>
+              <a href="/terms" className="hover:text-purple-400 transition-colors">Terms of Service</a>
               <a href="#" className="hover:text-purple-400 transition-colors">Cookies</a>
             </div>
           </div>

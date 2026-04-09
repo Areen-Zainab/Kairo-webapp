@@ -111,6 +111,10 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
       reconnectAttemptsRef.current = 0; // Reset reconnect attempts on success
     };
 
+    // Pending speaker overrides: chunkIndex → speaker name, for updates that arrive
+    // before the transcript chunk itself has been inserted into the entries map.
+    const pendingSpeakerOverrides = new Map<number, string>();
+
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
@@ -121,13 +125,18 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
           setEntries((prev) => {
             const map = new Map(prev.map((entry) => [entry.id, entry]));
 
-            map.set(`chunk_${data.chunkIndex}`, {
-              id: `chunk_${data.chunkIndex}`,
+            const id = `chunk_${data.chunkIndex}`;
+            // Apply any pending speaker override that arrived before this chunk
+            const overrideSpeaker = pendingSpeakerOverrides.get(data.chunkIndex);
+            if (overrideSpeaker) pendingSpeakerOverrides.delete(data.chunkIndex);
+
+            map.set(id, {
+              id,
               chunkIndex: data.chunkIndex,
               text: data.text,
               timestamp: formatTimestamp(data.timestamp),
               rawTimestamp: data.timestamp,
-              speaker: data.speaker || 'Speaker 1'
+              speaker: overrideSpeaker || data.speaker || 'Speaker 1'
             });
 
             return Array.from(map.values()).sort((a, b) => a.chunkIndex - b.chunkIndex);
@@ -135,6 +144,22 @@ export const useLiveTranscript = (meetingId: number | null, pollInterval = 3000)
 
           // Update last timestamp
           lastTimestampRef.current = data.timestamp;
+        } else if (message.type === 'live_speaker_update') {
+          const { chunkIndex, speaker } = message.data ?? {};
+          if (chunkIndex == null || !speaker) return;
+
+          setEntries((prev) => {
+            // If the entry already exists, patch its speaker label in-place
+            const entry = prev.find(e => e.chunkIndex === chunkIndex);
+            if (!entry) {
+              // Chunk hasn't arrived yet — store override so transcript handler can apply it
+              pendingSpeakerOverrides.set(chunkIndex, speaker);
+              return prev;
+            }
+            return prev.map(e =>
+              e.chunkIndex === chunkIndex ? { ...e, speaker } : e
+            );
+          });
         } else if (message.type === 'connected') {
           console.log(`✅ WebSocket connection confirmed for meeting ${message.meetingId}`);
 

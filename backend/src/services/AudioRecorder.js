@@ -1329,6 +1329,9 @@ class AudioRecorder {
     this.transcriptionService = new TranscriptionService(this.meetingDataDir, this.transcriptFilepath, this.meetingId);
     this.isRecording = true; // Mark recording as active
 
+    // Kick off live speaker identification setup (non-blocking, non-fatal)
+    this.transcriptionService.initLiveSpeakerIdentification().catch(() => {});
+
     // Ensure chunk directory exists so each chunk can be written
     try {
       if (!fs.existsSync(this.chunksDir)) {

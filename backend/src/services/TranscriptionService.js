@@ -59,6 +59,9 @@ class TranscriptionService {
     this.chunkCount = 0;
     this.firstTimestamp = null; // Track first chunk timestamp for relative time calculation
 
+    // Live speaker identification (optional, set by initLiveSpeakerIdentification)
+    this.liveSpeakerIdentifier = null;
+
     // Verify Python script exists
     if (!fs.existsSync(PY_SCRIPT_PATH)) {
       console.warn(`⚠️  Python script not found at: ${PY_SCRIPT_PATH}`);
@@ -259,8 +262,26 @@ class TranscriptionService {
                 chunkIndex: chunkNum,
                 text: cleanedText.trim(),
                 timestamp: timestamp,
-                speaker: 'Speaker 1' // Will be updated after diarization
+                speaker: 'Speaker 1' // Patched by live_speaker_update if identification succeeds
               });
+
+              // Non-blocking live speaker identification — fires after broadcast, never blocks transcription
+              if (this.liveSpeakerIdentifier) {
+                const _audioPath = audioPath;
+                const _chunkNum = chunkNum;
+                const _meetingIdNum = meetingIdNum;
+                const _identifier = this.liveSpeakerIdentifier;
+                setImmediate(async () => {
+                  try {
+                    const { broadcastLiveSpeakerUpdate } = require('./WebSocketServer');
+                    const result = await _identifier.identifyChunk(_audioPath, _chunkNum);
+                    if (result) {
+                      broadcastLiveSpeakerUpdate(_meetingIdNum, result.chunkIndex, result.userName, result.userId, result.confidence);
+                    }
+                  } catch (_) { /* always non-fatal */ }
+                });
+              }
+
               setImmediate(() => {
                 TaskMentionService.maybeBroadcastTaskMentions(
                   meetingIdNum,
@@ -1825,9 +1846,35 @@ class TranscriptionService {
       this.pythonResolvers = [];
       this.pendingRequests.clear();
 
+      // Cleanup live speaker identification
+      if (this.liveSpeakerIdentifier) {
+        try {
+          this.liveSpeakerIdentifier.cleanup();
+        } catch (_) {}
+        this.liveSpeakerIdentifier = null;
+      }
+
       console.log('✅ TranscriptionService cleanup completed');
     } catch (error) {
       console.error('⚠️  Error during TranscriptionService cleanup:', error.message);
+    }
+  }
+
+  /**
+   * Initialise live speaker identification for this meeting.
+   * Called once after TranscriptionService is created, before recording starts.
+   * Non-blocking and non-fatal — if initialization fails, live ID is simply skipped.
+   */
+  async initLiveSpeakerIdentification() {
+    try {
+      const LiveSpeakerIdentifier = require('./LiveSpeakerIdentifier');
+      const identifier = new LiveSpeakerIdentifier(this.meetingId);
+      await identifier.initialize();
+      if (identifier.enabled) {
+        this.liveSpeakerIdentifier = identifier;
+      }
+    } catch (e) {
+      console.warn(`[TranscriptionService] Live speaker ID init failed (non-fatal): ${e.message}`);
     }
   }
 }

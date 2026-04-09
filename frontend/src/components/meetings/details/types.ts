@@ -57,6 +57,7 @@ export interface TranscriptEntry {
   slideId?: string;
   imageId?: string;
   chunk?: number;
+  chunkIndex?: number; // used by live speaker identification to patch speaker label
   audioFile?: string;
   rawTimestamp?: string; // ISO timestamp string
 }

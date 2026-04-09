@@ -66,6 +66,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [isSeeking, setIsSeeking] = useState(false); // Track if user is seeking
   const [speakerMappings, setSpeakerMappings] = useState<Record<string, SpeakerMapping>>({});
   const [isLoadingMappings, setIsLoadingMappings] = useState(false);
+  /** chunkIndex → identified speaker name; used to patch live transcript speaker labels */
+  const [liveSpeakerOverrides, setLiveSpeakerOverrides] = useState<Record<number, string>>({});
   const [activePopover, setActivePopover] = useState<string | null>(null); // speakerLabel
   const [activeRightTab, setActiveRightTab] = useState<'slides' | 'notes'>('slides');
   const [newNote, setNewNote] = useState('');
@@ -396,6 +398,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+
+        // Post-meeting speaker identification result (after reprocess)
         if (msg.type === 'speaker_identified' && Array.isArray(msg.data?.mappings)) {
           setSpeakerMappings(prev => {
             const updated = { ...prev };
@@ -423,6 +427,32 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
             });
             return updated;
           });
+        }
+
+        // Live per-chunk speaker identification result (during active meeting)
+        if (msg.type === 'live_speaker_update' && msg.data?.speaker && msg.data?.chunkIndex != null) {
+          const { chunkIndex, speaker, userId } = msg.data as {
+            chunkIndex: number;
+            speaker: string;
+            userId: number | null;
+          };
+          // Store a chunkIndex → speaker name override; the render loop uses this
+          setLiveSpeakerOverrides(prev => ({ ...prev, [chunkIndex]: speaker }));
+          // Store a live biometric mapping so identification badge renders for this name
+          if (userId != null) {
+            setSpeakerMappings(prev => ({
+              ...prev,
+              [speaker]: {
+                speakerLabel:      speaker,
+                userId,
+                userName:          speaker,
+                profilePictureUrl: null,
+                confidenceScore:   msg.data.confidence ?? 0,
+                tierResolved:      1,
+                resolved:          true,
+              },
+            }));
+          }
         }
       } catch (_) {}
     };
@@ -1607,7 +1637,11 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 {filteredTranscript.map((entry, index) => {
                   // CRITICAL: Only highlight the CURRENT entry that's playing
                   const isActive = activeEntryIndex >= 0 && index === activeEntryIndex;
-                  const speakerInitials = entry.speaker.replace(/[^A-Z0-9]/g, '').substring(0, 2) || entry.speaker.substring(0, 2).toUpperCase();
+                  // Apply live speaker override if this chunk was identified in real-time
+                  const entryChunkKey = entry.chunkIndex ?? entry.chunk;
+                  const liveSpeaker = entryChunkKey != null ? liveSpeakerOverrides[entryChunkKey] : undefined;
+                  const effectiveSpeaker = liveSpeaker ?? entry.speaker;
+                  const speakerInitials = effectiveSpeaker.replace(/[^A-Z0-9]/g, '').substring(0, 2) || effectiveSpeaker.substring(0, 2).toUpperCase();
                   
                   // Get content type for subtle badges only
                   const contentType = getEntryContentType(entry);
@@ -1652,8 +1686,8 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                       }`}>
                         {/* Speaker Avatar */}
                         {renderSpeakerAvatar(
-                          entry.speaker,
-                          speakerMappings[entry.speaker],
+                          effectiveSpeaker,
+                          speakerMappings[effectiveSpeaker] ?? speakerMappings[entry.speaker],
                           speakerInitials,
                           isActive ? 'scale-110 ring-2 ring-blue-400/50' : 'group-hover:scale-105'
                         )}
@@ -1670,13 +1704,13 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                                       : 'text-slate-900 dark:text-white'
                                   }`}
                                 >
-                                  {speakerMappings[entry.speaker]?.resolved 
-                                    ? speakerMappings[entry.speaker].userName 
-                                    : entry.speaker.replace(/_/g, ' ')}
+                                  {(speakerMappings[effectiveSpeaker] ?? speakerMappings[entry.speaker])?.resolved 
+                                    ? (speakerMappings[effectiveSpeaker] ?? speakerMappings[entry.speaker]).userName 
+                                    : effectiveSpeaker.replace(/_/g, ' ')}
                                   
                                   {/* Identity Badge — how this speaker was resolved */}
-                                  {speakerMappings[entry.speaker]?.resolved && (() => {
-                                    const tier = speakerMappings[entry.speaker].tierResolved;
+                                  {(speakerMappings[effectiveSpeaker] ?? speakerMappings[entry.speaker])?.resolved && (() => {
+                                    const tier = (speakerMappings[effectiveSpeaker] ?? speakerMappings[entry.speaker]).tierResolved;
                                     if (tier === 1) return (
                                       <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-[9px] font-bold uppercase tracking-wider border border-emerald-200 dark:border-emerald-800">
                                         <Fingerprint className="w-3 text-emerald-600 dark:text-emerald-400" />
@@ -1697,13 +1731,12 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                                     );
                                   })()}
 
-                                  {/* Identify Button — only for diarization labels (speaker_xx / guest) */}
-                                  {(!speakerMappings[entry.speaker]?.resolved) &&
-                                   (/speaker_/i.test(entry.speaker) || /guest/i.test(entry.speaker)) && (
+                                  {/* Identify Button — any unresolved speaker label */}
+                                  {!(speakerMappings[effectiveSpeaker] ?? speakerMappings[entry.speaker])?.resolved && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setActivePopover(entry.speaker);
+                                        setActivePopover(effectiveSpeaker);
                                       }}
                                       className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all ml-1 border border-blue-100 dark:border-blue-900/30"
                                     >
