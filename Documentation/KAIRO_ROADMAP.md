@@ -38,7 +38,7 @@
 
 ## IMPLEMENTATION STATUS OVERVIEW
 
-### ✅ COMPLETED FEATURES (17/21 core)
+### ✅ COMPLETED FEATURES (17/20 core)
 
 1. **Team and Workspace Management** — 100% Complete
 2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom)
@@ -58,13 +58,13 @@
 16. **Privacy Mode (pause/resume transcription)** — ✅ 100% Complete *(backend + `MeetingLive.tsx` / `TranscriptTab.tsx` UI — `updateMeetingPrivacyMode`, toggle in Kairo Bot menu, badges and transcript messaging)*
 17. **Related Meetings + Memory Context** — ✅ 100% Complete *(MemoryContextService + findRelatedMeetings + all routes)*
 
-### 🔄 PARTIALLY IMPLEMENTED (2/21 core)
+### 🔄 PARTIALLY IMPLEMENTED (2/20 core)
 
 18. **Speaker Diarization** — 85% Complete *(Full post-meeting pipeline: diarization → biometric matching → cascade name propagation → UI assignment. Live per-chunk identification during meetings also implemented. Remaining: within-meeting guest profiling for unresolved speakers.)*
 19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion API, real query-bar integration done; optional persistent storage + click-to-expand UI pending)*
 20. **Task Contextual Micro-Channels** — 70% Complete
 
-### Optional (stretch / ecosystem — not counted in core 21)
+### Optional (stretch / ecosystem — not counted in core 20)
 
 - **Multimodal Meeting Capture** — 20% Complete (audio/video only)
 - **Calendar Integrations** — 0% Complete (UI mockup exists)

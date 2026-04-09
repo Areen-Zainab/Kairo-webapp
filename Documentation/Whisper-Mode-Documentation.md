@@ -183,7 +183,5 @@ A chat-like scrollable panel rendering timestamped recap cards.
 
 ## Optional Future Enhancements
 
-- [ ] Smart triggers: generate recap when a new participant joins mid-meeting.
 - [ ] Topic-change detection: trigger a recap automatically when the conversation shifts topics.
 - [ ] Richer recap content: include bullet-listed decisions and open questions in the generated text.
-- [ ] Per-meeting configuration: expose `recapIntervalMinutes` / `lastNMinutes` as editable meeting settings in the UI.

@@ -1,288 +1,57 @@
 # Kairo Webapp Database Schema
-# Comprehensive database schema based on frontend analysis
+# Comprehensive database schema matching the exact Prisma definition (backend/prisma/schema.prisma)
 
 ## Core Tables
 
 ### Users
 CREATE TABLE users (
-    id VARCHAR(36) PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    profile_picture_url VARCHAR(500),
-    audio_sample_url VARCHAR(500),
-    timezone VARCHAR(50) DEFAULT 'UTC',
+    id SERIAL PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    name TEXT NOT NULL,
+    profile_picture_url TEXT,
+    audio_sample_url TEXT,
+    timezone TEXT DEFAULT 'UTC',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
     last_login TIMESTAMP,
     is_active BOOLEAN DEFAULT TRUE,
     email_verified BOOLEAN DEFAULT FALSE,
-    two_factor_enabled BOOLEAN DEFAULT FALSE,
-    two_factor_secret VARCHAR(255)
+    biometric_consent BOOLEAN DEFAULT FALSE,
+    consent_given_at TIMESTAMP
 );
 
-### Workspaces
-CREATE TABLE workspaces (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    code VARCHAR(20) UNIQUE NOT NULL,
-    owner_id VARCHAR(36) NOT NULL,
+### User Sessions
+CREATE TABLE user_sessions (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_token TEXT UNIQUE NOT NULL,
+    device_info TEXT,
+    ip_address TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE,
-    settings JSON,
-    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE
 );
-
-### Workspace Members
-CREATE TABLE workspace_members (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    user_id VARCHAR(36) NOT NULL,
-    role ENUM('owner', 'admin', 'member', 'observer') DEFAULT 'member',
-    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    invited_by VARCHAR(36),
-    is_active BOOLEAN DEFAULT TRUE,
-    permissions JSON,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE SET NULL,
-    UNIQUE KEY unique_workspace_user (workspace_id, user_id)
-);
-
-## Meeting System
-
-### Meetings
-CREATE TABLE meetings (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    meeting_type ENUM('sprint-planning', 'standup', 'retrospective', 'review', 'brainstorming', 'client-meeting', 'other') DEFAULT 'other',
-    status ENUM('scheduled', 'live', 'completed', 'cancelled') DEFAULT 'scheduled',
-    scheduled_date DATE NOT NULL,
-    scheduled_time TIME NOT NULL,
-    duration_minutes INT DEFAULT 60,
-    organizer_id VARCHAR(36) NOT NULL,
-    location VARCHAR(255),
-    meeting_url VARCHAR(500),
-    recording_url VARCHAR(500),
-    ai_insights_generated BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    FOREIGN KEY (organizer_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-### Meeting Participants
-CREATE TABLE meeting_participants (
-    id VARCHAR(36) PRIMARY KEY,
-    meeting_id VARCHAR(36) NOT NULL,
-    user_id VARCHAR(36) NOT NULL,
-    status ENUM('invited', 'accepted', 'declined', 'attended', 'absent') DEFAULT 'invited',
-    joined_at TIMESTAMP NULL,
-    left_at TIMESTAMP NULL,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_meeting_user (meeting_id, user_id)
-);
-
-### Meeting Transcripts
-CREATE TABLE meeting_transcripts (
-    id VARCHAR(36) PRIMARY KEY,
-    meeting_id VARCHAR(36) NOT NULL,
-    speaker_id VARCHAR(36),
-    speaker_name VARCHAR(255),
-    content TEXT NOT NULL,
-    timestamp_seconds INT NOT NULL,
-    confidence_score DECIMAL(3,2),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-    FOREIGN KEY (speaker_id) REFERENCES users(id) ON DELETE SET NULL
-);
-
-### Meeting Minutes
-CREATE TABLE meeting_minutes (
-    id VARCHAR(36) PRIMARY KEY,
-    meeting_id VARCHAR(36) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    content TEXT NOT NULL,
-    timestamp_seconds INT,
-    created_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
-);
-
-### Meeting Notes
-CREATE TABLE meeting_notes (
-    id VARCHAR(36) PRIMARY KEY,
-    meeting_id VARCHAR(36) NOT NULL,
-    content TEXT NOT NULL,
-    timestamp_seconds INT,
-    created_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
-);
-
-### Meeting Files
-CREATE TABLE meeting_files (
-    id VARCHAR(36) PRIMARY KEY,
-    meeting_id VARCHAR(36) NOT NULL,
-    filename VARCHAR(255) NOT NULL,
-    file_url VARCHAR(500) NOT NULL,
-    file_type VARCHAR(50),
-    file_size BIGINT,
-    uploaded_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-    FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE
-);
-
-### AI Insights
-CREATE TABLE ai_insights (
-    id VARCHAR(36) PRIMARY KEY,
-    meeting_id VARCHAR(36) NOT NULL,
-    insight_type ENUM('summary', 'action_items', 'decisions', 'topics', 'sentiment', 'other') NOT NULL,
-    content TEXT NOT NULL,
-    confidence_score DECIMAL(3,2),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
-);
-
-## Task Management System
-
-### Projects
-CREATE TABLE projects (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    color VARCHAR(7) DEFAULT '#3B82F6',
-    created_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
-);
-
-### Task Tags
-CREATE TABLE task_tags (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    color VARCHAR(7) DEFAULT '#10B981',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_workspace_tag (workspace_id, name)
-);
-
-### Tasks
-CREATE TABLE tasks (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    project_id VARCHAR(36) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    status ENUM('todo', 'in-progress', 'review', 'done') DEFAULT 'todo',
-    priority ENUM('low', 'medium', 'high', 'urgent') DEFAULT 'medium',
-    due_date DATE,
-    created_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    estimated_hours DECIMAL(5,2),
-    actual_hours DECIMAL(5,2),
-    parent_task_id VARCHAR(36),
-    meeting_context JSON,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (parent_task_id) REFERENCES tasks(id) ON DELETE CASCADE
-);
-
-### Task Assignees
-CREATE TABLE task_assignees (
-    id VARCHAR(36) PRIMARY KEY,
-    task_id VARCHAR(36) NOT NULL,
-    user_id VARCHAR(36) NOT NULL,
-    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    assigned_by VARCHAR(36) NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_task_user (task_id, user_id)
-);
-
-### Task Tags Junction
-CREATE TABLE task_tag_assignments (
-    task_id VARCHAR(36) NOT NULL,
-    tag_id VARCHAR(36) NOT NULL,
-    PRIMARY KEY (task_id, tag_id),
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES task_tags(id) ON DELETE CASCADE
-);
-
-## Memory System (Knowledge Graph)
-
-### Memory Nodes
-CREATE TABLE memory_nodes (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    node_type ENUM('meeting', 'topic', 'decision', 'action', 'member') NOT NULL,
-    label VARCHAR(255) NOT NULL,
-    summary TEXT,
-    data JSON,
-    position_x DECIMAL(10,2) DEFAULT 0,
-    position_y DECIMAL(10,2) DEFAULT 0,
-    size DECIMAL(5,2) DEFAULT 1.0,
-    color VARCHAR(7) DEFAULT '#3B82F6',
-    opacity DECIMAL(3,2) DEFAULT 1.0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
-);
-
-### Memory Edges
-CREATE TABLE memory_edges (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    source_node_id VARCHAR(36) NOT NULL,
-    target_node_id VARCHAR(36) NOT NULL,
-    edge_type ENUM('meeting-topic', 'meeting-member', 'topic-decision', 'action-member', 'topic-topic', 'decision-action') NOT NULL,
-    weight DECIMAL(3,2) DEFAULT 1.0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    FOREIGN KEY (source_node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
-    FOREIGN KEY (target_node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE
-);
-
-## User Preferences & Settings
 
 ### User Preferences
 CREATE TABLE user_preferences (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    auto_join BOOLEAN DEFAULT TRUE,
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    auto_join BOOLEAN DEFAULT FALSE,
     auto_record BOOLEAN DEFAULT FALSE,
-    default_duration INT DEFAULT 60,
-    timezone VARCHAR(50) DEFAULT 'UTC',
-    theme_mode ENUM('light', 'dark') DEFAULT 'dark',
-    accent_color VARCHAR(7) DEFAULT '#9333ea',
+    default_duration INT DEFAULT 30,
+    timezone TEXT DEFAULT 'UTC',
+    theme_mode TEXT DEFAULT 'light',
+    accent_color TEXT DEFAULT '#007bff',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_user_preferences (user_id)
+    updated_at TIMESTAMP
 );
 
 ### Notification Settings
 CREATE TABLE notification_settings (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     email_meeting_reminders BOOLEAN DEFAULT TRUE,
     email_meeting_summaries BOOLEAN DEFAULT TRUE,
     email_action_items BOOLEAN DEFAULT TRUE,
@@ -295,316 +64,327 @@ CREATE TABLE notification_settings (
     in_app_transcription_ready BOOLEAN DEFAULT TRUE,
     in_app_shared_with_you BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_user_notifications (user_id)
+    updated_at TIMESTAMP
 );
 
-### User Sessions
-CREATE TABLE user_sessions (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    session_token VARCHAR(255) UNIQUE NOT NULL,
-    device_info VARCHAR(255),
-    ip_address VARCHAR(45),
+### Reminder Preferences
+CREATE TABLE reminder_preferences (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    enabled BOOLEAN DEFAULT TRUE,
+    reminder_intervals INTEGER[] DEFAULT '{24, 1}',
+    quiet_hours_start INT,
+    quiet_hours_end INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    updated_at TIMESTAMP
 );
 
-## Analytics & Reporting
-
-### Workspace Analytics
-CREATE TABLE workspace_analytics (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    date DATE NOT NULL,
-    total_users INT DEFAULT 0,
-    active_sessions INT DEFAULT 0,
-    completed_tasks INT DEFAULT 0,
-    meetings_scheduled INT DEFAULT 0,
-    meetings_attended INT DEFAULT 0,
-    engagement_rate DECIMAL(5,2) DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_workspace_date (workspace_id, date)
-);
-
-### Meeting Analytics
-CREATE TABLE meeting_analytics (
-    id VARCHAR(36) PRIMARY KEY,
-    meeting_id VARCHAR(36) NOT NULL,
-    total_participants INT DEFAULT 0,
-    attendance_rate DECIMAL(5,2) DEFAULT 0,
-    duration_minutes INT DEFAULT 0,
-    transcript_length INT DEFAULT 0,
-    ai_insights_count INT DEFAULT 0,
-    action_items_count INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
-);
-
-## Calendar Integration
-
-### Calendar Integrations
-CREATE TABLE calendar_integrations (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    provider ENUM('google', 'microsoft', 'apple') NOT NULL,
-    access_token TEXT NOT NULL,
-    refresh_token TEXT,
-    expires_at TIMESTAMP,
-    calendar_id VARCHAR(255),
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-### Calendar Events
-CREATE TABLE calendar_events (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    integration_id VARCHAR(36) NOT NULL,
-    external_event_id VARCHAR(255) NOT NULL,
-    title VARCHAR(255) NOT NULL,
+### Workspaces
+CREATE TABLE workspaces (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
     description TEXT,
+    code TEXT UNIQUE NOT NULL,
+    owner_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    color_theme TEXT DEFAULT '#9333ea',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_archived BOOLEAN DEFAULT FALSE,
+    archived_at TIMESTAMP,
+    archived_by INT,
+    settings JSONB
+);
+
+### Workspace Members
+CREATE TABLE workspace_members (
+    id SERIAL PRIMARY KEY,
+    workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT DEFAULT 'member',
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    permissions JSONB,
+    UNIQUE(workspace_id, user_id)
+);
+
+### Workspace Invites
+CREATE TABLE workspace_invites (
+    id SERIAL PRIMARY KEY,
+    workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    invited_email TEXT NOT NULL,
+    invited_user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    invited_by INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT DEFAULT 'member',
+    status TEXT DEFAULT 'pending',
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    responded_at TIMESTAMP,
+    expires_at TIMESTAMP,
+    token TEXT UNIQUE NOT NULL,
+    UNIQUE(workspace_id, invited_email)
+);
+
+### Workspace Logs
+CREATE TABLE workspace_logs (
+    id SERIAL PRIMARY KEY,
+    workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id INT,
+    action TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+## Meeting System
+
+### Meetings
+CREATE TABLE meetings (
+    id SERIAL PRIMARY KEY,
+    workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    meeting_link TEXT,
+    platform TEXT,
+    location TEXT,
     start_time TIMESTAMP NOT NULL,
     end_time TIMESTAMP NOT NULL,
-    location VARCHAR(255),
-    meeting_id VARCHAR(36),
+    duration INT NOT NULL,
+    meeting_type TEXT DEFAULT 'scheduled',
+    status TEXT DEFAULT 'scheduled',
+    is_recurring BOOLEAN DEFAULT FALSE,
+    recurrence_rule TEXT,
+    created_by_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (integration_id) REFERENCES calendar_integrations(id) ON DELETE CASCADE,
-    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE SET NULL,
-    UNIQUE KEY unique_external_event (integration_id, external_event_id)
+    updated_at TIMESTAMP,
+    reminder_sent BOOLEAN DEFAULT FALSE,
+    transcript_url TEXT,
+    recording_url TEXT,
+    agenda TEXT,
+    meeting_source TEXT DEFAULT 'kairo',
+    ai_insights_generated BOOLEAN DEFAULT FALSE,
+    metadata JSONB
 );
 
-## Notifications
+### Meeting Participants
+CREATE TABLE meeting_participants (
+    id SERIAL PRIMARY KEY,
+    meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT DEFAULT 'participant',
+    status TEXT DEFAULT 'invited',
+    joined_at TIMESTAMP,
+    left_at TIMESTAMP,
+    response_time TIMESTAMP,
+    UNIQUE(meeting_id, user_id)
+);
+
+### Meeting Notes
+CREATE TABLE meeting_notes (
+    id SERIAL PRIMARY KEY,
+    meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    type TEXT DEFAULT 'manual',
+    timestamp INT DEFAULT 0,
+    color TEXT DEFAULT '#3b82f6',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    author_name TEXT
+);
+
+### Meeting Files
+CREATE TABLE meeting_files (
+    id SERIAL PRIMARY KEY,
+    meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    filepath TEXT NOT NULL,
+    file_size BIGINT NOT NULL,
+    mime_type TEXT,
+    file_type TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    uploader_name TEXT
+);
+
+### Action Items
+CREATE TABLE action_items (
+    id SERIAL PRIMARY KEY,
+    meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    assignee TEXT,
+    due_date TIMESTAMP,
+    status TEXT DEFAULT 'pending',
+    confirmed_at TIMESTAMP,
+    rejected_at TIMESTAMP,
+    confirmed_by INT REFERENCES users(id),
+    rejected_by INT REFERENCES users(id),
+    canonical_key TEXT NOT NULL,
+    confidence FLOAT DEFAULT 0.0,
+    source_chunk INT,
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    raw_data JSONB,
+    update_history JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 ### Notifications
 CREATE TABLE notifications (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    type ENUM('meeting_reminder', 'meeting_starting', 'task_assigned', 'task_due', 'meeting_summary', 'action_item', 'mention', 'system') NOT NULL,
-    title VARCHAR(255) NOT NULL,
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
     message TEXT NOT NULL,
+    type TEXT NOT NULL,
+    priority TEXT DEFAULT 'medium',
+    workspace TEXT,
     is_read BOOLEAN DEFAULT FALSE,
-    related_entity_type ENUM('meeting', 'task', 'workspace', 'user') NULL,
-    related_entity_id VARCHAR(36) NULL,
+    action_required BOOLEAN DEFAULT FALSE,
+    related_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    read_at TIMESTAMP NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    updated_at TIMESTAMP
 );
 
-## File Storage
+## AI & Embeddings Core
 
-### File Storage
-CREATE TABLE file_storage (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    filename VARCHAR(255) NOT NULL,
-    original_filename VARCHAR(255) NOT NULL,
-    file_path VARCHAR(500) NOT NULL,
-    file_type VARCHAR(50) NOT NULL,
-    file_size BIGINT NOT NULL,
-    mime_type VARCHAR(100),
-    uploaded_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-    FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE
+### AI Insights
+CREATE TABLE ai_insights (
+    id UUID PRIMARY KEY,
+    meeting_id TEXT NOT NULL,
+    insight_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    confidence_score FLOAT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-## Indexes for Performance
+### User Voice Embeddings (pgvector)
+CREATE TABLE user_voice_embeddings (
+    id UUID PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    embedding VECTOR(192),
+    version INT DEFAULT 1,
+    snr_score FLOAT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP
+);
 
--- User indexes
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_active ON users(is_active);
+### Speaker Identity Maps
+CREATE TABLE speaker_identity_maps (
+    id UUID PRIMARY KEY,
+    meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    speaker_label TEXT NOT NULL,
+    user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    confidence_score FLOAT NOT NULL,
+    tier_resolved INT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    UNIQUE(meeting_id, speaker_label)
+);
 
--- Workspace indexes
-CREATE INDEX idx_workspace_members_workspace ON workspace_members(workspace_id);
-CREATE INDEX idx_workspace_members_user ON workspace_members(user_id);
+### Meeting Embeddings (pgvector)
+CREATE TABLE meeting_embeddings (
+    id UUID PRIMARY KEY,
+    meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    content_type TEXT NOT NULL,
+    content_id TEXT,
+    content TEXT NOT NULL,
+    embedding VECTOR(384),
+    metadata JSONB,
+    chunk_index INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP
+);
 
--- Meeting indexes
-CREATE INDEX idx_meetings_workspace ON meetings(workspace_id);
-CREATE INDEX idx_meetings_organizer ON meetings(organizer_id);
-CREATE INDEX idx_meetings_scheduled_date ON meetings(scheduled_date);
-CREATE INDEX idx_meetings_status ON meetings(status);
-CREATE INDEX idx_meetings_ai_insights_generated ON meetings(ai_insights_generated);
+### Meeting Memory Contexts (pgvector)
+CREATE TABLE meeting_memory_contexts (
+    id UUID PRIMARY KEY,
+    meeting_id INT UNIQUE NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    summary_embedding VECTOR(384),
+    key_topics TEXT[],
+    key_decisions JSONB,
+    key_action_items JSONB,
+    participants TEXT[],
+    meeting_context TEXT NOT NULL,
+    embedding_count INT DEFAULT 0,
+    last_processed_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
--- Task indexes
-CREATE INDEX idx_tasks_workspace ON tasks(workspace_id);
-CREATE INDEX idx_tasks_project ON tasks(project_id);
-CREATE INDEX idx_tasks_assignee ON task_assignees(user_id);
-CREATE INDEX idx_tasks_due_date ON tasks(due_date);
-CREATE INDEX idx_tasks_status ON tasks(status);
+### Meeting Relationships
+CREATE TABLE meeting_relationships (
+    id UUID PRIMARY KEY,
+    source_meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    target_meeting_id INT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    relationship_type TEXT NOT NULL,
+    similarity_score FLOAT NOT NULL,
+    shared_topics TEXT[],
+    shared_participants TEXT[],
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_meeting_id, target_meeting_id)
+);
 
--- Memory system indexes
-CREATE INDEX idx_memory_nodes_workspace ON memory_nodes(workspace_id);
-CREATE INDEX idx_memory_nodes_type ON memory_nodes(node_type);
-CREATE INDEX idx_memory_edges_workspace ON memory_edges(workspace_id);
+## Task & Workflow System
 
--- Analytics indexes
-CREATE INDEX idx_workspace_analytics_workspace_date ON workspace_analytics(workspace_id, date);
-CREATE INDEX idx_meeting_analytics_meeting ON meeting_analytics(meeting_id);
+### Kanban Columns
+CREATE TABLE kanban_columns (
+    id SERIAL PRIMARY KEY,
+    workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    position INT NOT NULL,
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    UNIQUE(workspace_id, name)
+);
 
--- Notification indexes
-CREATE INDEX idx_notifications_user ON notifications(user_id);
-CREATE INDEX idx_notifications_unread ON notifications(user_id, is_read);
+### Tasks
+CREATE TABLE tasks (
+    id SERIAL PRIMARY KEY,
+    workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    column_id INT NOT NULL REFERENCES kanban_columns(id) ON DELETE CASCADE,
+    action_item_id INT UNIQUE REFERENCES action_items(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    assignee TEXT,
+    due_date TIMESTAMP,
+    priority TEXT DEFAULT 'medium',
+    position INT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP
+);
 
--- Calendar indexes
-CREATE INDEX idx_calendar_events_user ON calendar_events(user_id);
-CREATE INDEX idx_calendar_events_start_time ON calendar_events(start_time);
+### Tags
+CREATE TABLE tags (
+    id SERIAL PRIMARY KEY,
+    workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT '#3b82f6',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    UNIQUE(workspace_id, name)
+);
 
-## Views for Common Queries
+### Task Tags
+CREATE TABLE task_tags (
+    id SERIAL PRIMARY KEY,
+    task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    tag_id INT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(task_id, tag_id)
+);
 
--- User workspace summary
-CREATE VIEW user_workspace_summary AS
-SELECT 
-    u.id as user_id,
-    u.name as user_name,
-    u.email,
-    w.id as workspace_id,
-    w.name as workspace_name,
-    wm.role as workspace_role,
-    wm.joined_at
-FROM users u
-JOIN workspace_members wm ON u.id = wm.user_id
-JOIN workspaces w ON wm.workspace_id = w.id
-WHERE wm.is_active = TRUE;
-
--- Meeting statistics
-CREATE VIEW meeting_stats AS
-SELECT 
-    m.id as meeting_id,
-    m.title,
-    m.scheduled_date,
-    m.status,
-    COUNT(mp.user_id) as total_participants,
-    COUNT(CASE WHEN mp.status = 'attended' THEN 1 END) as attended_count,
-    COUNT(mt.id) as transcript_entries,
-    COUNT(mn.id) as minutes_count,
-    COUNT(ai.id) as ai_insights_count
-FROM meetings m
-LEFT JOIN meeting_participants mp ON m.id = mp.meeting_id
-LEFT JOIN meeting_transcripts mt ON m.id = mt.meeting_id
-LEFT JOIN meeting_minutes mn ON m.id = mn.meeting_id
-LEFT JOIN ai_insights ai ON m.id = ai.meeting_id
-GROUP BY m.id, m.title, m.scheduled_date, m.status;
-
--- Task statistics
-CREATE TABLE task_stats AS
-SELECT 
-    t.id as task_id,
-    t.title,
-    t.status,
-    t.priority,
-    t.due_date,
-    COUNT(ta.user_id) as assignee_count,
-    COUNT(tta.tag_id) as tag_count,
-    p.name as project_name
-FROM tasks t
-LEFT JOIN task_assignees ta ON t.id = ta.task_id
-LEFT JOIN task_tag_assignments tta ON t.id = tta.task_id
-LEFT JOIN projects p ON t.project_id = p.id
-GROUP BY t.id, t.title, t.status, t.priority, t.due_date, p.name;
-
-## Triggers for Data Consistency
-
--- Update task updated_at on status change
-DELIMITER //
-CREATE TRIGGER update_task_updated_at
-    BEFORE UPDATE ON tasks
-    FOR EACH ROW
-BEGIN
-    IF OLD.status != NEW.status THEN
-        SET NEW.updated_at = CURRENT_TIMESTAMP;
-    END IF;
-END//
-DELIMITER ;
-
--- Update meeting updated_at on status change
-DELIMITER //
-CREATE TRIGGER update_meeting_updated_at
-    BEFORE UPDATE ON meetings
-    FOR EACH ROW
-BEGIN
-    IF OLD.status != NEW.status THEN
-        SET NEW.updated_at = CURRENT_TIMESTAMP;
-    END IF;
-END//
-DELIMITER ;
-
-## Sample Data Inserts
-
--- Insert sample users
-INSERT INTO users (id, email, password_hash, name, timezone) VALUES
-('user-1', 'areeba@example.com', '$2b$10$hash1', 'Areeba Riaz', 'America/New_York'),
-('user-2', 'fatima@example.com', '$2b$10$hash2', 'Fatima Khan', 'America/New_York'),
-('user-3', 'ahmed@example.com', '$2b$10$hash3', 'Ahmed Ali', 'America/New_York');
-
--- Insert sample workspace
-INSERT INTO workspaces (id, name, description, code, owner_id) VALUES
-('workspace-1', 'Product Team Alpha', 'Main product development team', 'PROD-ALPHA', 'user-1');
-
--- Insert workspace members
-INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES
-('member-1', 'workspace-1', 'user-1', 'owner'),
-('member-2', 'workspace-1', 'user-2', 'member'),
-('member-3', 'workspace-1', 'user-3', 'member');
-
--- Insert sample project
-INSERT INTO projects (id, workspace_id, name, color, created_by) VALUES
-('project-1', 'workspace-1', 'Core Platform', '#3B82F6', 'user-1');
-
--- Insert sample task tags
-INSERT INTO task_tags (id, workspace_id, name, color) VALUES
-('tag-1', 'workspace-1', 'backend', '#10B981'),
-('tag-2', 'workspace-1', 'frontend', '#06B6D4'),
-('tag-3', 'workspace-1', 'security', '#F59E0B');
-
--- Insert sample tasks
-INSERT INTO tasks (id, workspace_id, project_id, title, description, status, priority, due_date, created_by) VALUES
-('task-1', 'workspace-1', 'project-1', 'Implement user authentication system', 'Create a comprehensive authentication system with JWT tokens', 'in-progress', 'high', '2024-10-18', 'user-1'),
-('task-2', 'workspace-1', 'project-1', 'Design mobile responsive layout', 'Create responsive design for mobile devices', 'todo', 'medium', '2024-10-22', 'user-2');
-
--- Insert task assignees
-INSERT INTO task_assignees (id, task_id, user_id, assigned_by) VALUES
-('assignee-1', 'task-1', 'user-1', 'user-1'),
-('assignee-2', 'task-1', 'user-2', 'user-1'),
-('assignee-3', 'task-2', 'user-3', 'user-2');
-
--- Insert sample meeting
-INSERT INTO meetings (id, workspace_id, title, meeting_type, status, scheduled_date, scheduled_time, duration_minutes, organizer_id) VALUES
-('meeting-1', 'workspace-1', 'Sprint Planning - Team Kairo', 'sprint-planning', 'completed', '2024-10-15', '10:00:00', 60, 'user-1');
-
--- Insert meeting participants
-INSERT INTO meeting_participants (id, meeting_id, user_id, status) VALUES
-('participant-1', 'meeting-1', 'user-1', 'attended'),
-('participant-2', 'meeting-1', 'user-2', 'attended'),
-('participant-3', 'meeting-1', 'user-3', 'attended');
-
-## Notes
-
-1. All VARCHAR(36) fields use UUID4 format for primary keys
-2. JSON fields store flexible data structures for extensibility
-3. Timestamps use UTC timezone for consistency
-4. Foreign key constraints ensure referential integrity
-5. Indexes are optimized for common query patterns
-6. Views provide convenient access to aggregated data
-7. Triggers maintain data consistency automatically
-8. Sample data demonstrates the schema structure
-
-This schema supports all the features identified in the frontend:
-- User authentication and profile management
-- Workspace and team management
-- Meeting scheduling, recording, and transcription
-- Task management with projects, tags, and assignments
-- Knowledge graph memory system
-- Analytics and reporting
-- Calendar integration
-- Notification system
-- File storage and management
+### Sent Reminders
+CREATE TABLE sent_reminders (
+    id SERIAL PRIMARY KEY,
+    task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reminder_interval INT NOT NULL,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(task_id, user_id, reminder_interval)
+);
