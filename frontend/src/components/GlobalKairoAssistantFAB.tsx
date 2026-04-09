@@ -4,7 +4,7 @@ import { useUser } from '../context/UserContext';
 import { KairoAssistantFAB } from './meetings/details';
 
 /**
- * Global "Ask Kairo" floating popup — only on workspace routes (URL under /workspace/...).
+ * Global "Ask Kairo" floating popup for workspace routes only.
  * Excluded from the workspace memory graph page (it already has its own chatbot UI).
  */
 const GlobalKairoAssistantFAB: React.FC = () => {
