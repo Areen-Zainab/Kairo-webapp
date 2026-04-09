@@ -34,12 +34,21 @@ const VoiceStep: React.FC<VoiceStepProps> = ({ data, onChange }) => {
   const intervalRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const recordingTimeRef = useRef(0);
+  const audioUrlRef = useRef<string | null>(null);
+
+  const MIN_SAMPLE_SECONDS = 15;
+  const MAX_SAMPLE_SECONDS = 30;
 
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
       }
     };
   }, []);
@@ -63,13 +72,28 @@ const VoiceStep: React.FC<VoiceStepProps> = ({ data, onChange }) => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         const audioFile = new File([audioBlob], 'voice-sample.webm', { type: 'audio/webm' });
         const url = URL.createObjectURL(audioBlob);
-        
-        setAudioURL(url);
-        onChange({ audioSample: audioFile });
+
+        // Always allow the user to replay what was recorded, even if it's rejected.
+        setAudioURL((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        audioUrlRef.current = url;
         
         stream.getTracks().forEach(track => track.stop());
-        
-        // Validate Audio immediately
+
+        // Frontend gate: never save/enroll < 15s
+        const dur = recordingTimeRef.current;
+        if (dur < MIN_SAMPLE_SECONDS) {
+          setSnrFeedback({ score: 0, status: null });
+          setError(`Recording too short (${dur}s). Please record at least ${MIN_SAMPLE_SECONDS}s (ideal: 15–30s).`);
+          onChange({ audioSample: null });
+          return;
+        }
+
+        onChange({ audioSample: audioFile });
+
+        // Validate Audio immediately (server-side quality check)
         validateAudio(audioFile);
       };
 
@@ -77,16 +101,21 @@ const VoiceStep: React.FC<VoiceStepProps> = ({ data, onChange }) => {
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingTime(0);
+      recordingTimeRef.current = 0;
       
       intervalRef.current = window.setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime(prev => {
+          const next = prev + 1;
+          recordingTimeRef.current = next;
+          return next;
+        });
       }, 1000);
 
       setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           stopRecording();
         }
-      }, 30000); // 30 seconds
+      }, MAX_SAMPLE_SECONDS * 1000); // 30 seconds
 
 
     } catch (err) {
@@ -119,13 +148,30 @@ const VoiceStep: React.FC<VoiceStepProps> = ({ data, onChange }) => {
       });
 
       const response = await apiService.validateSpeakerAudio(base64Data);
-      
+
       if (response.data) {
-        const score = response.data.snr || 0;
-        const status = score >= 15 ? 'good' : 'low';
+        const durationSec = response.data.duration_sec ?? response.data.duration ?? null;
+        if (typeof durationSec === 'number' && durationSec > 0 && durationSec < MIN_SAMPLE_SECONDS) {
+          setError(`Recording too short (${durationSec.toFixed(1)}s). Please record at least ${MIN_SAMPLE_SECONDS}s (ideal: 15–30s).`);
+          setSnrFeedback({ score: 0, status: null });
+          // Ensure we don't keep a too-short sample in onboarding state
+          onChange({ audioSample: null });
+          return;
+        }
+
+        const score = response.data.snr_db ?? response.data.snr ?? 0;
+        const ok = response.data.valid === true;
+        const status = ok && score >= 15 ? 'good' : 'low';
         setSnrFeedback({ score, status });
-        if (status === 'low') {
-          setError('Background noise is too high. Please find a quieter place and re-record for better accuracy.');
+        if (!ok || status === 'low') {
+          const backendReason = response.data.reason;
+          setError(
+            backendReason && backendReason !== 'ok'
+              ? `Audio rejected: ${backendReason}. Please find a quieter place and re-record for better accuracy.`
+              : 'Background noise is too high. Please find a quieter place and re-record for better accuracy.'
+          );
+          // Rejected audio should not be saved into onboarding state
+          onChange({ audioSample: null });
         }
       }
     } catch (err) {
@@ -139,10 +185,34 @@ const VoiceStep: React.FC<VoiceStepProps> = ({ data, onChange }) => {
   const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      onChange({ audioSample: file });
       const url = URL.createObjectURL(file);
-      setAudioURL(url);
+      setAudioURL((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+      audioUrlRef.current = url;
       setError(null);
+      setSnrFeedback({ score: 0, status: null });
+
+      // Frontend gate using browser metadata (no upload if < 15s)
+      const probe = new Audio();
+      probe.preload = 'metadata';
+      probe.src = url;
+      probe.onloadedmetadata = () => {
+        const dur = Number.isFinite(probe.duration) ? probe.duration : 0;
+        if (dur > 0 && dur < MIN_SAMPLE_SECONDS) {
+          setError(`Audio too short (${dur.toFixed(1)}s). Please upload at least ${MIN_SAMPLE_SECONDS}s (ideal: 15–30s).`);
+          onChange({ audioSample: null });
+          return;
+        }
+        onChange({ audioSample: file });
+        validateAudio(file);
+      };
+      probe.onerror = () => {
+        // If we can't read metadata (rare), fall back to backend validation.
+        onChange({ audioSample: file });
+        validateAudio(file);
+      };
     }
   };
 

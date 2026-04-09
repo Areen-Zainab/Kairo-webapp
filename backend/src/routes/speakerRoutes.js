@@ -189,6 +189,38 @@ router.post('/validate-audio', authenticateToken, upload.single('audio'), async 
 });
 
 // ============================================================
+// WORKSPACE ENROLLED USERS
+// ============================================================
+
+/**
+ * GET /api/speakers/workspace/:workspaceId/enrolled
+ * Returns all workspace members who have given biometric consent and have
+ * at least one active voice embedding — used by the frontend for the manual
+ * speaker assignment picker and for displaying enrollment status.
+ */
+router.get('/workspace/:workspaceId/enrolled', authenticateToken, async (req, res) => {
+  try {
+    const workspaceId = parseInt(req.params.workspaceId, 10);
+    if (isNaN(workspaceId)) {
+      return res.status(400).json({ error: 'Invalid workspaceId.' });
+    }
+
+    const enrolled = await SpeakerIdentificationService.getEnrolledWorkspaceUsers(workspaceId);
+
+    const users = enrolled.map(u => ({
+      id: u.userId,
+      name: u.name,
+      lastEnrollment: u.lastEmbeddingAt ?? null,
+    }));
+
+    return res.json({ success: true, users });
+  } catch (error) {
+    console.error('[SpeakerRoutes] Enrolled users error:', error.message);
+    return res.status(500).json({ error: 'Failed to fetch enrolled users.' });
+  }
+});
+
+// ============================================================
 // MEETING SPEAKER MAPPINGS
 // ============================================================
 
@@ -199,7 +231,7 @@ router.post('/validate-audio', authenticateToken, upload.single('audio'), async 
 router.get('/meetings/:meetingId', authenticateToken, async (req, res) => {
   try {
     const { meetingId } = req.params;
-    const mappings = await SpeakerIdentificationService.getMeetingMappings(parseInt(meetingId));
+    const mappings = await SpeakerIdentificationService.getIdentityMappings(parseInt(meetingId));
     return res.json({ success: true, mappings });
   } catch (error) {
     console.error('[SpeakerRoutes] Get mappings error:', error.message);

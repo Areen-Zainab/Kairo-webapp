@@ -26,7 +26,7 @@
 
 **Remaining Gaps (verified, non-optional product work):**
 - ❌ **Speaker identification by name** — Pyannote diarization produces `Speaker_0`/`Speaker_1` labels; no user ↔ speaker mapping or post-meeting assignment UI.
-- ❌ **Task Contextual Micro-Channels** — 0% implemented.
+- ❌ **Task Contextual Micro-Channels** — 70% implemented.
 - ⚠️ **Knowledge Graph — no persistent storage** *(optional scale-up)* — graph is regenerated per request (with 60s cache); no `graph_nodes`/`graph_edges` tables.
 - ⚠️ **Graph click-to-expand UI** — `/neighbours` endpoint exists and `apiService.getNodeNeighbours()` is defined; `MemoryView` node click only opens the context panel — neighbour expansion is not merged into the canvas.
 
@@ -62,10 +62,7 @@
 
 18. **Speaker Diarization** — 30% Complete *(Pyannote diarization runs post-meeting; produces Speaker_0/Speaker_1 labels; no name mapping to real users)*
 19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion API, real query-bar integration done; optional persistent storage + click-to-expand UI pending)*
-
-### ❌ NOT IMPLEMENTED (1/21 core)
-
-20. **Task Contextual Micro-Channels** — 0% Complete
+20. **Task Contextual Micro-Channels** — 70% Complete
 
 ### Optional (stretch / ecosystem — not counted in core 21)
 

@@ -128,14 +128,30 @@ function applyDecay(score, createdAt) {
  * Group diarization entries by speaker label.
  * Returns { SPEAKER_00: [{start, end},...], SPEAKER_01: [...] }
  * Filters out overlapping segments (two speakers at same time).
+ *
+ * Handles two input shapes:
+ *  - getDiarizedTranscript() output: camelCase fields, timestamps normalized
+ *    (startTime = actualStart - timeOffset). Uses originalStartTime (actual
+ *    audio time) for ffmpeg accuracy, reconstructs end via endTime + timeOffset.
+ *  - Raw JSON utterance objects: snake_case fields, timestamps un-normalized.
  */
 function groupSegmentsBySpeaker(utterances) {
   const speakerSegments = {};
 
   for (const u of utterances) {
     const label = (u.speaker || 'UNKNOWN').toUpperCase();
-    const start = u.diarized_start ?? u.start_time ?? 0;
-    const end   = u.diarized_end   ?? u.end_time   ?? (start + 3);
+
+    let start, end;
+    if (u.originalStartTime !== undefined) {
+      // getDiarizedTranscript() output — use actual audio timestamps for ffmpeg
+      start = u.originalStartTime;
+      end   = u.endTime + (u.timeOffset ?? 0);
+    } else {
+      // Raw JSON utterance (snake_case, un-normalized) — use directly
+      start = u.diarized_start ?? u.start_time ?? u.startTime ?? 0;
+      end   = u.diarized_end   ?? u.end_time   ?? u.endTime   ?? (start + 3);
+    }
+
     if (end <= start) continue;
 
     if (!speakerSegments[label]) speakerSegments[label] = [];

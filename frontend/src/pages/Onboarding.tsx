@@ -156,14 +156,27 @@ export default function KairoOnboarding() {
               reader.readAsDataURL(formData.audioSample!);
             });
 
+            // Persist the same sample to the user's profile so it shows in the Profile tab
+            // (prevents users from having to upload twice).
+            try {
+              const ext = formData.audioSample!.type?.split('/')[1] || 'webm';
+              const uploadResp = await apiService.uploadAudioRecording(base64Data, ext);
+              if (!uploadResp.error && uploadResp.data?.audioUrl) {
+                await apiService.updateProfile({ audioSampleUrl: uploadResp.data.audioUrl });
+              }
+            } catch (uploadErr) {
+              console.warn('Failed to save onboarding audio sample to profile:', uploadErr);
+              // Non-blocking: voice enrollment can still proceed even if saving the sample fails.
+            }
+
             const enrollResponse = await apiService.enrollSpeakerVoice(base64Data);
             if (enrollResponse.error) {
               console.error('Voice enrollment failed:', enrollResponse.error);
               // Use the specific message from the backend if available
               const errorMsg = enrollResponse.data?.message || enrollResponse.error || 'Voice enrollment failed.';
               toast.error(`${errorMsg} You can re-enroll later in Settings.`);
-            } else if (enrollResponse.data?.snr && enrollResponse.data.snr < 15) {
-              console.warn('Voice enrolled but SNR is low:', enrollResponse.data.snr);
+            } else if (enrollResponse.data?.snrDb && enrollResponse.data.snrDb < 15) {
+              console.warn('Voice enrolled but SNR is low:', enrollResponse.data.snrDb);
               toast.warning('Voice enrolled, but background noise was detected. Consider re-enrolling later for better accuracy.');
             } else {
               console.log('Voice enrolled successfully!');

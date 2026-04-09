@@ -134,12 +134,13 @@ interface UpcomingReminder {
 }
 
 export interface SpeakerConsentStatus {
-  biometricConsent: boolean;
+  hasConsent: boolean;
   consentGivenAt: string | null;
-  enrolled: boolean;
+  hasAudioSample: boolean;
+  embeddingCount: number;
+  lastEmbeddingUpdated: string | null;
+  daysSinceLastUpdate: number | null;
   needsReEnrollment: boolean;
-  lastEnrollmentAt: string | null;
-  embeddingVersion: number;
 }
 
 interface SpeakerMapping {
@@ -153,7 +154,17 @@ interface SpeakerMapping {
 
 interface AudioValidationResponse {
   valid: boolean;
+  status?: 'ok' | 'rejected' | 'error';
   reason?: string;
+  action?: string;
+
+  // Canonical fields returned by VoiceEmbeddingService.py
+  snr_db?: number;
+  threshold_db?: number;
+  duration_sec?: number;
+  recommended_duration_sec?: number;
+
+  // Backward-compatible aliases (if backend ever adds them)
   snr?: number;
   duration?: number;
 }

@@ -36,6 +36,11 @@ import os
 import sys
 import json
 import numpy as np
+import warnings
+
+# Hide noisy third-party warnings (torchaudio/speechbrain/hf hub) unless they become real errors.
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Prevent PyTorch threading deadlock on Windows
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -63,8 +68,8 @@ def emit(data: dict):
 # ============================================================
 # SNR VALIDATION
 # ============================================================
-SNR_THRESHOLD_DB = 6.0    # Very forgiving for test/auth verification
-MIN_DURATION_SEC = 5.0    # Reject audio shorter than this
+SNR_THRESHOLD_DB = 6.0    # (Frontend enforces 15dB; backend keeps forgiving SNR but still rejects too-short)
+MIN_DURATION_SEC = 15.0   # Hard safety: never accept/enroll shorter than 15s
 RECOMMENDED_DURATION_SEC = 30.0
 
 def compute_snr(audio_np: np.ndarray, sample_rate: int) -> float:
@@ -128,19 +133,18 @@ TARGET_SAMPLE_RATE = 16000  # 16kHz mono — standard for speaker models
 def load_audio(audio_path: str):
     """
     Load audio file and resample to 16kHz mono with automatic gain normalization.
+    Tries torchaudio first, silently falls back to ffmpeg for browser formats (WebM/OGG).
+    Only logs an error if all methods fail.
     """
     import torch
     import torchaudio
     import subprocess
 
-    log(f"Loading speech audio from {audio_path}...")
-    
-    # 1. Try torchaudio first
+    # 1. Try torchaudio (silent — browser WebM often fails here on Windows)
     try:
         waveform, sr = torchaudio.load(audio_path)
-    except Exception as e:
-        log(f"torchaudio load failed ({e}), trying ffmpeg fallback...")
-        # 2. FFmpeg fallback
+    except Exception:
+        # 2. FFmpeg fallback — handles WebM, OGG and other browser-recorded formats
         tmpfile = audio_path + ".resampled.wav"
         try:
             subprocess.run(
@@ -150,7 +154,7 @@ def load_audio(audio_path: str):
             waveform, sr = torchaudio.load(tmpfile)
             if os.path.exists(tmpfile): os.remove(tmpfile)
         except Exception as e2:
-            raise Exception(f"Failed to load audio even with ffmpeg: {e2}")
+            raise Exception(f"Failed to load audio (all methods exhausted): {e2}")
 
     # 3. Resample if needed
     if sr != TARGET_SAMPLE_RATE:
@@ -299,7 +303,7 @@ def cmd_embed(audio_path: str):
     Generate and return an embedding for a single audio file.
     Validates SNR before processing.
     """
-    log(f"Embedding: {audio_path}")
+    log(f"Embedding: {os.path.basename(audio_path)}")
     
     try:
         audio_np, sr = load_audio(audio_path)
@@ -340,7 +344,7 @@ def cmd_compare(audio_path_1: str, audio_path_2: str):
     Compare two audio files and return cosine similarity + identification decision.
     Used by Tier 1 matching engine.
     """
-    log(f"Comparing: {audio_path_1} vs {audio_path_2}")
+    log(f"Comparing: {os.path.basename(audio_path_1)} vs {os.path.basename(audio_path_2)}")
 
     try:
         audio1, sr1 = load_audio(audio_path_1)
@@ -384,7 +388,7 @@ def cmd_validate(audio_path: str):
     """
     Validate audio quality only (no embedding). Fast check before recording acceptance.
     """
-    log(f"Validating: {audio_path}")
+    log(f"Validating: {os.path.basename(audio_path)}")
     try:
         audio_np, sr = load_audio(audio_path)
         is_valid, snr_db, reason = validate_audio(audio_np, sr, audio_path)

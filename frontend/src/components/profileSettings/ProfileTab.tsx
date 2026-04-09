@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Upload, Mic, Check, Play, Pause, Trash2 } from 'lucide-react';
+import { Sparkles, Upload, Mic, Check, Play, Pause, Trash2, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import type { UserProfile } from '../../context/UserContext';
 import apiService from '../../services/api';
 
@@ -21,13 +21,23 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
   const [hasChanges, setHasChanges] = useState(false);
   const [errors, setErrors] = useState<{ name?: string; email?: string }>({});
   
+  const MIN_RECORDING_SECONDS = 15;
+  const MAX_RECORDING_SECONDS = 30;
+
   // Audio states
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [pendingAudio, setPendingAudio] = useState<string | null>(null);
+  const [localAudioUrl, setLocalAudioUrl] = useState<string | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+
+  // Auto-enrollment: runs in background when audio is ready and consent exists
+  const [hasConsent, setHasConsent] = useState(false);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<null | 'enrolling' | 'success' | 'error'>(null);
+  const [enrollmentMessage, setEnrollmentMessage] = useState<string | null>(null);
+  const hasConsentRef = useRef(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -50,8 +60,74 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
     setPreviewImage(profile.profilePictureUrl || null);
     setPendingAudio(null);
     setRecordedBlob(null);
+    setLocalAudioUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setHasChanges(false);
   }, [profile]);
+
+  // Fetch consent once on mount so we know whether to auto-enroll
+  useEffect(() => {
+    apiService.getSpeakerConsentStatus().then((res) => {
+      const consent = res.data?.hasConsent ?? false;
+      setHasConsent(consent);
+      hasConsentRef.current = consent;
+    }).catch(() => {});
+  }, []);
+
+  const autoEnroll = async (blob: Blob) => {
+    if (!hasConsentRef.current) return;
+    setEnrollmentStatus('enrolling');
+    setEnrollmentMessage(null);
+    try {
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      const validation = await apiService.validateSpeakerAudio(base64Data);
+      if (validation.error) {
+        setEnrollmentStatus('error');
+        setEnrollmentMessage(validation.error);
+        return;
+      }
+
+      const durationSec = validation.data?.duration_sec ?? validation.data?.duration ?? null;
+      if (typeof durationSec === 'number' && durationSec > 0 && durationSec < 15) {
+        setEnrollmentStatus('error');
+        setEnrollmentMessage(`Recording too short (${durationSec.toFixed(1)}s). Record at least 15s for voice fingerprinting.`);
+        return;
+      }
+
+      const snr = validation.data?.snr_db ?? validation.data?.snr ?? 0;
+      if (!validation.data?.valid || snr < 15) {
+        const reason = validation.data?.reason;
+        setEnrollmentStatus('error');
+        setEnrollmentMessage(
+          reason && reason !== 'ok'
+            ? `Voice fingerprint skipped: ${reason}. Re-record in a quieter place.`
+            : 'Too much background noise for fingerprinting. Re-record in a quieter place.'
+        );
+        return;
+      }
+
+      const enroll = await apiService.enrollSpeakerVoice(base64Data);
+      if (enroll.error) {
+        setEnrollmentStatus('error');
+        setEnrollmentMessage(enroll.error);
+        return;
+      }
+
+      setEnrollmentStatus('success');
+      setEnrollmentMessage(null);
+    } catch {
+      setEnrollmentStatus('error');
+      setEnrollmentMessage('Voice fingerprint update failed. You can retry from the Voice tab.');
+    }
+  };
 
   const handleChange = (field: keyof Partial<UserProfile>, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -88,7 +164,7 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
     }
   };
 
-  // Cleanup audio player on unmount
+  // Cleanup audio player and local blob URLs on unmount
   useEffect(() => {
     return () => {
       if (audioPlayerRef.current) {
@@ -97,6 +173,9 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
       }
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+      }
+      if (localAudioUrl) {
+        URL.revokeObjectURL(localAudioUrl);
       }
     };
   }, []);
@@ -114,6 +193,18 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
         return;
       }
 
+      // Revoke any previous local URL to avoid memory leaks
+      if (localAudioUrl) {
+        URL.revokeObjectURL(localAudioUrl);
+      }
+      // Create a local blob URL immediately for reliable playback
+      const blobUrl = URL.createObjectURL(file);
+      setLocalAudioUrl(blobUrl);
+      setRecordedBlob(file);
+
+      // Auto-enroll in parallel with the Supabase upload
+      autoEnroll(file);
+
       setIsUploading(true);
       const reader = new FileReader();
       reader.onloadend = async () => {
@@ -126,9 +217,7 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
           if (response.error) {
             alert('Failed to upload audio. Please try again.');
           } else if (response.data?.audioUrl) {
-            console.log('Audio uploaded to:', response.data.audioUrl);
             setPendingAudio(response.data.audioUrl);
-            setRecordedBlob(file);
             setHasChanges(true);
           }
         } catch (error) {
@@ -158,8 +247,23 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setRecordedBlob(audioBlob);
-        
-        // Upload the recording
+
+        // Create a local blob URL immediately for reliable playback (same as onboarding).
+        // Functional updater ensures we always revoke the CURRENT previous URL,
+        // not the stale closure value from when startRecording was called.
+        const blobUrl = URL.createObjectURL(audioBlob);
+        setLocalAudioUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return blobUrl;
+        });
+
+        // Stop all tracks before the async upload
+        stream.getTracks().forEach(track => track.stop());
+
+        // Auto-enroll in parallel with the Supabase upload (does not block save flow)
+        autoEnroll(audioBlob);
+
+        // Upload to server for persistence
         const reader = new FileReader();
         reader.onloadend = async () => {
           const dataUrl = reader.result as string;
@@ -170,7 +274,6 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
             if (response.error) {
               alert('Failed to upload recording. Please try again.');
             } else if (response.data?.audioUrl) {
-              console.log('Recording uploaded to:', response.data.audioUrl);
               setPendingAudio(response.data.audioUrl);
               setHasChanges(true);
             }
@@ -182,9 +285,6 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
           }
         };
         reader.readAsDataURL(audioBlob);
-
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start();
@@ -192,12 +292,12 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
       setRecordingTime(0);
       intervalRef.current = window.setInterval(() => setRecordingTime(prev => prev + 1), 1000);
 
-      // Auto-stop after 10 seconds
+      // Auto-stop at max duration
       setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           stopRecording();
         }
-      }, 10000);
+      }, MAX_RECORDING_SECONDS * 1000);
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('Unable to access microphone. Please check permissions.');
@@ -216,7 +316,8 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
   };
 
   const playAudio = () => {
-    const audioUrl = pendingAudio || formData.audioSampleUrl;
+    // Prefer local blob URL (guaranteed to work) over server URL
+    const audioUrl = localAudioUrl || pendingAudio || formData.audioSampleUrl;
     if (!audioUrl) return;
 
     if (audioPlayerRef.current) {
@@ -247,9 +348,17 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
     if (confirm('Are you sure you want to delete your voice sample?')) {
       setPendingAudio(null);
       setRecordedBlob(null);
+      setEnrollmentStatus(null);
+      setEnrollmentMessage(null);
+      if (localAudioUrl) {
+        URL.revokeObjectURL(localAudioUrl);
+        setLocalAudioUrl(null);
+      }
+      // Use null (not undefined) so JSON.stringify sends audioSampleUrl:null to the backend,
+      // which triggers the deletion path in PUT /auth/me
       setFormData(prev => ({
         ...prev,
-        audioSampleUrl: undefined, // Mark as undefined to indicate deletion
+        audioSampleUrl: null as unknown as string,
       }));
       setHasChanges(true);
       if (audioPlayerRef.current) {
@@ -291,9 +400,9 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
       if (pendingAudio) {
         updatedData.audioSampleUrl = pendingAudio;
         setPendingAudio(null);
-      } else if (formData.audioSampleUrl === undefined && profile.audioSampleUrl) {
-        // User deleted the audio
-        updatedData.audioSampleUrl = undefined;
+      } else if (formData.audioSampleUrl === null && profile.audioSampleUrl) {
+        // User deleted the audio — send null explicitly so JSON.stringify includes the key
+        (updatedData as any).audioSampleUrl = null;
       }
 
       // Save all changes
@@ -319,6 +428,12 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
     setPendingImage(null);
     setPendingAudio(null);
     setRecordedBlob(null);
+    if (localAudioUrl) {
+      URL.revokeObjectURL(localAudioUrl);
+      setLocalAudioUrl(null);
+    }
+    setEnrollmentStatus(null);
+    setEnrollmentMessage(null);
     setHasChanges(false);
     setErrors({});
     if (audioPlayerRef.current) {
@@ -427,7 +542,7 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
         
         {/* Show current audio if exists */}
         {(pendingAudio || formData.audioSampleUrl) && !isRecording ? (
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/50 rounded-xl p-4">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/50 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center">
@@ -457,6 +572,25 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
                 </button>
               </div>
             </div>
+            {/* Auto-enrollment status — shown only when consent is granted */}
+            {hasConsent && enrollmentStatus === 'enrolling' && (
+              <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Updating voice fingerprint…</span>
+              </div>
+            )}
+            {hasConsent && enrollmentStatus === 'success' && (
+              <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
+                <CheckCircle className="w-3.5 h-3.5" />
+                <span>Voice fingerprint updated</span>
+              </div>
+            )}
+            {hasConsent && enrollmentStatus === 'error' && enrollmentMessage && (
+              <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <span>{enrollmentMessage}</span>
+              </div>
+            )}
           </div>
         ) : (
           <div className="bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4">
@@ -490,13 +624,13 @@ const ProfileTab: React.FC<ProfileTabProps> = ({ profile, onSave }) => {
                         <p className="text-base font-semibold text-gray-900 dark:text-white">{formatTime(recordingTime)}</p>
                         <p className="text-xs text-red-500 flex items-center">
                           <span className="w-2 h-2 bg-red-400 rounded-full mr-1 animate-pulse"></span>
-                          Recording (Max 10s)...
+                          Recording ({MIN_RECORDING_SECONDS}–{MAX_RECORDING_SECONDS}s)...
                         </p>
                       </div>
                     ) : (
                       <div>
                         <p className="text-sm font-medium text-gray-700 dark:text-slate-300">Record voice sample</p>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">Tap to start speaking (Max 10s)</p>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">Tap to start ({MIN_RECORDING_SECONDS}–{MAX_RECORDING_SECONDS}s of speech)</p>
                       </div>
                     )}
                   </div>
