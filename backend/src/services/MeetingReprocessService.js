@@ -5,6 +5,8 @@ const TranscriptionService = require('./TranscriptionService');
 const AIInsightsService = require('./AIInsightsService');
 const MeetingEmbeddingService = require('./MeetingEmbeddingService');
 const { findMeetingDirectory, findCompleteAudioFile } = require('../utils/meetingFileStorage');
+const SpeakerMatchingEngine = require('./SpeakerMatchingEngine');
+const SpeakerIdentificationService = require('./SpeakerIdentificationService');
 
 function safeUnlink(filePath) {
   try {
@@ -187,18 +189,10 @@ class MeetingReprocessService {
         }
 
         // Persist diarized outputs + stats (without re-running diarization again).
-        await this._updateReprocessMetadata(meetingIdNum, { reprocessStep: 'finalize_outputs', reprocessProgress: 75 });
+        await this._updateReprocessMetadata(meetingIdNum, { reprocessStep: 'finalize_outputs', reprocessProgress: 70 });
         await transcription.saveDiarizedOutputs();
         const stats = transcription.generateStatistics();
         fs.writeFileSync(path.join(meetingDir, 'transcript_stats.json'), JSON.stringify(stats, null, 2));
-
-        // Trigger speaker identification (same behavior as finalize, but explicit here)
-        try {
-          const PostMeetingProcessor = require('./PostMeetingProcessor');
-          PostMeetingProcessor.triggerSpeakerIdentification(meetingIdNum);
-        } catch (e) {
-          console.warn(`[MeetingReprocessService] Speaker identification trigger failed: ${e.message}`);
-        }
       } else {
         // Fallback: retranscribe from chunks if complete audio isn't present.
         if (chunkFiles.length === 0) {
@@ -220,8 +214,51 @@ class MeetingReprocessService {
           }
         }
 
-        await this._updateReprocessMetadata(meetingIdNum, { reprocessStep: 'finalize', reprocessProgress: 75 });
+        await this._updateReprocessMetadata(meetingIdNum, { reprocessStep: 'finalize', reprocessProgress: 70 });
         await transcription.finalize(completeAudioPath);
+      }
+
+      // ── Speaker identification (synchronous, BEFORE embeddings + insights) ───────
+      // Running synchronously ensures that any resolved speaker names are cascaded
+      // into transcript_diarized.json before AI insights reads the transcript.
+      await this._updateReprocessMetadata(meetingIdNum, { reprocessStep: 'speaker_identification', reprocessProgress: 75 });
+      try {
+        const resolvedMappings = [];
+        const broadcastFn = (_mid, mapping) => { resolvedMappings.push(mapping); };
+
+        const idResult = await SpeakerMatchingEngine.runForMeeting(meetingIdNum, broadcastFn);
+
+        // Cascade resolved names into transcript file so insights see real names.
+        if (idResult?.results) {
+          for (const [label, result] of Object.entries(idResult.results)) {
+            if (result.resolved && result.userName && result.userId) {
+              try {
+                await SpeakerIdentificationService.cascadeNameUpdate(
+                  meetingIdNum, label, result.userId, result.userName
+                );
+              } catch (e) {
+                console.warn(`[MeetingReprocessService] Cascade failed for ${label}: ${e.message}`);
+              }
+            }
+          }
+        }
+
+        // Broadcast to any open transcript panels.
+        if (resolvedMappings.length > 0) {
+          try {
+            const { broadcastSpeakerIdentified } = require('./WebSocketServer');
+            broadcastSpeakerIdentified(meetingIdNum, resolvedMappings.map(m => ({
+              speakerLabel:    m.speakerLabel,
+              userId:          m.userId,
+              userName:        m.userName,
+              confidenceScore: m.confidence,
+              tierResolved:    m.tier,
+            })));
+          } catch (_) {}
+        }
+      } catch (e) {
+        // Non-fatal: log and continue so insights still run even if speaker ID fails.
+        console.warn(`[MeetingReprocessService] Speaker identification failed (non-fatal): ${e.message}`);
       }
 
       await this._updateReprocessMetadata(meetingIdNum, { reprocessStep: 'embeddings', reprocessProgress: 85 });

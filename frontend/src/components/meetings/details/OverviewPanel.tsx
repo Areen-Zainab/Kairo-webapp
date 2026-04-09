@@ -135,37 +135,35 @@ const OverviewPanel: React.FC<OverviewPanelProps> = ({ meeting }) => {
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">Audio Length</div>
+          <div className="text-sm text-slate-600 dark:text-slate-400">Transcript Length</div>
           <div className="text-lg font-semibold text-slate-900 dark:text-white">
-            {getActualDurationSeconds() > 0 
-              ? formatDuration(getActualDurationSeconds())
-              : 'N/A'}
-          </div>
-        </div>
-        
-        <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">Transcript Length</div>
-          <div className="text-lg font-semibold text-slate-900 dark:text-white">
-            {meeting.stats.transcriptLength > 0 
+            {meeting.stats.transcriptLength > 0
               ? `${meeting.stats.transcriptLength.toLocaleString()} words`
               : 'N/A'}
           </div>
         </div>
-        
+
         <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">Summary Items</div>
+          <div className="text-sm text-slate-600 dark:text-slate-400">Minutes Generated</div>
           <div className="text-lg font-semibold text-slate-900 dark:text-white">
             {meeting.stats.minutesGenerated}
           </div>
         </div>
-        
+
         <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">Files</div>
+          <div className="text-sm text-slate-600 dark:text-slate-400">Slides</div>
           <div className="text-lg font-semibold text-slate-900 dark:text-white">
-            {meeting.files.length}
+            {meeting.stats.slidesCount}
+          </div>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
+          <div className="text-sm text-slate-600 dark:text-slate-400">Participants</div>
+          <div className="text-lg font-semibold text-slate-900 dark:text-white">
+            {meeting.stats.participantsCount}
           </div>
         </div>
       </div>

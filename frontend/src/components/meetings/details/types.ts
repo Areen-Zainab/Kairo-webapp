@@ -37,7 +37,10 @@ export interface Participant {
   id: string;
   name: string;
   email: string;
+  /** Initials fallback (e.g. "JD"). Use profilePictureUrl for a real photo. */
   avatar?: string;
+  /** Full URL to the user's profile picture, if available. */
+  profilePictureUrl?: string | null;
   role: 'organizer' | 'participant' | 'presenter';
   joinedAt?: string;
   leftAt?: string;

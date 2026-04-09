@@ -64,7 +64,6 @@ async function getMeetingStats(meetingId, recordingUrl = null) {
         const duration = await getAudioFileDuration(audioPath);
         if (duration && duration > 0) {
           audioDurationSeconds = Math.round(duration);
-          console.log(`[getMeetingStats] Using duration from recordingUrl: ${audioDurationSeconds}s`);
         }
       }
     } catch (error) {
@@ -103,8 +102,7 @@ async function getMeetingStats(meetingId, recordingUrl = null) {
         const duration = await getAudioFileDuration(audioPath);
         if (duration && duration > 0) {
           audioDurationSeconds = Math.round(duration);
-          console.log(`[getMeetingStats] Using duration from audio file: ${audioDurationSeconds}s`);
-          break; // Use first valid duration found
+          break;
         }
       }
     } catch (error) {
@@ -124,7 +122,6 @@ async function getMeetingStats(meetingId, recordingUrl = null) {
       // (we already got duration from recordingUrl or audio file above)
       if (audioDurationSeconds === 0 && stats.duration_seconds) {
         audioDurationSeconds = Math.round(stats.duration_seconds);
-        console.log(`[getMeetingStats] Using duration from transcript_stats.json: ${audioDurationSeconds}s`);
       }
     } catch (error) {
       console.error('Error reading transcript stats:', error);
@@ -157,7 +154,6 @@ async function getMeetingStats(meetingId, recordingUrl = null) {
           const lastUtterance = diarizedData[diarizedData.length - 1];
           if (lastUtterance && lastUtterance.end_time) {
             audioDurationSeconds = Math.round(lastUtterance.end_time);
-            console.log(`[getMeetingStats] Using duration from diarized JSON: ${audioDurationSeconds}s`);
           }
         }
       } catch (error) {

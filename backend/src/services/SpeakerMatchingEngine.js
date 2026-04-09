@@ -30,17 +30,20 @@ const { findMeetingDirectory, findCompleteAudioFile, getDiarizedTranscript } = r
 // ============================================================
 // CONFIG
 // ============================================================
-const COSINE_THRESHOLD       = 0.82;   // Tier 1 match threshold
+const COSINE_THRESHOLD       = 0.70;   // Tier 1 match threshold
+// 0.70 handles cross-device acoustic mismatch (browser mic enroll vs bot recording).
+
 const EMBEDDING_DECAY_MONTHS = 6;      // Reduce confidence for embeddings older than this
 const DECAY_FACTOR           = 0.85;   // Multiply confidence by this if stale
 
 // Python VoiceEmbeddingService path
 const PY_SCRIPT = path.resolve(__dirname, '../../../ai-layer/whisperX/VoiceEmbeddingService.py');
+// Correct repo-relative paths first, then wider fallbacks
 const VENV_CANDIDATES = [
+  path.resolve(__dirname, '../../../venv/Scripts/python.exe'),  // Windows (repo root)
+  path.resolve(__dirname, '../../../venv/bin/python'),           // Unix   (repo root)
   path.resolve(__dirname, '../../../../venv/Scripts/python.exe'),
   path.resolve(__dirname, '../../../../venv/bin/python'),
-  path.resolve(__dirname, '../../../venv/Scripts/python.exe'),
-  path.resolve(__dirname, '../../../venv/bin/python'),
 ];
 const FFMPEG_PATH = path.resolve(__dirname, '../../../ai-layer/whisperX/ffmpeg.exe');
 
@@ -214,10 +217,11 @@ async function tier1Match(segmentPath, enrolledUsers) {
     return null;
   }
 
-  // Generate embedding for the meeting segment
+  // Generate embedding for the meeting segment.
+  // --identify lowers the minimum duration floor to 5s (vs 15s for enrollment).
   let segmentEmbedResult;
   try {
-    segmentEmbedResult = await runEmbedder(['embed', segmentPath]);
+    segmentEmbedResult = await runEmbedder(['embed', segmentPath, '--identify']);
   } catch (e) {
     console.log(`    ⚠️  Tier 1 embed failed: ${e.message}`);
     return null;
@@ -496,7 +500,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
     const userName   = identified?.userName   ?? 'Unknown';
 
     await SpeakerIdentificationService.saveIdentityMapping(
-      meetingId, label, userId, confidence, tier,
+      meetingIdNum, label, userId, confidence, tier,
       { tierAttempted: [1, 2, 3], segmentCount: segs.length }
     );
 

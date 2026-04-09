@@ -576,6 +576,18 @@ router.get("/:id", authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "You do not have access to this meeting" });
     }
 
+    // Auto-resume an interrupted reprocess job.
+    // 'interrupted' is set by server.js on startup for any job that was mid-flight
+    // when the backend previously stopped. This fires once: reprocessMeeting() immediately
+    // writes reprocessStatus='running', so concurrent page opens won't double-fire.
+    if (meeting.metadata?.reprocessStatus === 'interrupted') {
+      console.log(`🔄 [Meeting ${meetingId}] Interrupted reprocess detected — auto-resuming in background...`);
+      const MeetingReprocessService = require('../services/MeetingReprocessService');
+      MeetingReprocessService.reprocessMeeting(meetingId, meeting.createdById)
+        .then(() => console.log(`✅ [Meeting ${meetingId}] Auto-resumed reprocess completed`))
+        .catch((err) => console.error(`❌ [Meeting ${meetingId}] Auto-resumed reprocess failed: ${err.message}`));
+    }
+
     // Get transcript and audio stats if meeting is completed
     let stats = null;
     if (meeting.status === 'completed' || meeting.status === 'in-progress') {
@@ -592,17 +604,8 @@ router.get("/:id", authenticateToken, async (req, res) => {
     let audioUrl = null;
     if (meeting.status === 'completed') {
       const audioPath = findCompleteAudioFile(meetingId);
-      console.log(`[Meeting ${meetingId}] Audio file check:`, {
-        audioPath,
-        found: !!audioPath,
-        meetingStatus: meeting.status
-      });
       if (audioPath) {
-        // Construct URL for audio file
         audioUrl = `/api/meetings/${meetingId}/audio`;
-        console.log(`[Meeting ${meetingId}] Audio URL set to:`, audioUrl);
-      } else {
-        console.log(`[Meeting ${meetingId}] No audio file found, audioUrl will be null`);
       }
     }
 
@@ -1937,8 +1940,28 @@ router.get("/:id/transcript", authenticateToken, async (req, res) => {
     // Fallback to live transcript entries if diarized is empty or not available
     // This ensures users see transcription even if diarization hasn't completed
     if (!entries || entries.length === 0) {
-      console.log(`Diarized transcript not available for meeting ${meetingId}, falling back to live transcript entries`);
+      console.log(`Diarized transcript not available for meeting ${meetingId}.`);
       entries = getLiveTranscriptEntries(meetingId);
+
+      // Best-effort: kick off diarization generation in the background (non-blocking).
+      // This avoids the "forever live fallback" scenario if diarized outputs were deleted/interrupted.
+      // IMPORTANT: This does not regenerate embeddings/insights (use /reprocess for that).
+      try {
+        if (meeting.status === 'completed') {
+          const DiarizationOnDemandService = require('../services/DiarizationOnDemandService');
+          DiarizationOnDemandService.ensureDiarizedTranscript(meetingId)
+            .then((r) => {
+              if (r?.started) {
+                console.log(`🎭 [on-demand diarization] started for meeting ${meetingId}`);
+              }
+            })
+            .catch((e) => {
+              console.warn(`⚠️  [on-demand diarization] failed to start for meeting ${meetingId}: ${e.message}`);
+            });
+        }
+      } catch (e) {
+        // Never fail transcript endpoint due to background diarization trigger
+      }
     }
 
     res.json({

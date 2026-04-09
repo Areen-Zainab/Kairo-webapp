@@ -268,6 +268,33 @@ function broadcastTaskMention(meetingId, payload) {
 }
 
 /**
+ * Broadcast resolved speaker identity mappings to all connected clients for a meeting.
+ * Fired once after post-meeting speaker identification completes.
+ * @param {number} meetingId
+ * @param {Array<{speakerLabel, userId, userName, confidenceScore, tierResolved}>} mappings
+ */
+function broadcastSpeakerIdentified(meetingId, mappings) {
+  const connections = meetingConnections.get(meetingId);
+  if (!connections || connections.size === 0) return;
+
+  const message = JSON.stringify({
+    type: 'speaker_identified',
+    data: { meetingId, mappings }
+  });
+
+  connections.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try { ws.send(message); }
+      catch (_) { connections.delete(ws); }
+    } else {
+      connections.delete(ws);
+    }
+  });
+
+  if (connections.size === 0) meetingConnections.delete(meetingId);
+}
+
+/**
  * Close all connections for a meeting
  * @param {number} meetingId - Meeting ID
  */
@@ -290,6 +317,7 @@ module.exports = {
   broadcastActionItems,
   broadcastWhisperRecap,
   broadcastTaskMention,
+  broadcastSpeakerIdentified,
   getConnectionCount,
   closeMeetingConnections
 };

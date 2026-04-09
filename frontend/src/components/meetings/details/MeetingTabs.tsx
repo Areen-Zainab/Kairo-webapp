@@ -29,6 +29,7 @@ interface MeetingTabsProps {
   currentTime: number;
   actionItems?: any[];
   aiInsights?: any;
+  mappingsRefreshTick?: number;
 }
 
 const MeetingTabs: React.FC<MeetingTabsProps> = ({
@@ -50,7 +51,8 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
   onFileDelete,
   currentTime,
   actionItems,
-  aiInsights
+  aiInsights,
+  mappingsRefreshTick = 0,
 }) => {
   // Get AI insights for generating minutes on-demand (hook must be at top level)
   const { insights } = useAIInsights(meeting.id);
@@ -168,6 +170,7 @@ const MeetingTabs: React.FC<MeetingTabsProps> = ({
             onDeleteNote={onDeleteNote}
             actionItems={actionItems}
             aiInsights={aiInsights}
+            mappingsRefreshTick={mappingsRefreshTick}
           />
         );
         case 'files':

@@ -69,7 +69,9 @@ def emit(data: dict):
 # SNR VALIDATION
 # ============================================================
 SNR_THRESHOLD_DB = 6.0    # (Frontend enforces 15dB; backend keeps forgiving SNR but still rejects too-short)
-MIN_DURATION_SEC = 15.0   # Hard safety: never accept/enroll shorter than 15s
+MIN_ENROLL_DURATION_SEC = 15.0  # Enrollment: require a clean 15s+ sample
+MIN_IDENTIFY_DURATION_SEC = 5.0 # Identification: any clean 5s+ segment is usable
+MIN_DURATION_SEC = MIN_ENROLL_DURATION_SEC  # Kept for validate (enrollment path)
 RECOMMENDED_DURATION_SEC = 30.0
 
 def compute_snr(audio_np: np.ndarray, sample_rate: int) -> float:
@@ -298,17 +300,37 @@ def cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
 
 CONFIDENCE_THRESHOLD = 0.82  # Must match Tier 1 threshold in the master plan
 
-def cmd_embed(audio_path: str):
+def cmd_embed(audio_path: str, identify_mode: bool = False):
     """
     Generate and return an embedding for a single audio file.
     Validates SNR before processing.
+    identify_mode=True lowers the minimum duration to MIN_IDENTIFY_DURATION_SEC
+    (used when extracting meeting-segment embeddings for Tier-1 matching).
     """
     log(f"Embedding: {os.path.basename(audio_path)}")
     
     try:
         audio_np, sr = load_audio(audio_path)
-        is_valid, snr_db, reason = validate_audio(audio_np, sr, audio_path)
-        
+
+        # Use a lower duration floor for identification segments so short but
+        # clean meeting speech still gets a usable embedding.
+        if identify_mode:
+            duration_sec = len(audio_np) / sr
+            if duration_sec < MIN_IDENTIFY_DURATION_SEC:
+                emit({
+                    "status": "error",
+                    "reason": f"audio_too_short (got {duration_sec:.1f}s, need ≥{MIN_IDENTIFY_DURATION_SEC}s)",
+                    "snr_db": 0.0,
+                    "threshold_db": SNR_THRESHOLD_DB,
+                    "action": "segment_too_short_for_identification"
+                })
+                return
+            snr_db = compute_snr(audio_np, sr)
+            is_valid = snr_db >= SNR_THRESHOLD_DB
+            reason = "ok" if is_valid else f"snr_too_low (got {snr_db:.1f}dB, need ≥{SNR_THRESHOLD_DB}dB)"
+        else:
+            is_valid, snr_db, reason = validate_audio(audio_np, sr, audio_path)
+
         if not is_valid:
             emit({
                 "status": "error",
@@ -430,7 +452,8 @@ def main():
     command = sys.argv[1].lower()
 
     if command == "embed":
-        cmd_embed(sys.argv[2])
+        identify_mode = "--identify" in sys.argv
+        cmd_embed(sys.argv[2], identify_mode=identify_mode)
     elif command == "compare":
         if len(sys.argv) < 4:
             emit({"status": "error", "reason": "compare requires two audio paths"})

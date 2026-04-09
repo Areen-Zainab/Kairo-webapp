@@ -9,6 +9,7 @@ interface SpeakerAssignmentPopoverProps {
   currentMapping?: {
     userId: number | null;
     userName: string | null;
+    profilePictureUrl?: string | null;
     tierResolved: number;
     resolved: boolean;
   };
@@ -77,7 +78,7 @@ const SpeakerAssignmentPopover: React.FC<SpeakerAssignmentPopoverProps> = ({
   };
 
   return (
-    <div className="absolute z-[100] mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="relative w-80 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
       <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
         <div>
           <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -104,8 +105,12 @@ const SpeakerAssignmentPopover: React.FC<SpeakerAssignmentPopoverProps> = ({
               {getTierBadge(currentMapping.tierResolved)}
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold shadow-sm">
-                {currentMapping.userName?.substring(0, 1) || 'U'}
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-blue-500 flex items-center justify-center text-white text-xs font-bold shadow-sm ring-2 ring-blue-200 dark:ring-blue-800 flex-shrink-0">
+                {currentMapping.profilePictureUrl ? (
+                  <img src={currentMapping.profilePictureUrl} alt={currentMapping.userName || ''} className="w-full h-full object-cover" />
+                ) : (
+                  currentMapping.userName?.substring(0, 1) || 'U'
+                )}
               </div>
               <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
                 {currentMapping.userName}
@@ -142,11 +147,11 @@ const SpeakerAssignmentPopover: React.FC<SpeakerAssignmentPopoverProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 text-xs font-bold overflow-hidden">
-                    {p.avatar ? (
-                      <img src={p.avatar} alt={p.name} className="w-full h-full object-cover" />
+                  <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 text-xs font-bold overflow-hidden flex-shrink-0">
+                    {p.profilePictureUrl ? (
+                      <img src={p.profilePictureUrl} alt={p.name} className="w-full h-full object-cover" />
                     ) : (
-                      p.name.substring(0, 1)
+                      p.avatar || p.name.substring(0, 1)
                     )}
                   </div>
                   <div>

@@ -113,6 +113,24 @@ const server = app.listen(PORT, async () => {
   // Initialize cron jobs after server starts
   initializeCronJobs();
   
+  // Reset any reprocess jobs that were mid-flight when the backend last stopped.
+  // Any meeting with reprocessStatus='running' in metadata is stale — the in-process job
+  // is gone. Mark them 'interrupted' so the next page-open can auto-resume them.
+  try {
+    const prisma = require('./lib/prisma');
+    const staleCount = await prisma.$executeRaw`
+      UPDATE meetings
+      SET metadata = jsonb_set(metadata::jsonb, '{reprocessStatus}', '"interrupted"'::jsonb)
+      WHERE metadata IS NOT NULL
+        AND metadata->>'reprocessStatus' = 'running'
+    `;
+    if (staleCount > 0) {
+      console.log(`⚠️  Marked ${staleCount} stale reprocess job(s) as 'interrupted' (will auto-resume on next page open)`);
+    }
+  } catch (e) {
+    console.warn('⚠️  Could not reset stale reprocess jobs:', e.message);
+  }
+
   // Initialize global transcription model (non-blocking)
   const ModelPreloader = require('./services/ModelPreloader');
   console.log('🔄 Initializing global transcription model...');

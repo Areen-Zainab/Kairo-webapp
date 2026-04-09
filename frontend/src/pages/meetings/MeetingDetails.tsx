@@ -28,6 +28,9 @@ const MeetingDetails: React.FC = () => {
   const [aiInsights, setAIInsights] = useState<any>(null);
   const [showReprocessDialog, setShowReprocessDialog] = useState(false);
   const [isReprocessStarting, setIsReprocessStarting] = useState(false);
+  const [mappingsRefreshTick, setMappingsRefreshTick] = useState(0);
+  // Incrementing this forces a full re-fetch of meeting data (transcript + metadata).
+  const [fetchTick, setFetchTick] = useState(0);
 
   // Load current user (for organiser-only controls)
   useEffect(() => {
@@ -43,6 +46,33 @@ const MeetingDetails: React.FC = () => {
       });
     return () => { cancelled = true; };
   }, []);
+
+  // Poll reprocess status while running so the loading screen auto-dismisses.
+  // When reprocess transitions to 'completed', increment mappingsRefreshTick so
+  // TranscriptPanel re-fetches speaker mappings without a full page reload.
+  useEffect(() => {
+    if (meetingMetadata?.reprocessStatus !== 'running') return;
+    const numericId = parseInt(meetingId, 10);
+    if (isNaN(numericId)) return;
+
+    const poll = setInterval(async () => {
+      try {
+        const resp = await apiService.getMeetingById(numericId);
+        const status = resp.data?.meeting?.metadata?.reprocessStatus;
+        if (status && status !== 'running') {
+          clearInterval(poll);
+          // Re-fetch the full meeting (transcript has changed after reprocess).
+          // fetchTick triggers the main data-loading effect to re-run.
+          setFetchTick(t => t + 1);
+          if (status === 'completed') {
+            setMappingsRefreshTick(t => t + 1);
+          }
+        }
+      } catch (_) {}
+    }, 5000);
+
+    return () => clearInterval(poll);
+  }, [meetingMetadata?.reprocessStatus, meetingId]);
 
   // Load files when files tab is opened
   const loadFiles = async (meetingId: number) => {
@@ -131,6 +161,7 @@ const MeetingDetails: React.FC = () => {
             avatar: p.user.name
               ? p.user.name.split(' ').map((x: string) => x[0]).join('').toUpperCase()
               : undefined,
+            profilePictureUrl: p.user.profilePictureUrl ?? p.user.profile_picture_url ?? null,
             role: 'participant',
             joinedAt: undefined,
           })),
@@ -262,7 +293,7 @@ const MeetingDetails: React.FC = () => {
     };
 
     fetchMeetingDetails();
-  }, [meetingId]);
+  }, [meetingId, fetchTick]);
 
   const handleMinuteHover = (minute: MeetingMinute) => {
     setHoveredMinute(minute);
@@ -836,6 +867,7 @@ const MeetingDetails: React.FC = () => {
             currentTime={currentTime}
             actionItems={actionItems}
             aiInsights={aiInsights}
+            mappingsRefreshTick={mappingsRefreshTick}
           />
       </div>
 

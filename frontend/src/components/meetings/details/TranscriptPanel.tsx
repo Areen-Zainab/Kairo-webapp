@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Captions, Filter, Users, CheckSquare, AlertCircle, HelpCircle, ArrowDownToLine, StickyNote, UserPlus, Fingerprint, History } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, Play, Pause, Volume2, Maximize2, SkipForward, SkipBack, VolumeX, Volume1, Captions, Filter, Users, ArrowDownToLine, StickyNote, UserPlus, Fingerprint, History, UserCheck } from 'lucide-react';
 import type { MeetingDetailsData, TranscriptEntry, Slide, MeetingNote } from './types';
 import apiService from '../../../services/api';
 import SpeakerAssignmentPopover from './SpeakerAssignmentPopover';
@@ -9,6 +9,7 @@ interface SpeakerMapping {
   speakerLabel: string;
   userId: number | null;
   userName: string | null;
+  profilePictureUrl?: string | null;
   confidenceScore: number;
   tierResolved: number;
   resolved: boolean;
@@ -26,6 +27,8 @@ interface TranscriptPanelProps {
   onDeleteNote: (id: string) => void;
   actionItems?: any[];
   aiInsights?: any;
+  /** Increment this value to force a re-fetch of speaker mappings (e.g. after reprocess). */
+  mappingsRefreshTick?: number;
 }
 
 const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
@@ -38,12 +41,12 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   onAddNote,
   onDeleteNote,
   actionItems = [],
-  aiInsights
+  aiInsights,
+  mappingsRefreshTick = 0,
 }) => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
-  const [isControlsExpanded, setIsControlsExpanded] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useAudio, setUseAudio] = useState(false);
@@ -259,6 +262,34 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     return colors[parseInt(speakerNum || '0') % colors.length] || colors[0];
   };
 
+  /**
+   * Renders a speaker avatar: real profile photo if resolved + photo available,
+   * otherwise falls back to the gradient+initials tile.
+   */
+  const renderSpeakerAvatar = (
+    speaker: string,
+    mapping: SpeakerMapping | undefined,
+    initials: string,
+    extraCls = ''
+  ) => {
+    const pfp = mapping?.resolved ? mapping.profilePictureUrl : null;
+    const base = `flex-shrink-0 w-10 h-10 rounded-lg shadow-sm transition-transform ${extraCls}`;
+    if (pfp) {
+      return (
+        <div className={`${base} overflow-hidden ring-2 ring-white/30 dark:ring-slate-700`}>
+          <img src={pfp} alt={mapping?.userName || speaker} className="w-full h-full object-cover" />
+        </div>
+      );
+    }
+    return (
+      <div className={`${base} ${getSpeakerColor(speaker)} flex items-center justify-center text-white font-bold text-sm`}>
+        {mapping?.resolved && mapping.userName
+          ? mapping.userName.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()
+          : initials}
+      </div>
+    );
+  };
+
   // Calculate scroll progress
   const handleScrollProgress = () => {
     if (transcriptScrollRef.current) {
@@ -314,8 +345,24 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       const response = await apiService.getMeetingSpeakerMappings(Number(meeting.id));
       if (response?.data?.mappings) {
         const mappings: Record<string, SpeakerMapping> = {};
-        response.data.mappings.forEach(m => {
-          mappings[m.speakerLabel] = m;
+        response.data.mappings.forEach((m: any) => {
+          const entry: SpeakerMapping = {
+            speakerLabel:     m.speakerLabel,
+            userId:           m.userId ?? null,
+            userName:         m.userName ?? null,
+            profilePictureUrl: m.profilePictureUrl ?? null,
+            confidenceScore:  m.confidenceScore ?? 0,
+            tierResolved:     m.tierResolved ?? 4,
+            resolved:         m.isResolved ?? (m.userId !== null),
+          };
+          // Index by original label (e.g. "SPEAKER_00")
+          mappings[m.speakerLabel] = entry;
+          // Also index by resolved name so entries whose speaker field
+          // was cascade-updated to the real name (e.g. "Hafsa Imtiaz")
+          // still get the correct mapping and badge.
+          if (entry.resolved && entry.userName) {
+            mappings[entry.userName] = entry;
+          }
         });
         setSpeakerMappings(mappings);
       }
@@ -329,6 +376,63 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   useEffect(() => {
     fetchSpeakerMappings();
   }, [fetchSpeakerMappings]);
+
+  // Re-fetch when parent signals a reprocess completed.
+  useEffect(() => {
+    if (mappingsRefreshTick > 0) fetchSpeakerMappings();
+  }, [mappingsRefreshTick, fetchSpeakerMappings]);
+
+  // Listen for live speaker_identified WS events so the transcript updates
+  // immediately when post-meeting identification finishes (e.g. during reprocess).
+  useEffect(() => {
+    if (!meeting.id) return;
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    const ws = new WebSocket(
+      `ws://localhost:5000/ws/transcript?meetingId=${meeting.id}&token=${token}`
+    );
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'speaker_identified' && Array.isArray(msg.data?.mappings)) {
+          setSpeakerMappings(prev => {
+            const updated = { ...prev };
+            (msg.data.mappings as Array<{
+              speakerLabel: string;
+              userId: number | null;
+              userName: string | null;
+              profilePictureUrl?: string | null;
+              confidenceScore: number;
+              tierResolved: number;
+            }>).forEach(m => {
+              const entry: SpeakerMapping = {
+                speakerLabel:      m.speakerLabel,
+                userId:            m.userId,
+                userName:          m.userName,
+                profilePictureUrl: m.profilePictureUrl ?? null,
+                confidenceScore:   m.confidenceScore,
+                tierResolved:      m.tierResolved,
+                resolved:          m.userId !== null,
+              };
+              updated[m.speakerLabel] = entry;
+              if (entry.resolved && entry.userName) {
+                updated[entry.userName] = entry;
+              }
+            });
+            return updated;
+          });
+        }
+      } catch (_) {}
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    };
+  }, [meeting.id]);
 
 
   // Fetch audio as blob and create object URL when audioUrl changes (for authenticated requests)
@@ -976,16 +1080,16 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         
         {useAudio ? (
           // Clean, Modern Audio Player
-          <div className="w-full bg-slate-900 py-6">
-            <div className="max-w-4xl mx-auto px-8">
+          <div className="w-full bg-slate-900 py-3">
+            <div className="max-w-4xl mx-auto px-6">
               {/* Audio Icon and Title */}
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-                  <Volume2 className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                  <h3 className="text-white font-semibold text-base">Meeting Audio</h3>
-                  <p className="text-slate-400 text-sm">High-quality recording</p>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md">
+                  <Volume2 className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-white font-semibold text-sm">Meeting Audio</h3>
+                  <p className="text-slate-400 text-xs">High-quality recording</p>
                 </div>
               </div>
             </div>
@@ -1064,9 +1168,9 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         
         {/* Integrated Media Controls - Clean, modern design */}
         <div className={`${useAudio ? 'bg-slate-900' : 'absolute bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-xl border-t border-white/10'}`}>
-          <div className={useAudio ? 'max-w-4xl mx-auto px-8 pb-6' : 'w-full'}>
+          <div className={useAudio ? 'max-w-4xl mx-auto px-6 pb-3' : 'w-full'}>
             {/* Progress Bar Section */}
-            <div className={useAudio ? 'mb-4' : 'px-4 pt-3 pb-2'}>
+            <div className={useAudio ? 'mb-2' : 'px-4 pt-3 pb-2'}>
               <div className="relative">
                 {/* Time labels above progress bar (for audio only) */}
         {useAudio && (
@@ -1116,38 +1220,38 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           </div>
 
           {/* Controls Row */}
-            <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center justify-between px-4 py-2">
               {/* Left: Playback Controls */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
               {/* Skip Backward */}
               <button
                 onClick={handleSkipBackward}
-                  className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
+                  className="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
                   title="Rewind 10s (←)"
               >
-                  <SkipBack className="w-11 h-11 text-white" />
+                  <SkipBack className="w-5 h-5 text-white" />
               </button>
               
-                {/* Play/Pause - Extra Large */}
+                {/* Play/Pause */}
               <button
                 onClick={handlePlayPause}
-                  className="w-14 h-14 flex items-center justify-center bg-white/15 hover:bg-white/25 rounded-xl transition-all active:scale-95 shadow-lg"
+                  className="w-10 h-10 flex items-center justify-center bg-white/15 hover:bg-white/25 rounded-xl transition-all active:scale-95 shadow-lg"
                   title={isPlaying ? "Pause (Space)" : "Play (Space)"}
               >
                 {isPlaying ? (
-                    <Pause className="w-8 h-8 text-white" />
+                    <Pause className="w-5 h-5 text-white" />
                 ) : (
-                    <Play className="w-8 h-8 text-white ml-0.5" />
+                    <Play className="w-5 h-5 text-white ml-0.5" />
                 )}
               </button>
               
               {/* Skip Forward */}
               <button
                 onClick={handleSkipForward}
-                  className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
+                  className="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
                   title="Forward 10s (→)"
               >
-                  <SkipForward className="w-11 h-11 text-white" />
+                  <SkipForward className="w-5 h-5 text-white" />
               </button>
 
                 {/* Time Display (only for video) */}
@@ -1170,7 +1274,7 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               <div className="relative" ref={speedMenuRef}>
                 <button
                   onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                    className="h-11 px-4 hover:bg-white/10 rounded-lg transition-all text-base font-semibold text-white min-w-[4rem] active:scale-95"
+                    className="h-8 px-3 hover:bg-white/10 rounded-lg transition-all text-sm font-semibold text-white min-w-[3rem] active:scale-95"
                   title="Playback speed"
                 >
                     {playbackRate}×
@@ -1199,15 +1303,15 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 <button
                   onClick={handleMuteToggle}
                   onMouseEnter={() => setShowVolumeSlider(true)}
-                    className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
+                    className="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
                     title={isMuted ? "Unmute (M)" : "Mute (M)"}
                 >
                   {isMuted || volume === 0 ? (
-                      <VolumeX className="w-11 h-11 text-white" />
+                      <VolumeX className="w-5 h-5 text-white" />
                   ) : volume < 0.5 ? (
-                      <Volume1 className="w-11 h-11 text-white" />
+                      <Volume1 className="w-5 h-5 text-white" />
                   ) : (
-                      <Volume2 className="w-11 h-11 text-white" />
+                      <Volume2 className="w-5 h-5 text-white" />
                   )}
                 </button>
                   {showVolumeSlider && (
@@ -1235,12 +1339,12 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               {!useAudio && (
                 <button
                   onClick={() => setShowCaptions(!showCaptions)}
-                    className={`w-11 h-11 flex items-center justify-center rounded-lg transition-all active:scale-95 ${
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-95 ${
                       showCaptions ? 'bg-white/20 text-blue-400' : 'hover:bg-white/10 text-white'
                   }`}
                   title={`${showCaptions ? 'Hide' : 'Show'} captions (C)`}
                 >
-                    <Captions className="w-6 h-6" />
+                    <Captions className="w-5 h-5" />
                 </button>
               )}
 
@@ -1270,10 +1374,10 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                     }
                     setIsFullscreen(!isFullscreen);
                   }}
-                    className="w-11 h-11 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
+                    className="w-8 h-8 flex items-center justify-center hover:bg-white/10 rounded-lg transition-all active:scale-95"
                   title="Fullscreen (F)"
                 >
-                    <Maximize2 className="w-6 h-6 text-white" />
+                    <Maximize2 className="w-5 h-5 text-white" />
                 </button>
               )}
               </div>
@@ -1287,15 +1391,15 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         {/* Left Panel - Transcript */}
         <div className="flex-1 flex flex-col bg-white dark:bg-slate-800">
           {/* Transcript Header */}
-          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
+          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              {/* Left: Title + subtitle */}
+              <div className="flex-shrink-0">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
                   Transcript
                 </h3>
-                <p className="text-slate-600 dark:text-slate-400 mt-1">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                   {meeting.transcript.length} entries • {(() => {
-                    // Use actual audio duration from stats if available, otherwise use meeting.duration
                     const durationSeconds = meeting.stats?.audioDurationSeconds && meeting.stats.audioDurationSeconds > 0
                       ? meeting.stats.audioDurationSeconds
                       : (meeting.duration || 0) * 60;
@@ -1303,49 +1407,115 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                   })()}
                 </p>
               </div>
-              <div className="flex items-center space-x-3">
+
+              {/* Right: Filters + action buttons in one row */}
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                {/* Content Type dropdown */}
+                <div className="flex items-center gap-1">
+                  <Filter className="w-3 h-3 text-slate-400 dark:text-slate-500 flex-shrink-0" />
+                  <select
+                    value={contentTypeFilter}
+                    onChange={(e) => setContentTypeFilter(e.target.value as typeof contentTypeFilter)}
+                    className="text-xs py-1 pl-1.5 pr-5 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer appearance-none"
+                  >
+                    <option value="all">All types</option>
+                    <option value="action-items">Action Items</option>
+                    <option value="decisions">Decisions</option>
+                    <option value="questions">Questions</option>
+                  </select>
+                </div>
+
+                {/* Speaker dropdown */}
+                <div className="flex items-center gap-1">
+                  <Users className="w-3 h-3 text-slate-400 dark:text-slate-500 flex-shrink-0" />
+                  <select
+                    value={selectedSpeakers.length === 1 ? selectedSpeakers[0] : ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedSpeakers(val ? [val] : []);
+                    }}
+                    className="text-xs py-1 pl-1.5 pr-5 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer appearance-none"
+                  >
+                    <option value="">All speakers</option>
+                    {uniqueSpeakers.map(({ label, mapping }) => {
+                      const name = mapping?.resolved ? mapping.userName! : label.replace(/_/g, ' ');
+                      return <option key={label} value={label}>{name}</option>;
+                    })}
+                  </select>
+                </div>
+
+                {/* Active filter count + clear */}
+                {(selectedSpeakers.length > 0 || contentTypeFilter !== 'all') && (
+                  <>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                      {filteredTranscript.length}/{meeting.transcript.length}
+                    </span>
+                    <button
+                      onClick={() => { setSelectedSpeakers([]); setContentTypeFilter('all'); }}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </>
+                )}
+
+                {/* Divider */}
+                <div className="w-px h-4 bg-slate-200 dark:bg-slate-600" />
+
                 {/* Auto-scroll Toggle */}
                 {!autoScrollEnabled && (
                   <button
                     onClick={enableAutoScroll}
-                    className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-all text-xs font-medium border border-blue-200 dark:border-blue-800"
+                    className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-md transition-all text-xs font-medium border border-blue-200 dark:border-blue-800"
                     title="Enable auto-scroll to follow playback"
                   >
-                    <ArrowDownToLine className="w-4 h-4" />
+                    <ArrowDownToLine className="w-3.5 h-3.5" />
                     <span>Auto-scroll Off</span>
                   </button>
                 )}
+
+                {/* Search */}
                 <button
                   onClick={() => setIsSearchExpanded(!isSearchExpanded)}
-                  className="p-3 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all"
+                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-all"
                   title="Search transcript"
                 >
-                  <Search className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                </button>
-                <button
-                  onClick={() => setIsControlsExpanded(!isControlsExpanded)}
-                  className="p-3 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all"
-                  title="Toggle filters"
-                >
-                  {isControlsExpanded ? (
-                    <ChevronUp className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                  )}
+                  <Search className="w-4 h-4 text-slate-600 dark:text-slate-400" />
                 </button>
               </div>
             </div>
 
+            {/* Stats row */}
+            <div className="flex items-center gap-4 mt-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                Participants: {meeting.participants.length}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                Duration: {(() => {
+                  const durationSeconds = meeting.stats?.audioDurationSeconds && meeting.stats.audioDurationSeconds > 0
+                    ? meeting.stats.audioDurationSeconds
+                    : (meeting.duration || 0) * 60;
+                  return formatDuration(durationSeconds);
+                })()}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-purple-500 rounded-full" />
+                Transcript: {meeting.transcript.length} entries
+              </span>
+            </div>
+
             {/* Search Bar */}
             {isSearchExpanded && (
-              <div className="relative mt-6">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <div className="relative mt-3">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
                   placeholder="Search transcript..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-12 py-4 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
+                  className="w-full pl-9 pr-9 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
                 />
                 {searchQuery && (
                   <button
@@ -1355,144 +1525,6 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                     <X className="w-5 h-5" />
                   </button>
                 )}
-              </div>
-            )}
-
-            {/* Filter Controls */}
-            {isControlsExpanded && (
-              <div className="mt-6 space-y-4">
-                {/* Content Type Filter */}
-                <div className="flex items-center space-x-3">
-                  <Filter className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Show:</span>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setContentTypeFilter('all')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        contentTypeFilter === 'all'
-                          ? 'bg-blue-500 text-white shadow-md'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      All
-                    </button>
-                    <button
-                      onClick={() => setContentTypeFilter('action-items')}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        contentTypeFilter === 'action-items'
-                          ? 'bg-yellow-500 text-white shadow-md'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      <CheckSquare className="w-3 h-3" />
-                      Action Items
-                    </button>
-                    <button
-                      onClick={() => setContentTypeFilter('decisions')}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        contentTypeFilter === 'decisions'
-                          ? 'bg-green-500 text-white shadow-md'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      <AlertCircle className="w-3 h-3" />
-                      Decisions
-                    </button>
-                    <button
-                      onClick={() => setContentTypeFilter('questions')}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        contentTypeFilter === 'questions'
-                          ? 'bg-purple-500 text-white shadow-md'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      <HelpCircle className="w-3 h-3" />
-                      Questions
-                    </button>
-                  </div>
-                </div>
-
-                {/* Speaker Filter */}
-                <div className="flex items-center space-x-3">
-                  <Users className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Speakers:</span>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setSelectedSpeakers([])}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        selectedSpeakers.length === 0
-                          ? 'bg-blue-500 text-white shadow-md'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      All Speakers
-                    </button>
-                    {uniqueSpeakers.map(({ label, mapping, color }) => {
-                      const name = mapping?.resolved ? mapping.userName! : label.replace(/_/g, ' ');
-                      const isSelected = selectedSpeakers.includes(label);
-                      return (
-                        <button
-                          key={label}
-                          onClick={() => {
-                            if (isSelected) {
-                              setSelectedSpeakers(prev => prev.filter(s => s !== label));
-                            } else {
-                              setSelectedSpeakers(prev => [...prev, label]);
-                            }
-                          }}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                            isSelected
-                              ? 'bg-blue-500 text-white shadow-md'
-                              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                          }`}
-                        >
-                          <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${color}`} />
-                          {name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Active Filters Summary */}
-                {(selectedSpeakers.length > 0 || contentTypeFilter !== 'all') && (
-                  <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                    <span>Showing {filteredTranscript.length} of {meeting.transcript.length} entries</span>
-                    <button
-                      onClick={() => {
-                        setSelectedSpeakers([]);
-                        setContentTypeFilter('all');
-                      }}
-                      className="ml-2 text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Controls */}
-            {isControlsExpanded && (
-              <div className="flex items-center space-x-8 mt-6 text-sm text-slate-600 dark:text-slate-400">
-                <span className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span>Participants: {meeting.participants.length}</span>
-                </span>
-                <span className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span>Duration: {(() => {
-                    // Use actual audio duration from stats if available, otherwise use meeting.duration
-                    const durationSeconds = meeting.stats?.audioDurationSeconds && meeting.stats.audioDurationSeconds > 0
-                      ? meeting.stats.audioDurationSeconds
-                      : (meeting.duration || 0) * 60;
-                    return formatDuration(durationSeconds);
-                  })()}</span>
-                </span>
-                <span className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                  <span>Transcript: {meeting.transcript.length} entries</span>
-                </span>
               </div>
             )}
           </div>
@@ -1540,22 +1572,33 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 )}
               </div>
 
-              {/* Clean speaker legend */}
+              {/* Speaker legend */}
               {uniqueSpeakers.length > 0 && (
                 <div className="mb-8 flex flex-wrap gap-2 items-center">
                   <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Speakers:</span>
-                    {uniqueSpeakers.map(({ label, mapping, color, count }) => {
-                      const resolvedName = mapping?.resolved ? mapping.userName : label.replace(/_/g, ' ');
-                      return (
-                        <div key={label} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                  {uniqueSpeakers.map(({ label, mapping, color, count }) => {
+                    const resolvedName = mapping?.resolved ? mapping.userName : label.replace(/_/g, ' ');
+                    const pfp = mapping?.resolved ? mapping.profilePictureUrl : null;
+                    return (
+                      <div key={label} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                        {pfp ? (
+                          <img src={pfp} alt={resolvedName || label} className="w-4 h-4 rounded-full object-cover ring-1 ring-white/50 dark:ring-slate-600" />
+                        ) : (
                           <div className={`w-2 h-2 rounded-full bg-gradient-to-br ${color}`} />
-                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                              {resolvedName}
-                            </span>
-                          <span className="text-xs text-slate-400 dark:text-slate-500">·{count}</span>
-                        </div>
-                      );
-                    })}
+                        )}
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                          {resolvedName}
+                        </span>
+                        {mapping?.resolved && (() => {
+                          const tier = mapping.tierResolved;
+                          if (tier === 1) return <span title="Biometric"><Fingerprint className="w-3 h-3 text-emerald-500" /></span>;
+                          if (tier === 4) return <span title="Manual"><UserCheck className="w-3 h-3 text-amber-500" /></span>;
+                          return <span title="Historical"><History className="w-3 h-3 text-blue-500" /></span>;
+                        })()}
+                        <span className="text-xs text-slate-400 dark:text-slate-500">·{count}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -1607,12 +1650,13 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                           ? 'bg-gradient-to-r from-blue-50 to-white dark:from-blue-950/40 dark:to-slate-800/60 shadow-lg border-2 border-blue-400 dark:border-blue-600'
                           : 'bg-white/50 dark:bg-slate-800/30 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800/50'
                       }`}>
-                        {/* Speaker Avatar - Cleaner design */}
-                        <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${getSpeakerColor(entry.speaker)} flex items-center justify-center text-white font-bold text-sm shadow-sm transition-transform ${
+                        {/* Speaker Avatar */}
+                        {renderSpeakerAvatar(
+                          entry.speaker,
+                          speakerMappings[entry.speaker],
+                          speakerInitials,
                           isActive ? 'scale-110 ring-2 ring-blue-400/50' : 'group-hover:scale-105'
-                              }`}>
-                                {speakerInitials}
-                              </div>
+                        )}
                         {/* Content */}
                         <div className="flex-1 min-w-0">
                           {/* Header: Speaker name, badge, timestamp */}
@@ -1630,49 +1674,42 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                                     ? speakerMappings[entry.speaker].userName 
                                     : entry.speaker.replace(/_/g, ' ')}
                                   
-                                  {/* Identity Badge */}
-                                  {speakerMappings[entry.speaker]?.resolved && (
-                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-bold uppercase tracking-wider text-slate-500">
-                                      {speakerMappings[entry.speaker].tierResolved === 1 ? (
-                                        <>
-                                          <Fingerprint className="w-3" />
-                                          <span className="text-emerald-600 dark:text-emerald-400">Biometric</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <History className="w-3" />
-                                          <span className="text-blue-600 dark:text-blue-400">Historical</span>
-                                        </>
-                                      )}
-                                    </div>
-                                  )}
+                                  {/* Identity Badge — how this speaker was resolved */}
+                                  {speakerMappings[entry.speaker]?.resolved && (() => {
+                                    const tier = speakerMappings[entry.speaker].tierResolved;
+                                    if (tier === 1) return (
+                                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-[9px] font-bold uppercase tracking-wider border border-emerald-200 dark:border-emerald-800">
+                                        <Fingerprint className="w-3 text-emerald-600 dark:text-emerald-400" />
+                                        <span className="text-emerald-600 dark:text-emerald-400">Biometric</span>
+                                      </div>
+                                    );
+                                    if (tier === 4) return (
+                                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-[9px] font-bold uppercase tracking-wider border border-amber-200 dark:border-amber-800">
+                                        <UserCheck className="w-3 text-amber-600 dark:text-amber-400" />
+                                        <span className="text-amber-600 dark:text-amber-400">Manual</span>
+                                      </div>
+                                    );
+                                    return (
+                                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-[9px] font-bold uppercase tracking-wider border border-blue-200 dark:border-blue-800">
+                                        <History className="w-3 text-blue-600 dark:text-blue-400" />
+                                        <span className="text-blue-600 dark:text-blue-400">Historical</span>
+                                      </div>
+                                    );
+                                  })()}
 
-                                  {/* Identify Button (Tier 4) - Only visible on hover or if unresolved */}
-                                  {(!speakerMappings[entry.speaker]?.resolved) && (
+                                  {/* Identify Button — only for diarization labels (speaker_xx / guest) */}
+                                  {(!speakerMappings[entry.speaker]?.resolved) &&
+                                   (/speaker_/i.test(entry.speaker) || /guest/i.test(entry.speaker)) && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setActivePopover(activePopover === entry.speaker ? null : entry.speaker);
+                                        setActivePopover(entry.speaker);
                                       }}
                                       className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all ml-1 border border-blue-100 dark:border-blue-900/30"
                                     >
                                       <UserPlus className="w-3 h-3" />
                                       IDENTIFY
                                     </button>
-                                  )}
-
-                                  {/* Popover */}
-                                  {activePopover === entry.speaker && (
-                                    <div onClick={(e) => e.stopPropagation()}>
-                                      <SpeakerAssignmentPopover
-                                        meetingId={Number(meeting.id)}
-                                        speakerLabel={entry.speaker}
-                                        currentMapping={speakerMappings[entry.speaker]}
-                                        participants={meeting.participants}
-                                        onAssignmentComplete={() => fetchSpeakerMappings()}
-                                        onClose={() => setActivePopover(null)}
-                                      />
-                                    </div>
                                   )}
                                 </h4>
                               </div>
@@ -1952,6 +1989,29 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           )}
         </div>
       </div>
+
+      {/* Page-level Speaker Identification Modal */}
+      {activePopover && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          onClick={() => setActivePopover(null)}
+        >
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SpeakerAssignmentPopover
+              meetingId={Number(meeting.id)}
+              speakerLabel={activePopover}
+              currentMapping={speakerMappings[activePopover]}
+              participants={meeting.participants}
+              onAssignmentComplete={() => fetchSpeakerMappings()}
+              onClose={() => setActivePopover(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

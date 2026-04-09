@@ -7,6 +7,7 @@ const prisma = require('../lib/prisma');
 const { authenticateToken } = require('../middleware/auth');
 const SpeakerIdentificationService = require('../services/SpeakerIdentificationService');
 const VoiceEmbeddingBridge = require('../services/VoiceEmbeddingBridge');
+const { broadcastSpeakerIdentified } = require('../services/WebSocketServer');
 
 // Configure multer for temp audio storage
 const upload = multer({
@@ -242,23 +243,63 @@ router.get('/meetings/:meetingId', authenticateToken, async (req, res) => {
 /**
  * POST /api/speakers/meetings/:meetingId/assign
  * Manually assign a speaker label to a specific user (Tier 4 overrides).
+ * After persisting the identity mapping, triggers a cascade name update across
+ * action items, AI insights, embeddings, memory context and the transcript JSON
+ * file so every part of the system reflects the resolved participant name.
  */
 router.post('/meetings/:meetingId/assign', authenticateToken, async (req, res) => {
+  const meetingIdNum = parseInt(req.params.meetingId, 10);
+  const { speakerLabel, userId } = req.body;
+
+  if (!speakerLabel || !userId) {
+    return res.status(400).json({ error: 'speakerLabel and userId are required.' });
+  }
+
   try {
-    const { meetingId } = req.params;
-    const { speakerLabel, userId } = req.body;
-
-    if (!speakerLabel || !userId) {
-      return res.status(400).json({ error: 'speakerLabel and userId are required.' });
-    }
-
+    // 1. Persist the identity mapping (tier 4, confidence 1.0) and get the resolved row back
     const mapping = await SpeakerIdentificationService.manuallyAssignSpeaker(
-      parseInt(meetingId),
+      meetingIdNum,
       speakerLabel,
-      parseInt(userId)
+      parseInt(userId, 10)
     );
 
-    return res.json({ success: true, message: 'Speaker manually assigned.', mapping });
+    const userName = mapping.userName;
+
+    // 2. Cascade: update action items, insights, embeddings, memory context + transcript file
+    let cascadeStats = null;
+    if (userName) {
+      try {
+        const result = await SpeakerIdentificationService.cascadeNameUpdate(
+          meetingIdNum,
+          speakerLabel,
+          parseInt(userId, 10),
+          userName
+        );
+        cascadeStats = result.stats;
+      } catch (cascadeErr) {
+        // Non-fatal: log but don't fail the assignment
+        console.error('[SpeakerRoutes] Cascade update failed (non-fatal):', cascadeErr.message);
+      }
+    }
+
+    // 3. Broadcast updated mapping to all connected clients via WebSocket
+    try {
+      broadcastSpeakerIdentified(meetingIdNum, [{
+        speakerLabel,
+        userId:            mapping.userId,
+        userName:          mapping.userName,
+        profilePictureUrl: mapping.profilePictureUrl ?? null,
+        confidenceScore:   mapping.confidenceScore,
+        tierResolved:      mapping.tierResolved,
+      }]);
+    } catch (_) { /* non-fatal */ }
+
+    return res.json({
+      success: true,
+      message: `Speaker "${speakerLabel}" manually assigned to "${userName ?? userId}".`,
+      mapping,
+      cascadeStats,
+    });
   } catch (error) {
     console.error('[SpeakerRoutes] Manual assign error:', error.message);
     return res.status(500).json({ error: 'Failed to assign speaker.' });

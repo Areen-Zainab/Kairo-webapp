@@ -9,8 +9,11 @@
  * - Voice embedding storage is populated via `VoiceEmbeddingBridge` + `user_voice_embeddings` (192-dim vectors)
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const fs = require('fs');
+const path = require('path');
+const prisma = require('../lib/prisma');
+
+const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../data/meetings');
 
 class SpeakerIdentificationService {
 
@@ -149,21 +152,35 @@ class SpeakerIdentificationService {
    */
   static async saveIdentityMapping(meetingId, speakerLabel, userId, confidenceScore, tierResolved, metadata = {}) {
     try {
-      // Upsert — update if already exists for this meeting+label
+      // Upsert — update if already exists for this meeting+label.
+      // Manual assignments (tier_resolved = 4, set by a human via the UI) are never
+      // overwritten by automated identification results.  A human correction is always
+      // treated as ground truth until explicitly changed by another manual action.
       const result = await prisma.$executeRaw`
         INSERT INTO speaker_identity_maps 
           (id, meeting_id, speaker_label, user_id, confidence_score, tier_resolved, metadata, created_at, updated_at)
         VALUES
           (gen_random_uuid()::text, ${meetingId}, ${speakerLabel}, ${userId}, ${confidenceScore}, ${tierResolved}, ${JSON.stringify(metadata)}::jsonb, NOW(), NOW())
         ON CONFLICT (meeting_id, speaker_label) DO UPDATE SET
-          user_id = EXCLUDED.user_id,
+          user_id          = EXCLUDED.user_id,
           confidence_score = EXCLUDED.confidence_score,
-          tier_resolved = EXCLUDED.tier_resolved,
-          metadata = EXCLUDED.metadata,
-          updated_at = NOW()
+          tier_resolved    = EXCLUDED.tier_resolved,
+          metadata         = EXCLUDED.metadata,
+          updated_at       = NOW()
+        WHERE
+          -- Always overwrite non-manual rows
+          speaker_identity_maps.tier_resolved != 4
+          -- Also overwrite manual assignments when biometrics resolved a real user
+          OR EXCLUDED.user_id IS NOT NULL
       `;
 
-      console.log(`✅ [SpeakerID] Mapped ${speakerLabel} → userID ${userId ?? 'UNRESOLVED'} (confidence: ${confidenceScore}, tier: ${tierResolved}) for meeting ${meetingId}`);
+      // result === 0 means ON CONFLICT fired but the WHERE clause prevented the update
+      // (existing row is a manual assignment, tier 4 — kept as-is).
+      if (result === 0) {
+        console.log(`🔒 [SpeakerID] Kept manual assignment for ${speakerLabel} in meeting ${meetingId} (automated result skipped)`);
+      } else {
+        console.log(`✅ [SpeakerID] Mapped ${speakerLabel} → userID ${userId ?? 'UNRESOLVED'} (confidence: ${confidenceScore}, tier: ${tierResolved}) for meeting ${meetingId}`);
+      }
       return { success: true };
     } catch (error) {
       console.error(`❌ [SpeakerID] Failed to save identity mapping:`, error.message);
@@ -216,13 +233,14 @@ class SpeakerIdentificationService {
 
   /**
    * Manually assign a speaker label to a user (Tier 4 - human correction).
+   * Returns the full resolved mapping row after saving.
    * @param {number} meetingId
    * @param {string} speakerLabel
    * @param {number} userId
    * @returns {Promise<object>}
    */
   static async manuallyAssignSpeaker(meetingId, speakerLabel, userId) {
-    return this.saveIdentityMapping(
+    await this.saveIdentityMapping(
       meetingId,
       speakerLabel,
       userId,
@@ -230,6 +248,171 @@ class SpeakerIdentificationService {
       4,   // Tier 4 = human-in-the-loop
       { source: 'manual_assignment', assignedAt: new Date().toISOString() }
     );
+
+    // Return the persisted mapping row with user details for immediate use by the route
+    const rows = await prisma.$queryRaw`
+      SELECT
+        sim.id, sim.speaker_label, sim.user_id, u.name as user_name,
+        u.profile_picture_url,
+        sim.confidence_score, sim.tier_resolved, sim.metadata, sim.updated_at
+      FROM speaker_identity_maps sim
+      LEFT JOIN users u ON sim.user_id = u.id
+      WHERE sim.meeting_id = ${meetingId} AND sim.speaker_label = ${speakerLabel}
+      LIMIT 1
+    `;
+
+    const row = rows[0] ?? null;
+    return row ? {
+      speakerLabel:      row.speaker_label,
+      userId:            row.user_id,
+      userName:          row.user_name ?? null,
+      profilePictureUrl: row.profile_picture_url ?? null,
+      confidenceScore:   row.confidence_score,
+      tierResolved:      row.tier_resolved,
+      resolved:          row.user_id !== null,
+    } : { success: true };
+  }
+
+  /**
+   * After a manual assignment, propagate the resolved name through all
+   * downstream data for this meeting so that action items, insights,
+   * embeddings, memory context and the on-disk transcript JSON all
+   * consistently use the real participant name instead of the diarisation
+   * label (e.g. SPEAKER_00).
+   *
+   * @param {number} meetingId
+   * @param {string} speakerLabel  - original diarisation label, e.g. "SPEAKER_00"
+   * @param {number} userId        - the user being assigned
+   * @param {string} userName      - resolved display name for that user
+   * @returns {Promise<object>}    - summary of rows/files updated
+   */
+  static async cascadeNameUpdate(meetingId, speakerLabel, userId, userName) {
+    const stats = { actionItems: 0, aiInsights: 0, memoryContext: false, embeddings: 0, transcriptFile: false };
+
+    // Build match variants: "SPEAKER_00", "speaker_00", "speaker 00"
+    const labelLower    = speakerLabel.toLowerCase();
+    const labelSpaced   = labelLower.replace(/_/g, ' ');
+
+    try {
+      // ------------------------------------------------------------------
+      // 1. action_items.assignee  (exact case-insensitive match)
+      // ------------------------------------------------------------------
+      const aiResult = await prisma.$executeRaw`
+        UPDATE action_items
+        SET assignee = ${userName}
+        WHERE meeting_id = ${meetingId}
+          AND LOWER(COALESCE(assignee, '')) IN (${labelLower}, ${labelSpaced})
+      `;
+      stats.actionItems = Number(aiResult);
+
+      // ------------------------------------------------------------------
+      // 2. ai_insights.content  (text replacement; meetingId stored as string)
+      // ------------------------------------------------------------------
+      const insights = await prisma.$queryRaw`
+        SELECT id, content
+        FROM ai_insights
+        WHERE meeting_id = ${String(meetingId)}
+          AND (content ILIKE ${'%' + speakerLabel + '%'} OR content ILIKE ${'%' + labelSpaced + '%'})
+      `;
+      for (const insight of insights) {
+        const updated = insight.content
+          .replace(new RegExp(speakerLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), userName)
+          .replace(new RegExp(labelSpaced.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), userName);
+        if (updated !== insight.content) {
+          await prisma.$executeRaw`UPDATE ai_insights SET content = ${updated} WHERE id = ${insight.id}`;
+          stats.aiInsights++;
+        }
+      }
+
+      // ------------------------------------------------------------------
+      // 3. meeting_memory_contexts  (participants array + meetingContext text)
+      // ------------------------------------------------------------------
+      try {
+        const ctx = await prisma.meetingMemoryContext.findUnique({ where: { meetingId } });
+        if (ctx) {
+          const updatedParticipants = ctx.participants.map(p =>
+            p.toLowerCase() === labelLower || p.toLowerCase() === labelSpaced ? userName : p
+          );
+          const labelRe = new RegExp(speakerLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          const spacedRe = new RegExp(labelSpaced.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          const updatedContext = ctx.meetingContext.replace(labelRe, userName).replace(spacedRe, userName);
+
+          const participantsChanged = JSON.stringify(updatedParticipants) !== JSON.stringify(ctx.participants);
+          const contextChanged = updatedContext !== ctx.meetingContext;
+
+          if (participantsChanged || contextChanged) {
+            await prisma.meetingMemoryContext.update({
+              where: { meetingId },
+              data: {
+                ...(participantsChanged ? { participants: updatedParticipants } : {}),
+                ...(contextChanged ? { meetingContext: updatedContext } : {}),
+              },
+            });
+            stats.memoryContext = true;
+          }
+        }
+      } catch (_) { /* table may not exist for all meetings */ }
+
+      // ------------------------------------------------------------------
+      // 4. meeting_embeddings.content  (vector store — text field only)
+      // ------------------------------------------------------------------
+      try {
+        const embRows = await prisma.$queryRaw`
+          SELECT id, content
+          FROM meeting_embeddings
+          WHERE meeting_id = ${meetingId}
+            AND (content ILIKE ${'%' + speakerLabel + '%'} OR content ILIKE ${'%' + labelSpaced + '%'})
+        `;
+        for (const row of embRows) {
+          const updated = row.content
+            .replace(new RegExp(speakerLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), userName)
+            .replace(new RegExp(labelSpaced.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), userName);
+          if (updated !== row.content) {
+            await prisma.$executeRaw`UPDATE meeting_embeddings SET content = ${updated} WHERE id = ${row.id}`;
+            stats.embeddings++;
+          }
+        }
+      } catch (_) { /* table may not exist */ }
+
+      // ------------------------------------------------------------------
+      // 5. On-disk transcript_diarized.json  (ensures future AI jobs use real names)
+      // ------------------------------------------------------------------
+      try {
+        if (fs.existsSync(MEETING_DATA_BASE_DIR)) {
+          const dirEntries = fs.readdirSync(MEETING_DATA_BASE_DIR, { withFileTypes: true });
+          const meetingDirEntry = dirEntries.find(e => e.isDirectory() && e.name.startsWith(`${meetingId}_`));
+          if (meetingDirEntry) {
+            const diarizedPath = path.join(MEETING_DATA_BASE_DIR, meetingDirEntry.name, 'transcript_diarized.json');
+            if (fs.existsSync(diarizedPath)) {
+              const data = JSON.parse(fs.readFileSync(diarizedPath, 'utf8'));
+              if (Array.isArray(data.utterances)) {
+                let changed = false;
+                data.utterances = data.utterances.map(u => {
+                  if (u.speaker && u.speaker.toLowerCase() === labelLower) {
+                    changed = true;
+                    return { ...u, speaker: userName };
+                  }
+                  return u;
+                });
+                if (changed) {
+                  fs.writeFileSync(diarizedPath, JSON.stringify(data, null, 2), 'utf8');
+                  stats.transcriptFile = true;
+                }
+              }
+            }
+          }
+        }
+      } catch (fileErr) {
+        console.warn(`[SpeakerID] Could not update transcript file for meeting ${meetingId}:`, fileErr.message);
+      }
+
+    } catch (err) {
+      console.error(`[SpeakerID] cascadeNameUpdate error for ${speakerLabel} → ${userName}:`, err.message);
+      throw err;
+    }
+
+    console.log(`✅ [SpeakerID] Cascade complete: ${speakerLabel} → "${userName}" in meeting ${meetingId}`, stats);
+    return { userName, stats };
   }
 
   // ============================================================

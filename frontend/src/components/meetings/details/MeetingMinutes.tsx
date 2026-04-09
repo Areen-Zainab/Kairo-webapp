@@ -337,10 +337,10 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
+          <h3 className="text-xl font-bold text-slate-900 dark:text-white">
             Meeting Minutes
           </h3>
-          <p className="text-slate-600 dark:text-slate-400 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             Structured meeting minutes with key decisions and action items
           </p>
         </div>
@@ -397,7 +397,7 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
         {filteredMinutes.map((minute) => (
           <div
             key={minute.id}
-            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm hover:shadow-md transition-all cursor-pointer group relative"
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer group relative"
             onMouseEnter={() => handleMinuteHover(minute)}
             onMouseLeave={() => {
               setHoveredMinute(null);
@@ -405,7 +405,7 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
             }}
             onClick={() => handleMinuteClick(minute)}
           >
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start justify-between mb-3">
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-mono text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-3 py-1 rounded-lg font-medium">
                   {formatTime(minute.timestamp)}
@@ -420,11 +420,11 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
               </div>
             </div>
 
-            <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-3 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+            <h4 className="text-base font-bold text-slate-900 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
               {minute.title}
             </h4>
             
-            <p className="text-slate-700 dark:text-slate-300 leading-relaxed mb-4">
+            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed mb-3">
               {minute.content}
             </p>
 
@@ -592,31 +592,31 @@ const MeetingMinutes: React.FC<MeetingMinutesProps> = ({
         <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
             <div>
-              <div className="text-lg font-semibold text-slate-900 dark:text-white">
+              <div className="text-base font-semibold text-slate-900 dark:text-white">
                 {displayMinutes.length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Total</div>
             </div>
             <div>
-              <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+              <div className="text-base font-semibold text-red-600 dark:text-red-400">
                 {displayMinutes.filter(m => m.category === 'action-item').length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Action Items</div>
             </div>
             <div>
-              <div className="text-lg font-semibold text-green-600 dark:text-green-400">
+              <div className="text-base font-semibold text-green-600 dark:text-green-400">
                 {displayMinutes.filter(m => m.category === 'decision').length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Decisions</div>
             </div>
             <div>
-              <div className="text-lg font-semibold text-purple-600 dark:text-purple-400">
+              <div className="text-base font-semibold text-purple-600 dark:text-purple-400">
                 {displayMinutes.filter(m => m.category === 'discussion').length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Discussions</div>
             </div>
             <div>
-              <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+              <div className="text-base font-semibold text-blue-600 dark:text-blue-400">
                 {displayMinutes.filter(m => m.aiGenerated).length}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">AI Generated</div>

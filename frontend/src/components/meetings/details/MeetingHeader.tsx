@@ -185,36 +185,7 @@ const MeetingHeader: React.FC<MeetingHeaderProps> = ({
           </div>
         </div>
 
-        {/* Meeting Stats */}
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-            <div className="text-sm text-slate-600 dark:text-slate-400">Transcript Length</div>
-            <div className="text-lg font-semibold text-slate-900 dark:text-white">
-              {meeting.stats.transcriptLength} words
-            </div>
-          </div>
-          
-          <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-            <div className="text-sm text-slate-600 dark:text-slate-400">Minutes Generated</div>
-            <div className="text-lg font-semibold text-slate-900 dark:text-white">
-              {meeting.stats.minutesGenerated}
-            </div>
-          </div>
-          
-          <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-            <div className="text-sm text-slate-600 dark:text-slate-400">Slides</div>
-            <div className="text-lg font-semibold text-slate-900 dark:text-white">
-              {meeting.stats.slidesCount}
-            </div>
-          </div>
-          
-          <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
-            <div className="text-sm text-slate-600 dark:text-slate-400">Participants</div>
-            <div className="text-lg font-semibold text-slate-900 dark:text-white">
-              {meeting.stats.participantsCount}
-            </div>
-          </div>
-        </div>
+
       </div>
     </div>
   );

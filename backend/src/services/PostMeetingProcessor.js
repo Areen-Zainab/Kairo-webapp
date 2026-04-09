@@ -3,6 +3,7 @@ const Meeting = require('../models/Meeting');
 const path = require('path');
 const { getAudioFileDuration } = require('../utils/meetingStats');
 const SpeakerMatchingEngine = require('./SpeakerMatchingEngine');
+const { broadcastSpeakerIdentified } = require('./WebSocketServer');
 
 // Base directory for all meeting data (same as MeetingBot uses)
 const MEETING_DATA_BASE_DIR = path.resolve(__dirname, '../../data/meetings');
@@ -113,14 +114,40 @@ class PostMeetingProcessor {
   }
 
   /**
-   * Phase 3: Trigger async speaker identification after transcription completes.
-   * Non-blocking — fires in background and does not affect the response.
+   * Trigger async speaker identification after transcription / reprocess completes.
+   * Non-blocking — fires via setImmediate and does not affect the caller's response.
+   * Automatically builds a broadcastFn that collects all resolved mappings and
+   * emits a single `speaker_identified` WS event to any connected clients.
    * @param {number} meetingId
-   * @param {Function} [broadcastFn] - Optional WebSocket broadcast callback
    */
-  static triggerSpeakerIdentification(meetingId, broadcastFn = null) {
-    console.log(`[PostMeetingProcessor] Scheduling speaker identification for meeting ${meetingId}`);
-    SpeakerMatchingEngine.triggerIdentificationAsync(meetingId, broadcastFn);
+  static triggerSpeakerIdentification(meetingId) {
+    const meetingIdNum = typeof meetingId === 'string' ? parseInt(meetingId, 10) : meetingId;
+    console.log(`[PostMeetingProcessor] Scheduling speaker identification for meeting ${meetingIdNum}`);
+
+    // Collect all resolved mappings during the run, then broadcast once at the end.
+    const resolvedMappings = [];
+    const broadcastFn = (_mid, mapping) => {
+      resolvedMappings.push({
+        speakerLabel:    mapping.speakerLabel,
+        userId:          mapping.userId,
+        userName:        mapping.userName,
+        confidenceScore: mapping.confidence,
+        tierResolved:    mapping.tier,
+      });
+    };
+
+    // Wrap triggerIdentificationAsync to broadcast after completion
+    setImmediate(async () => {
+      try {
+        await SpeakerMatchingEngine.runForMeeting(meetingIdNum, broadcastFn);
+        if (resolvedMappings.length > 0) {
+          broadcastSpeakerIdentified(meetingIdNum, resolvedMappings);
+          console.log(`[PostMeetingProcessor] Broadcast ${resolvedMappings.length} speaker mapping(s) for meeting ${meetingIdNum}`);
+        }
+      } catch (err) {
+        console.error(`❌ [PostMeetingProcessor] Speaker identification failed for meeting ${meetingIdNum}:`, err.message);
+      }
+    });
   }
 }
 
