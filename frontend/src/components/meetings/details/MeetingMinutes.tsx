@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { FileText, Clock, Users, AlertCircle, CheckCircle, MessageCircle, Calendar } from 'lucide-react';
 import type { MeetingMinutesProps } from './types';
 import { generateMeetingMinutesFromInsights } from '../../../utils/generateMeetingMinutes';

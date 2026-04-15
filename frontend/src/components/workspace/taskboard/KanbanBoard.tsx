@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import type { Task, TaskStatus, KanbanColumn } from './types';
 import TaskCard from './TaskCard';
 import { useTheme } from '../../../theme/ThemeProvider';
@@ -144,7 +144,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
     const totalTasks = column.tasks.length;
     const overdueTasks = column.tasks.filter(task => {
       if (!task.dueDate) return false;
-      return new Date(task.dueDate) < new Date() && task.status !== 'done';
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return new Date(task.dueDate) < today && task.status !== 'done';
     }).length;
     
     return { totalTasks, overdueTasks };

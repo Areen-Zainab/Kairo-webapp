@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Calendar, Clock, AlertCircle, ChevronRight, ChevronDown,
-  CheckSquare, Square, Pencil, Check, RotateCcw, Plus, XCircle, Video, VideoOff,
+  CheckSquare, Square, Pencil, Check, RotateCcw, Plus, XCircle, Video, VideoOff, Trash2
 } from 'lucide-react';
 import type { Task, TaskStatus, TaskPriority, TaskTag } from '../../components/workspace/taskboard/types';
 import UserAvatar from '../../components/ui/UserAvatar';
@@ -14,6 +14,7 @@ export interface TaskDetailModalProps {
   onClose: () => void;
   onStatusChange: (taskId: string, newStatus: TaskStatus) => void;
   onPriorityChange: (taskId: string, newPriority: TaskPriority) => void;
+  onDeleteTask?: (taskId: string) => void;
   onTaskUpdate?: (taskId: string, updates: Partial<Task>) => void;
   workspaceTags?: TaskTag[];
   workspaceId?: number;
@@ -24,7 +25,7 @@ const statusConfig: Record<TaskStatus, { label: string; color: string; bg: strin
   'todo':        { label: 'To Do',       color: 'text-slate-600 dark:text-slate-300',     bg: 'bg-slate-100 dark:bg-slate-700',        border: 'border-slate-200 dark:border-slate-600' },
   'in-progress': { label: 'In Progress', color: 'text-blue-600 dark:text-blue-400',       bg: 'bg-blue-50 dark:bg-blue-900/30',         border: 'border-blue-200 dark:border-blue-800' },
   'review':      { label: 'Review',      color: 'text-violet-600 dark:text-violet-400',   bg: 'bg-violet-50 dark:bg-violet-900/30',     border: 'border-violet-200 dark:border-violet-800' },
-  'done':        { label: 'Done',        color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30',   border: 'border-emerald-200 dark:border-emerald-800' },
+  'done':        { label: 'Complete',    color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30',   border: 'border-emerald-200 dark:border-emerald-800' },
 };
 
 const priorityConfig: Record<TaskPriority, { label: string; color: string; bg: string; border: string; dot: string }> = {
@@ -40,6 +41,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onClose,
   onStatusChange,
   onPriorityChange,
+  onDeleteTask,
   onTaskUpdate,
   workspaceTags = [],
   workspaceMembers = [],
@@ -425,13 +427,30 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               </div>
             </div>
 
-            {/* Close button */}
-            <button
-              onClick={onClose}
-              className="flex-shrink-0 p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-all -mt-1"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {/* Actions */}
+            <div className="flex items-center gap-1.5 -mt-1">
+              {onDeleteTask && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to delete this task?')) {
+                      onDeleteTask(task.id);
+                    }
+                  }}
+                  className="p-2 rounded-xl text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all"
+                  title="Delete task"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              )}
+              
+              {/* Close button */}
+              <button
+                onClick={onClose}
+                className="flex-shrink-0 p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -665,7 +684,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   <option value="todo">To Do</option>
                   <option value="in-progress">In Progress</option>
                   <option value="review">Review</option>
-                  <option value="done">Done</option>
+                  <option value="done">Complete</option>
                 </select>
               </div>
               <div>

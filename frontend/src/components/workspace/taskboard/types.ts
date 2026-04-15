@@ -53,6 +53,7 @@ export interface Task {
   estimatedHours?: number;
   actualHours?: number;
   isOverdue?: boolean;
+  columnName?: string;
 }
 
 export interface TaskFilter {

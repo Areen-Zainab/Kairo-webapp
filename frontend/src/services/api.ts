@@ -23,6 +23,7 @@ interface User {
   name: string;
   email: string;
   profilePictureUrl?: string;
+  audioSampleUrl?: string;
   timezone: string;
   createdAt: string;
   lastLogin?: string;

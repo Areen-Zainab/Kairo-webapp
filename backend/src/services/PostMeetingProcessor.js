@@ -3,6 +3,7 @@ const Meeting = require('../models/Meeting');
 const path = require('path');
 const { getAudioFileDuration } = require('../utils/meetingStats');
 const SpeakerMatchingEngine = require('./SpeakerMatchingEngine');
+const SpeakerIdentificationService = require('./SpeakerIdentificationService');
 const { broadcastSpeakerIdentified } = require('./WebSocketServer');
 
 // Base directory for all meeting data (same as MeetingBot uses)
@@ -141,8 +142,27 @@ class PostMeetingProcessor {
       try {
         await SpeakerMatchingEngine.runForMeeting(meetingIdNum, broadcastFn);
         if (resolvedMappings.length > 0) {
+          // 1. Broadcast the resolved mappings live (this flips the frontend badge to Biometric/Historical)
           broadcastSpeakerIdentified(meetingIdNum, resolvedMappings);
           console.log(`[PostMeetingProcessor] Broadcast ${resolvedMappings.length} speaker mapping(s) for meeting ${meetingIdNum}`);
+
+          // 2. Cascade updating of the on-disk transcript files and AI insight/action item DB records.
+          // This must be done sequentially to prevent concurrent writes corrupting transcript_diarized.json.
+          for (const mapping of resolvedMappings) {
+            // Only cascade if we have a real user name resolved
+            if (mapping.userId && mapping.userName) {
+              try {
+                await SpeakerIdentificationService.cascadeNameUpdate(
+                  meetingIdNum,
+                  mapping.speakerLabel,
+                  mapping.userId,
+                  mapping.userName
+                );
+              } catch (cascadeErr) {
+                console.warn(`[PostMeetingProcessor] Cascade failed for ${mapping.speakerLabel}: ${cascadeErr.message}`);
+              }
+            }
+          }
         }
       } catch (err) {
         console.error(`❌ [PostMeetingProcessor] Speaker identification failed for meeting ${meetingIdNum}:`, err.message);

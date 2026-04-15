@@ -21,7 +21,7 @@
  */
 
 const path = require('path');
-const fs   = require('fs');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const prisma = require('../lib/prisma');
 const SpeakerIdentificationService = require('./SpeakerIdentificationService');
@@ -30,11 +30,11 @@ const { findMeetingDirectory, findCompleteAudioFile, getDiarizedTranscript } = r
 // ============================================================
 // CONFIG
 // ============================================================
-const COSINE_THRESHOLD       = 0.65;   // Tier 1 match threshold
+const COSINE_THRESHOLD = 0.60;   // Tier 1 match threshold
 // 0.70 handles cross-device acoustic mismatch (browser mic enroll vs bot recording).
 
 const EMBEDDING_DECAY_MONTHS = 6;      // Reduce confidence for embeddings older than this
-const DECAY_FACTOR           = 0.85;   // Multiply confidence by this if stale
+const DECAY_FACTOR = 0.85;   // Multiply confidence by this if stale
 
 // Python VoiceEmbeddingService path
 const PY_SCRIPT = path.resolve(__dirname, '../../../ai-layer/whisperX/VoiceEmbeddingService.py');
@@ -95,12 +95,12 @@ function extractSegment(audioPath, startSec, endSec, outPath) {
 
     const proc = spawn(ffmpeg, [
       '-y',
-      '-i',  audioPath,
+      '-i', audioPath,
       '-ss', String(startSec),
-      '-t',  String(duration),
+      '-t', String(duration),
       '-ac', '1',          // mono
       '-ar', '16000',      // 16kHz
-      '-f',  'wav',
+      '-f', 'wav',
       outPath
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -148,11 +148,11 @@ function groupSegmentsBySpeaker(utterances) {
     if (u.originalStartTime !== undefined) {
       // getDiarizedTranscript() output — use actual audio timestamps for ffmpeg
       start = u.originalStartTime;
-      end   = u.endTime + (u.timeOffset ?? 0);
+      end = u.endTime + (u.timeOffset ?? 0);
     } else {
       // Raw JSON utterance (snake_case, un-normalized) — use directly
       start = u.diarized_start ?? u.start_time ?? u.startTime ?? 0;
-      end   = u.diarized_end   ?? u.end_time   ?? u.endTime   ?? (start + 3);
+      end = u.diarized_end ?? u.end_time ?? u.endTime ?? (start + 3);
     }
 
     if (end <= start) continue;
@@ -251,7 +251,7 @@ async function tier1Match(segmentPath, enrolledUsers) {
 
     // Compute weighted cosine similarity (newer versions weighted more)
     let weightedScore = 0;
-    let totalWeight   = 0;
+    let totalWeight = 0;
     const versionCount = userEmbeddings.length;
 
     for (let i = 0; i < userEmbeddings.length; i++) {
@@ -265,7 +265,7 @@ async function tier1Match(segmentPath, enrolledUsers) {
       // Cosine similarity
       let dot = 0, normA = 0, normB = 0;
       for (let k = 0; k < segEmbedding.length && k < storedVec.length; k++) {
-        dot  += segEmbedding[k] * storedVec[k];
+        dot += segEmbedding[k] * storedVec[k];
         normA += segEmbedding[k] ** 2;
         normB += storedVec[k] ** 2;
       }
@@ -274,7 +274,7 @@ async function tier1Match(segmentPath, enrolledUsers) {
       // Weight: newest version (index 0) gets highest weight
       const weight = versionCount - i;
       weightedScore += cos * weight;
-      totalWeight   += weight;
+      totalWeight += weight;
     }
 
     if (totalWeight === 0) continue;
@@ -422,7 +422,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
 
   // ── Step 2: Group utterances by speaker ────────────────────────────────────
   const speakerSegments = groupSegmentsBySpeaker(utterances);
-  const speakerLabels   = Object.keys(speakerSegments).filter(l => l !== 'UNKNOWN');
+  const speakerLabels = Object.keys(speakerSegments).filter(l => l !== 'UNKNOWN');
 
   console.log(`  📊 Found ${speakerLabels.length} unique speakers: ${speakerLabels.join(', ')}`);
 
@@ -460,8 +460,8 @@ async function runForMeeting(meetingId, broadcastFn = null) {
   fs.mkdirSync(tmpDir, { recursive: true });
 
   // ── Step 5: Tier cascade for each speaker ─────────────────────────────────
-  const results  = {};
-  const summary  = { tier1: 0, tier3: 0, unresolved: 0 };
+  const results = {};
+  const summary = { tier1: 0, tier3: 0, unresolved: 0 };
 
   for (const label of speakerLabels) {
     console.log(`\n  🎙️  Processing: ${label}`);
@@ -469,7 +469,7 @@ async function runForMeeting(meetingId, broadcastFn = null) {
     const best = getBestSegment(segs);
 
     let identified = null;
-    let tier        = 4; // Default: unresolved
+    let tier = 0; // Default: unresolved
 
     // ── Tier 1: Voice Fingerprint ──────────────────────────────────────────
     if (best && enrolledUsers.length > 0) {
@@ -495,9 +495,9 @@ async function runForMeeting(meetingId, broadcastFn = null) {
     }
 
     // ── Save result ───────────────────────────────────────────────────────
-    const userId     = identified?.userId     ?? null;
+    const userId = identified?.userId ?? null;
     const confidence = identified?.confidence ?? 0.0;
-    const userName   = identified?.userName   ?? 'Unknown';
+    const userName = identified?.userName ?? 'Unknown';
 
     await SpeakerIdentificationService.saveIdentityMapping(
       meetingIdNum, label, userId, confidence, tier,
@@ -513,12 +513,12 @@ async function runForMeeting(meetingId, broadcastFn = null) {
     // Broadcast update if WebSocket function provided
     if (broadcastFn && tier < 4) {
       try { broadcastFn(meetingId, { type: 'speaker_identified', speakerLabel: label, userId, userName, confidence, tier }); }
-      catch (_) {}
+      catch (_) { }
     }
   }
 
   // Cleanup tmp dir
-  try { fs.rmdirSync(tmpDir, { recursive: true }); } catch (_) {}
+  try { fs.rmdirSync(tmpDir, { recursive: true }); } catch (_) { }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\n✅ [SpeakerMatchingEngine] Completed in ${elapsed}s`);

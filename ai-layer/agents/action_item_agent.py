@@ -207,14 +207,39 @@ class ActionItemAgent:
         # Truncate to max length
         return self._truncate_title(cleaned or description)
 
-    def run(self, transcript: str) -> List[Dict[str, Any]]:
-        """Extract action items from transcript using Groq API or fallback method."""
+    def run(self, transcript: str, existing_items: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Extract action items from transcript using Groq API or fallback method.
+
+        When existing_items is provided (list of already-detected action items with their
+        id, title, description, status), the agent will:
+          - Enrich existing items if more detail is found in the transcript.
+          - Only add genuinely new items not already captured.
+        Returns:
+          - With context:    {"enrichments": [...], "new_items": [...]}
+          - Without context: a flat list [{...}, ...] (backward-compatible)
+        """
         if not transcript or len(transcript.strip()) < 50:
-            return []  # Return empty list instead of placeholder
+            return {"enrichments": [], "new_items": []} if existing_items is not None else []
 
         # Clean transcript
         clean_transcript = self._clean_text(transcript)
 
+        # Read AGENT_CONTEXT from environment if existing_items not passed directly
+        if existing_items is None:
+            context_json = os.getenv('AGENT_CONTEXT', '')
+            if context_json:
+                try:
+                    context = json.loads(context_json)
+                    existing_items = context.get('existingActionItems') or None
+                except json.JSONDecodeError:
+                    existing_items = None
+
+        # --- Context-aware path ---
+        if existing_items is not None:
+            return self._run_with_context(clean_transcript, existing_items)
+
+        # --- Standard path (no context) ---
         # Priority: HF -> Groq -> extractive
         try:
             result = self._extract_with_hf(clean_transcript)
@@ -228,7 +253,6 @@ class ActionItemAgent:
                 result = self._extract_with_groq(clean_transcript)
                 if result and isinstance(result, list) and len(result) > 0:
                     return result
-                # If Groq returned empty, try pattern matching before giving up
             except Exception as e:
                 print(f"Warning: Groq API extraction failed: {e}. Falling back to pattern matching.", file=sys.stderr)
 
@@ -236,9 +260,48 @@ class ActionItemAgent:
         pattern_results = self._extract_with_patterns(clean_transcript)
         if pattern_results:
             return pattern_results
-        
-        # No action items found by any method - return empty list
+
         return []
+
+    def _run_with_context(self, transcript: str, existing_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Context-aware extraction: pass existing items to the LLM so it can enrich
+        matches and avoid re-generating duplicates.
+        Returns {"enrichments": [...], "new_items": [...]}.
+        """
+        prompt = self._build_aware_prompt(transcript, existing_items)
+        payload = {
+            "model": self.GROQ_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert at analyzing meeting transcripts and managing action items. "
+                        "You will be given a list of already-detected action items and a meeting transcript. "
+                        "Your job is to enrich existing items with new information and identify truly new items. "
+                        "Always respond with valid JSON only, no additional text."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 2000
+        }
+
+        try:
+            result = self._call_groq_api(payload, max_rounds=3)
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+            content = self._strip_markdown(content)
+            parsed = json.loads(content)
+            return self._normalize_aware_response(parsed, existing_items)
+        except Exception as e:
+            print(f"Warning: Context-aware Groq extraction failed: {e}. Falling back to standard extraction.", file=sys.stderr)
+            # Graceful degradation: run standard extraction
+            try:
+                items = self._extract_with_groq(transcript)
+                return {"enrichments": [], "new_items": items if isinstance(items, list) else []}
+            except Exception:
+                return {"enrichments": [], "new_items": []}
 
     def _extract_with_hf(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract action items using Hugging Face hosted model."""
@@ -422,8 +485,105 @@ class ActionItemAgent:
             "confidence": confidence
         }
 
+    def _build_aware_prompt(self, transcript: str, existing_items: List[Dict[str, Any]]) -> str:
+        """Build a context-aware prompt that includes already-detected items."""
+        max_length = 18000
+        if len(transcript) > max_length:
+            transcript = "..." + transcript[-max_length:]
+
+        # Serialize existing items list for the prompt
+        items_lines = []
+        for item in existing_items:
+            item_id = item.get('id', '?')
+            title = item.get('title', '')
+            desc = item.get('description', '')
+            status = item.get('status', 'pending')
+            items_lines.append(f"  - ID {item_id} [{status}]: \"{title}\" — {desc}")
+        items_block = "\n".join(items_lines) if items_lines else "  (none yet)"
+
+        return f"""You are reviewing a meeting transcript alongside a list of action items that have already been detected.
+
+ALREADY DETECTED ACTION ITEMS:
+{items_block}
+
+Your task:
+1. ENRICH existing items if the transcript reveals additional context, a clearer description, a specific assignee, or a due date not already captured. Only include an item in "enrichments" if there is genuinely new information to add.
+2. ADD NEW items only if the transcript contains action items that are NOT already captured above (even if worded differently).
+3. IGNORE items that are redundant restatements of already-captured items.
+4. Do NOT change the status of any existing item.
+
+For enrichments, provide only the fields that are changing or being added. Always include the item ID.
+For new items, provide the full action item details.
+
+Return ONLY this JSON structure (no extra text):
+{{
+  "enrichments": [
+    {{
+      "id": <existing item id as integer>,
+      "description": "<enriched/expanded description if improved, otherwise omit>",
+      "title": "<refined title if clearer, otherwise omit>",
+      "assignee": "<assignee name if now known, otherwise omit>",
+      "dueDate": "<YYYY-MM-DD if now known, otherwise omit>",
+      "confidence": <updated confidence 0.0-1.0 if changed, otherwise omit>
+    }}
+  ],
+  "new_items": [
+    {{
+      "title": "<concise action-oriented title>",
+      "description": "<full context from transcript>",
+      "assignee": "<name if mentioned, otherwise null>",
+      "dueDate": "<YYYY-MM-DD if mentioned, otherwise null>",
+      "confidence": 0.8
+    }}
+  ]
+}}
+
+If there is nothing to enrich and no new items, return: {{"enrichments": [], "new_items": []}}
+
+Transcript:
+{transcript}
+
+JSON Response:"""
+
+    def _normalize_aware_response(self, parsed: Dict[str, Any], existing_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Normalize and validate the context-aware LLM response."""
+        enrichments = []
+        new_items = []
+
+        existing_ids = {item.get('id') for item in existing_items}
+
+        # Process enrichments
+        for enr in parsed.get('enrichments', []):
+            item_id = enr.get('id')
+            if item_id is None or item_id not in existing_ids:
+                continue  # Skip if id doesn't match an existing item
+            cleaned = {'id': item_id}
+            if 'title' in enr and enr['title']:
+                cleaned['title'] = self._truncate_title(self._clean_text(enr['title']))
+            if 'description' in enr and enr['description']:
+                cleaned['description'] = self._clean_text(enr['description'])
+            if 'assignee' in enr and enr['assignee']:
+                cleaned['assignee'] = self._clean_text(enr['assignee'])
+            if 'dueDate' in enr:
+                cleaned['dueDate'] = self._validate_date(enr['dueDate'])
+            if 'confidence' in enr:
+                try:
+                    cleaned['confidence'] = float(enr['confidence'])
+                except (TypeError, ValueError):
+                    pass
+            if len(cleaned) > 1:  # More than just 'id'
+                enrichments.append(cleaned)
+
+        # Process new items
+        for idx, item in enumerate(parsed.get('new_items', [])):
+            normalized = self._normalize_action_item(item, idx)
+            if normalized:
+                new_items.append(normalized)
+
+        return {'enrichments': enrichments, 'new_items': new_items}
+
     def _build_extraction_prompt(self, transcript: str) -> str:
-        """Build the prompt for action item extraction."""
+        """Build the prompt for action item extraction (no context / standard mode)."""
         # Truncate if extremely long
         max_length = 20000
         if len(transcript) > max_length:
@@ -474,7 +634,7 @@ Return ONLY a JSON object with this exact structure:
       "description": "<context and details from transcript>",
       "assignee": "<name if explicitly mentioned, otherwise null>",
       "dueDate": "<YYYY-MM-DD if explicitly mentioned, otherwise null>",
-      "confidence": 0.0
+      "confidence": 0.8
     }}
   ]
 }}

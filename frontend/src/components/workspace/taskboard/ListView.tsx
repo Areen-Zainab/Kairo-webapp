@@ -65,7 +65,9 @@ const ListView: React.FC<ListViewProps> = ({
 
   const isOverdue = (task: Task) => {
     if (!task.dueDate) return false;
-    return new Date(task.dueDate) < new Date() && task.status !== 'done';
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return new Date(task.dueDate) < today && task.status !== 'done';
   };
 
   return (
@@ -108,7 +110,9 @@ const ListView: React.FC<ListViewProps> = ({
                     inline-flex items-center px-2 py-1 rounded-full text-xs font-medium flex-shrink-0
                     ${getStatusColor(task.status)}
                   `}>
-                    {task.status.replace('-', ' ')}
+                    {task.status === 'done' 
+                      ? (task.columnName || 'Complete') 
+                      : task.status.replace('-', ' ')}
                   </span>
                 </div>
                 {task.description && (
@@ -211,16 +215,16 @@ const ListView: React.FC<ListViewProps> = ({
                 </div>
 
                 {/* Status */}
-                <div className="col-span-2">
                   <span
                     className={`
                       inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
                       ${getStatusColor(task.status)}
                     `}
                   >
-                    {task.status.replace('-', ' ')}
+                    {task.status === 'done' 
+                      ? (task.columnName || 'Complete') 
+                      : task.status.replace('-', ' ')}
                   </span>
-                </div>
 
                 {/* Priority */}
                 <div className="col-span-2">

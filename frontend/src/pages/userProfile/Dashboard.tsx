@@ -17,18 +17,18 @@ const Dashboard = () => {
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [userMeetings, setUserMeetings] = useState<any[]>([]);
   const [meetingsLoading, setMeetingsLoading] = useState(true);
-  const [workspaceMeetingCounts, setWorkspaceMeetingCounts] = useState<{[key: number]: number}>({});
-  
+  const [workspaceMeetingCounts, setWorkspaceMeetingCounts] = useState<{ [key: number]: number }>({});
+
   const { user, workspaces, pendingInvites, acceptInvite, rejectInvite, setCurrentWorkspace, isAuthenticated, loading, showArchivedWorkspaces, setShowArchivedWorkspaces } = useUser();
   const { success: toastSuccess, error: toastError } = useToastContext();
-  
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       navigate('/login');
     }
   }, [isAuthenticated, loading, navigate]);
-  
+
   // Use context user or fallback
   const displayUser = user ? {
     name: user.name,
@@ -60,7 +60,7 @@ const Dashboard = () => {
       try {
         setNotificationsLoading(true);
         const response = await apiService.getNotifications();
-        
+
         if (response.error) {
           console.error('Failed to fetch notifications:', response.error);
           setRecentNotifications([]);
@@ -90,7 +90,7 @@ const Dashboard = () => {
         const today = new Date();
         const thisMonth = today.getMonth();
         const thisYear = today.getFullYear();
-        
+
         // Create meetings on different days of the current month
         const dummyMeetings = [
           { id: 1, startTime: new Date(thisYear, thisMonth, 5, 10).toISOString(), title: 'Team Standup', status: 'scheduled' },
@@ -101,9 +101,9 @@ const Dashboard = () => {
         ];
         setUserMeetings(dummyMeetings);
         setMeetingsLoading(false);
-        console.log('Dummy meetings set:', dummyMeetings.map(m => ({ 
-          title: m.title, 
-          date: new Date(m.startTime).toLocaleDateString() 
+        console.log('Dummy meetings set:', dummyMeetings.map(m => ({
+          title: m.title,
+          date: new Date(m.startTime).toLocaleDateString()
         })));
         return;
       }
@@ -111,7 +111,7 @@ const Dashboard = () => {
       try {
         setMeetingsLoading(true);
         const response = await apiService.getMyMeetings({ upcoming: false });
-        
+
         if (response.error) {
           console.error('Failed to fetch meetings:', response.error);
           setUserMeetings([]);
@@ -134,7 +134,7 @@ const Dashboard = () => {
     const fetchWorkspaceMeetingsCounts = async () => {
       if (shouldShowDummyData) {
         // Use dummy data for demo account
-        const dummyCounts: {[key: number]: number} = {
+        const dummyCounts: { [key: number]: number } = {
           1: 24,
           2: 15,
           3: 31,
@@ -146,8 +146,8 @@ const Dashboard = () => {
       if (workspaces.length === 0) return;
 
       try {
-        const counts: {[key: number]: number} = {};
-        
+        const counts: { [key: number]: number } = {};
+
         // Fetch meeting counts for each workspace
         await Promise.all(
           workspaces.map(async (ws) => {
@@ -162,7 +162,7 @@ const Dashboard = () => {
             }
           })
         );
-        
+
         setWorkspaceMeetingCounts(counts);
       } catch (error) {
         console.error('Error fetching workspace meeting counts:', error);
@@ -174,7 +174,7 @@ const Dashboard = () => {
 
   // Use actual user workspaces (only for real users, not demo)
   const fallbackColors = ['#9333ea', '#3b82f6', '#10b981', '#f97316'];
-  
+
   const userWorkspaces = shouldShowDummyData ? [] : workspaces.map((ws, index) => ({
     id: ws.id,
     name: ws.name,
@@ -280,19 +280,19 @@ const Dashboard = () => {
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = firstDay.getDay();
-    
+
     const days = [];
-    
+
     // Add empty cells for days before the first day of the month
     for (let i = 0; i < startingDayOfWeek; i++) {
       days.push(null);
     }
-    
+
     // Add days of the month
     for (let day = 1; day <= daysInMonth; day++) {
       days.push(day);
     }
-    
+
     return days;
   };
 
@@ -307,11 +307,11 @@ const Dashboard = () => {
 
   const getMeetingShade = (_day: number, meetingsForDay: any[]) => {
     if (meetingsLoading || meetingsForDay.length === 0) return '';
-    
+
     const hasLive = meetingsForDay.some(m => m.statusType === 'live');
     const hasUpcoming = meetingsForDay.some(m => m.statusType === 'upcoming');
     const hasCurrentToday = meetingsForDay.some(m => m.statusType === 'current');
-    
+
     if (hasLive) {
       return 'bg-cyan-500/20 border-cyan-500/40 dark:border-cyan-500/50 text-cyan-700'; // Live meetings - brighter cyan
     } else if (hasCurrentToday) {
@@ -325,16 +325,16 @@ const Dashboard = () => {
 
   const getMeetingsForDay = (day: number) => {
     if (meetingsLoading || userMeetings.length === 0) return [];
-    
+
     const targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
     targetDate.setHours(0, 0, 0, 0);
-    
+
     const matchingMeetings = userMeetings.filter(meeting => {
       if (!meeting.startTime) return false;
-      
+
       const meetingDate = new Date(meeting.startTime);
       meetingDate.setHours(0, 0, 0, 0);
-      
+
       return meetingDate.getTime() === targetDate.getTime();
     });
 
@@ -342,7 +342,7 @@ const Dashboard = () => {
       const meetingDate = new Date(meeting.startTime);
       const meetingEnd = meeting.endTime ? new Date(meeting.endTime) : new Date(meetingDate.getTime() + 60 * 60 * 1000);
       const now = new Date();
-      
+
       // Check if meeting is today
       const today = new Date();
       const isToday = (
@@ -350,16 +350,16 @@ const Dashboard = () => {
         meetingDate.getMonth() === today.getMonth() &&
         meetingDate.getFullYear() === today.getFullYear()
       );
-      
+
       // Check if meeting is upcoming (future)
       const isUpcoming = meetingDate > now;
-      
+
       // Check if meeting is live (between start and end time)
       const isLive = isToday && now >= meetingDate && now <= meetingEnd && meeting.status !== 'completed' && meeting.status !== 'cancelled';
-      
+
       // Check if meeting is past (completed or cancelled)
       const isPast = now > meetingEnd || meeting.status === 'completed' || meeting.status === 'cancelled';
-      
+
       return {
         ...meeting,
         statusType: isLive ? 'live' : isUpcoming ? 'upcoming' : isPast ? 'past' : 'current'
@@ -458,11 +458,10 @@ const Dashboard = () => {
               {!shouldShowDummyData && (
                 <button
                   onClick={() => setShowArchivedWorkspaces(!showArchivedWorkspaces)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    showArchivedWorkspaces
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${showArchivedWorkspaces
                       ? 'bg-purple-100 text-purple-700 border border-purple-300 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-700'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-                  }`}
+                    }`}
                   title={showArchivedWorkspaces ? "Hide archived workspaces" : "Show archived workspaces"}
                 >
                   <Archive className="w-4 h-4" />
@@ -480,137 +479,137 @@ const Dashboard = () => {
                 </div>
               ) : (
                 allWorkspaces.map((workspace) => (
-                <div
-                  key={workspace.id}
-                  className={`group rounded-lg p-4 border transition-all duration-300 shadow-sm ${
-                    'isPending' in workspace && workspace.isPending
-                      ? 'bg-gradient-to-br from-yellow-50/50 to-orange-50/50 border-yellow-300 animate-pulse-subtle opacity-70 hover:opacity-90 dark:from-yellow-900/10 dark:to-orange-900/10 dark:border-yellow-600/50'
-                      : 'bg-white border-gray-200 hover:border-gray-300 dark:bg-slate-800/50 dark:backdrop-blur-sm dark:border-slate-700/50 dark:hover:border-slate-600 cursor-pointer'
-                  }`}
-                  style={'isPending' in workspace && workspace.isPending ? {
-                    animation: 'pulse-glow 2s ease-in-out infinite',
-                  } : undefined}
-                  onClick={() => {
-                    if (!('isPending' in workspace && workspace.isPending)) {
-                      const selected = {
-                        id: String(workspace.id),
-                        name: workspace.name,
-                        role: workspace.role,
-                        colorTheme: 'colorTheme' in workspace ? (workspace as any).colorTheme : undefined,
-                        memberCount: workspace.members,
-                      } as any;
-                      setCurrentWorkspace(selected);
-                      localStorage.setItem('currentWorkspace', JSON.stringify(selected));
-                      const workspaceId = typeof workspace.id === 'string' ? workspace.id : String(workspace.id);
-                      navigate(`/workspace/${workspaceId}`);
-                    }
-                  }}
-                >
-                  {'isPending' in workspace && workspace.isPending && (
-                    <div className="absolute top-2 right-2 px-2 py-1 bg-yellow-500 text-white text-xs font-semibold rounded-full animate-bounce-subtle">
-                      Pending Invitation
-                    </div>
-                  )}
-                  
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div 
-                        className={`w-12 h-12 rounded-lg flex items-center justify-center text-lg font-bold shadow-lg ${
-                          'isPending' in workspace && workspace.isPending ? 'opacity-60 animate-pulse-subtle' : ''
-                        }`}
-                        style={{
-                          backgroundColor: 'colorTheme' in workspace && typeof workspace.colorTheme === 'string' 
-                            ? workspace.colorTheme 
-                            : '#9333ea'
-                        }}
-                      >
-                        {workspace.name.charAt(0)}
+                  <div
+                    key={workspace.id}
+                    className={`group rounded-lg p-4 border transition-all duration-300 shadow-sm ${'isPending' in workspace && workspace.isPending
+                        ? 'bg-gradient-to-br from-yellow-50/50 to-orange-50/50 border-yellow-300 animate-pulse-subtle opacity-70 hover:opacity-90 dark:from-yellow-900/10 dark:to-orange-900/10 dark:border-yellow-600/50'
+                        : 'bg-white border-gray-200 hover:border-gray-300 dark:bg-slate-800/50 dark:backdrop-blur-sm dark:border-slate-700/50 dark:hover:border-slate-600 cursor-pointer'
+                      }`}
+                    style={'isPending' in workspace && workspace.isPending ? {
+                      animation: 'pulse-glow 2s ease-in-out infinite',
+                    } : undefined}
+                    onClick={() => {
+                      if (!('isPending' in workspace && workspace.isPending)) {
+                        const selected = {
+                          id: String(workspace.id),
+                          name: workspace.name,
+                          role: workspace.role,
+                          colorTheme: 'colorTheme' in workspace ? (workspace as any).colorTheme : undefined,
+                          memberCount: workspace.members,
+                        } as any;
+                        setCurrentWorkspace(selected);
+                        localStorage.setItem('currentWorkspace', JSON.stringify(selected));
+                        const workspaceId = typeof workspace.id === 'string' ? workspace.id : String(workspace.id);
+                        navigate(`/workspace/${workspaceId}`);
+                      }
+                    }}
+                  >
+                    {'isPending' in workspace && workspace.isPending && (
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-yellow-500 text-white text-xs font-semibold rounded-full animate-bounce-subtle">
+                        Pending Invitation
                       </div>
-                      <div>
-                        <h3 className="text-lg font-semibold mb-0.5 text-gray-900 dark:text-white flex items-center gap-2">
-                          {workspace.name}
-                          {'isPending' in workspace && workspace.isPending && (
-                            <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-600">
-                              Invitation
+                    )}
+
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-12 h-12 rounded-lg flex items-center justify-center text-lg font-bold shadow-lg ${'isPending' in workspace && workspace.isPending ? 'opacity-60 animate-pulse-subtle' : ''
+                            }`}
+                          style={{
+                            backgroundColor: 'colorTheme' in workspace && typeof workspace.colorTheme === 'string'
+                              ? workspace.colorTheme
+                              : '#9333ea'
+                          }}
+                        >
+                          {workspace.name.charAt(0)}
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold mb-0.5 text-gray-900 dark:text-white flex items-center gap-2">
+                            {workspace.name}
+                            {'isPending' in workspace && workspace.isPending && (
+                              <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-600">
+                                Invitation
+                              </span>
+                            )}
+                            {'isArchived' in workspace && workspace.isArchived && (
+                              <span title="Archived">
+                                <Archive className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                              </span>
+                            )}
+                          </h3>
+                          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
+                            <span className="flex items-center gap-1">
+                              <Clock size={12} />
+                              {workspace.lastActive}
                             </span>
-                          )}
-                          {'isArchived' in workspace && workspace.isArchived && (
-                            <Archive className="w-4 h-4 text-orange-600 dark:text-orange-400" title="Archived" />
-                          )}
-                        </h3>
-                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
-                          <span className="flex items-center gap-1">
-                            <Clock size={12} />
-                            {workspace.lastActive}
-                          </span>
-                          <span>•</span>
-                          <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-700 dark:bg-slate-700 dark:text-slate-300">{`${(workspace.role || '').slice(0,1).toUpperCase()}${(workspace.role || '').slice(1).toLowerCase()}`}</span>
+                            <span>•</span>
+                            <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-700 dark:bg-slate-700 dark:text-slate-300">{`${(workspace.role || '').slice(0, 1).toUpperCase()}${(workspace.role || '').slice(1).toLowerCase()}`}</span>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Removed Manage/Leave/Open buttons; card is clickable */}
                     </div>
 
-                    {/* Removed Manage/Leave/Open buttons; card is clickable */}
+                    {"isPending" in workspace && workspace.isPending ? (
+                      // Pending invitation action buttons
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          onClick={() => {
+                            if ("inviteId" in workspace && typeof workspace.inviteId === "number") {
+                              handleAcceptInvite(workspace.inviteId);
+                            }
+                          }}
+                          className="flex-1 px-4 py-2.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-all font-medium shadow-md hover:shadow-lg flex items-center justify-center gap-2 group"
+                        >
+                          <Check size={18} className="group-hover:scale-110 transition-transform" />
+                          Accept Invitation
+                        </button>
+                        <button
+                          onClick={() => {
+                            if ("inviteId" in workspace && typeof workspace.inviteId === "number") {
+                              handleRejectInvite(workspace.inviteId);
+                            }
+                          }}
+                          className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-md hover:bg-red-100 hover:text-red-700 transition-all font-medium flex items-center justify-center gap-2 group dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                        >
+                          <X size={18} className="group-hover:scale-110 transition-transform" />
+                          Decline
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-2">
+                        <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <Users size={14} className="text-cyan-400" />
+                            <span className="text-xs text-gray-600 dark:text-slate-400">Members</span>
+                          </div>
+                          <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.members}</p>
+                        </div>
+                        <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <Calendar size={14} className="text-blue-400" />
+                            <span className="text-xs text-gray-600 dark:text-slate-400">Meetings</span>
+                          </div>
+                          <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.meetings}</p>
+                        </div>
+                        <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <CheckSquare size={14} className="text-green-400" />
+                            <span className="text-xs text-gray-600 dark:text-slate-400">Tasks</span>
+                          </div>
+                          <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.pendingTasks}</p>
+                        </div>
+                        <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <TrendingUp size={14} className="text-purple-400" />
+                            <span className="text-xs text-gray-600 dark:text-slate-400">Analytics</span>
+                          </div>
+                          <p className="text-lg font-bold text-gray-900 dark:text-white">→</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-
-                  {"isPending" in workspace && workspace.isPending ? (
-                    // Pending invitation action buttons
-                    <div className="mt-4 flex gap-2">
-                      <button
-                        onClick={() => {
-                          if ("inviteId" in workspace && typeof workspace.inviteId === "number") {
-                            handleAcceptInvite(workspace.inviteId);
-                          }
-                        }}
-                        className="flex-1 px-4 py-2.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-all font-medium shadow-md hover:shadow-lg flex items-center justify-center gap-2 group"
-                      >
-                        <Check size={18} className="group-hover:scale-110 transition-transform" />
-                        Accept Invitation
-                      </button>
-                      <button
-                        onClick={() => {
-                          if ("inviteId" in workspace && typeof workspace.inviteId === "number") {
-                            handleRejectInvite(workspace.inviteId);
-                          }
-                        }}
-                        className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-md hover:bg-red-100 hover:text-red-700 transition-all font-medium flex items-center justify-center gap-2 group dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-red-900/30 dark:hover:text-red-400"
-                      >
-                        <X size={18} className="group-hover:scale-110 transition-transform" />
-                        Decline
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-4 gap-2">
-                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <Users size={14} className="text-cyan-400" />
-                        <span className="text-xs text-gray-600 dark:text-slate-400">Members</span>
-                      </div>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.members}</p>
-                    </div>
-                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <Calendar size={14} className="text-blue-400" />
-                        <span className="text-xs text-gray-600 dark:text-slate-400">Meetings</span>
-                      </div>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.meetings}</p>
-                    </div>
-                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <CheckSquare size={14} className="text-green-400" />
-                        <span className="text-xs text-gray-600 dark:text-slate-400">Tasks</span>
-                      </div>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{workspace.pendingTasks}</p>
-                    </div>
-                    <div className="rounded p-2.5 border bg-gray-50 border-gray-200 dark:bg-slate-900/50 dark:border-slate-700/30">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <TrendingUp size={14} className="text-purple-400" />
-                        <span className="text-xs text-gray-600 dark:text-slate-400">Analytics</span>
-                      </div>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">→</p>
-                    </div>
-                  </div>
-                )}
-                </div>
                 ))
               )}
             </div>
@@ -627,13 +626,13 @@ const Dashboard = () => {
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-semibold text-sm text-gray-900 dark:text-white">{formatMonthYear(currentDate)}</h4>
               <div className="flex gap-1">
-                <button 
+                <button
                   onClick={() => navigateMonth('prev')}
                   className="p-1 rounded transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
                   <ChevronLeft size={14} />
                 </button>
-                <button 
+                <button
                   onClick={() => navigateMonth('next')}
                   className="p-1 rounded transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
@@ -654,32 +653,30 @@ const Dashboard = () => {
                   if (day === null) return null;
                   const meetingsForDay = getMeetingsForDay(day);
                   const meetingCount = meetingsForDay.length;
-                  
+
                   const shade = getMeetingShade(day, meetingsForDay);
                   const isCurrentDay = isToday(day);
-                  
+
                   return (
                     <button
                       key={i}
-                      className={`p-1 text-xs rounded transition-colors relative border ${
-                        isCurrentDay
+                      className={`p-1 text-xs rounded transition-colors relative border ${isCurrentDay
                           ? 'bg-cyan-500 text-white font-bold border-cyan-400'
                           : meetingsForDay.length > 0
-                          ? shade + ' hover:scale-105'
-                          : 'hover:bg-gray-100 text-gray-700 dark:hover:bg-slate-700 dark:text-slate-300 border-transparent'
-                      }`}
+                            ? shade + ' hover:scale-105'
+                            : 'hover:bg-gray-100 text-gray-700 dark:hover:bg-slate-700 dark:text-slate-300 border-transparent'
+                        }`}
                       disabled={false}
                       title={meetingCount > 0 ? `${meetingCount} meeting${meetingCount > 1 ? 's' : ''} on ${day}` : ''}
                     >
                       {day}
                       {meetingCount > 0 && (
-                        <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
-                          shade.includes('bg-slate') 
-                            ? 'bg-slate-500' 
+                        <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${shade.includes('bg-slate')
+                            ? 'bg-slate-500'
                             : shade.includes('live') || shade.includes('bg-cyan-500/20')
-                            ? 'bg-cyan-600' 
-                            : 'bg-cyan-500'
-                        }`}></div>
+                              ? 'bg-cyan-600'
+                              : 'bg-cyan-500'
+                          }`}></div>
                       )}
                     </button>
                   );
@@ -714,11 +711,10 @@ const Dashboard = () => {
               </div>
             ) : (
               recentNotifications.map((notif) => (
-              <div
-                key={notif.id}
-                  className={`p-2.5 rounded-lg border transition-colors cursor-pointer hover:shadow-sm ${
-                    !notif.isRead ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50'
-                  }`}
+                <div
+                  key={notif.id}
+                  className={`p-2.5 rounded-lg border transition-colors cursor-pointer hover:shadow-sm ${!notif.isRead ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:border-slate-700/50'
+                    }`}
                   onClick={() => navigate('/notifications')}
                 >
                   <div className="flex items-start gap-2">
@@ -733,30 +729,15 @@ const Dashboard = () => {
                       <p className="text-xs text-gray-500 dark:text-slate-500 mt-1">{formatTimeAgo(notif.createdAt)}</p>
                     </div>
                   </div>
-              </div>
+                </div>
               ))
             )}
-          </div>
-        </div>
-
-        {/* Quick Actions */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 dark:text-slate-400">Quick Actions</h3>
-          <div className="space-y-1.5">
-            <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
-              <CheckSquare size={16} className="text-green-600 dark:text-green-400" />
-              <span className="text-sm text-gray-900 dark:text-white">Create Task</span>
-            </button>
-            <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors text-left bg-white hover:bg-gray-50 border-gray-200 dark:bg-slate-800/50 dark:hover:bg-slate-700/50 dark:border-slate-700/50">
-              <BarChart3 size={16} className="text-purple-600 dark:text-purple-400" />
-              <span className="text-sm text-gray-900 dark:text-white">View Analytics</span>
-            </button>
           </div>
         </div>
       </div>
 
       {/* Create Workspace Modal */}
-      <CreateWorkspaceModal 
+      <CreateWorkspaceModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onWorkspaceCreated={() => {

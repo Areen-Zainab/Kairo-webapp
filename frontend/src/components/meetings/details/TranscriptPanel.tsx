@@ -363,7 +363,20 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           // was cascade-updated to the real name (e.g. "Hafsa Imtiaz")
           // still get the correct mapping and badge.
           if (entry.resolved && entry.userName) {
-            mappings[entry.userName] = entry;
+            // Priority: Biometric (1) > Manual (4) > Historical (3) > Unresolved (0)
+            // But since tiers are arbitrary numbers, let's explicitly rank them:
+            // 1 (Biometric) is best. 4 (Manual) is second. 3 (Historical) is third.
+            const getPriority = (tier: number) => {
+              if (tier === 1) return 100;
+              if (tier === 4) return 90;
+              if (tier === 3) return 80;
+              return 0; // Unresolved or unknown
+            };
+            
+            const existing = mappings[entry.userName];
+            if (!existing || getPriority(entry.tierResolved) > getPriority(existing.tierResolved)) {
+              mappings[entry.userName] = entry;
+            }
           }
         });
         setSpeakerMappings(mappings);
@@ -422,7 +435,16 @@ const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               };
               updated[m.speakerLabel] = entry;
               if (entry.resolved && entry.userName) {
-                updated[entry.userName] = entry;
+                const getPriority = (tier: number) => {
+                  if (tier === 1) return 100;
+                  if (tier === 4) return 90;
+                  if (tier === 3) return 80;
+                  return 0;
+                };
+                const existing = updated[entry.userName];
+                if (!existing || getPriority(entry.tierResolved) > getPriority(existing.tierResolved)) {
+                  updated[entry.userName] = entry;
+                }
               }
             });
             return updated;

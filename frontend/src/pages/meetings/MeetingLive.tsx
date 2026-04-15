@@ -221,6 +221,9 @@ const LiveMeetingView = () => {
   const joinRequestInProgressRef = useRef(false); // Atomic flag to prevent duplicate join requests
   const privacyToggleRequestIdRef = useRef(0);
 
+  const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(false);
+  const [isRecapsCollapsed, setIsRecapsCollapsed] = useState(false);
+
   const getInitials = (name: string) => {
     const cleaned = (name || '').trim();
     if (!cleaned) return '?';
@@ -384,10 +387,10 @@ const LiveMeetingView = () => {
   const memoryItems: { id: string; topic: string; relevance: 'High' | 'Medium' | 'Low'; linkedDate: string }[] = [];
 
   useEffect(() => {
-    if (transcriptRef.current) {
+    if (isAutoScrollEnabled && transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }
-  }, [transcript]);
+  }, [transcript, isAutoScrollEnabled]);
 
   const togglePrivacyMode = async () => {
     if (!meeting?.id) return;
@@ -1248,18 +1251,33 @@ const LiveMeetingView = () => {
             )}
 
             {activeTab === 'transcript' && (
-              <div className="min-h-[40vh]">
-                <TranscriptTab
-                  transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
-                  transcript={transcript}
-                  isLoading={transcriptLoading}
-                  isConnected={isTranscriptConnected}
-                  isPrivacyMode={isPrivacyMode}
-                  onRefer={(text) => {
-                    const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
-                    setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
-                  }}
-                />
+              <div className="min-h-[40vh] flex flex-col">
+                <div className="px-4 py-2 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Live Transcript</h2>
+                  <button
+                    onClick={() => setIsAutoScrollEnabled(!isAutoScrollEnabled)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors border ${isAutoScrollEnabled
+                        ? 'bg-purple-100 border-purple-300 text-purple-700 dark:bg-purple-600/30 dark:border-purple-500/40 dark:text-white'
+                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100 dark:bg-slate-700/40 dark:border-slate-600/50 dark:text-slate-300'
+                      }`}
+                  >
+                    {isAutoScrollEnabled ? 'Auto-scroll ON' : 'Auto-scroll OFF'}
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0">
+                  <TranscriptTab
+                    transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
+                    transcript={transcript}
+                    isLoading={transcriptLoading}
+                    isConnected={isTranscriptConnected}
+                    isPrivacyMode={isPrivacyMode}
+                    onRefer={(text) => {
+                      const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
+                      setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
+                    }}
+                    hideHeader={true}
+                  />
+                </div>
               </div>
             )}
 
@@ -1281,36 +1299,73 @@ const LiveMeetingView = () => {
           </div>
 
           {/* Center - Transcript (grow to available width) */}
-          <div className="hidden md:block flex-1 min-w-0">
-            <TranscriptTab
-              transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
-              transcript={transcript}
-              isLoading={transcriptLoading}
-              isConnected={isTranscriptConnected}
-              isPrivacyMode={isPrivacyMode}
-              onRefer={(text) => {
-                const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
-                setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
-              }}
-            />
+          <div className="hidden md:flex flex-1 min-w-0 flex-col">
+            <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Live Transcript</h2>
+              <button
+                onClick={() => setIsAutoScrollEnabled(!isAutoScrollEnabled)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all shadow-sm border flex items-center gap-1.5 ${isAutoScrollEnabled
+                    ? 'bg-purple-600 border-transparent text-white hover:bg-purple-700'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200'
+                  }`}
+              >
+                <div className={`w-1.5 h-1.5 rounded-full ${isAutoScrollEnabled ? 'bg-white animate-pulse' : 'bg-gray-400'}`} />
+                {isAutoScrollEnabled ? 'Auto-scroll Enabled' : 'Enable Auto-scroll'}
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <TranscriptTab
+                transcriptRef={transcriptRef as React.RefObject<HTMLDivElement>}
+                transcript={transcript}
+                isLoading={transcriptLoading}
+                isConnected={isTranscriptConnected}
+                isPrivacyMode={isPrivacyMode}
+                onRefer={(text) => {
+                  const quoted = text.includes('\n') ? `"""\n${text}\n"""` : `"${text}"`;
+                  setMemoryChatInput(prev => prev ? `${prev}\n${quoted}` : quoted);
+                }}
+                hideHeader={true}
+              />
+            </div>
           </div>
 
           {/* Right Panel - Recaps (hidden on small screens) */}
-          <div className="hidden md:flex w-72 flex-col bg-gray-50 border-l border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50">
-            <div className="px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-purple-400" />
-                Recaps
-              </h2>
+          <div className={`hidden md:flex ${isRecapsCollapsed ? 'w-14' : 'w-72'} flex-col bg-gray-50 border-l border-gray-200 dark:bg-slate-900/30 dark:border-slate-700/50 transition-[width] duration-300 ease-in-out`}>
+            <div className={`px-4 py-2.5 flex-shrink-0 border-b bg-gray-100 border-gray-200 dark:border-slate-700/50 dark:bg-slate-800/20 flex items-center justify-between ${isRecapsCollapsed ? 'flex-col gap-2 px-2' : ''}`}>
+              {!isRecapsCollapsed && (
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5 truncate">
+                  <Activity className="w-4 h-4 text-purple-400" />
+                  Recaps
+                </h2>
+              )}
+              <button
+                onClick={() => setIsRecapsCollapsed(!isRecapsCollapsed)}
+                className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded transition-colors"
+                title={isRecapsCollapsed ? "Expand Recaps" : "Collapse Recaps"}
+              >
+                <ChevronDown className={`w-4 h-4 text-gray-600 dark:text-slate-400 transform transition-transform ${isRecapsCollapsed ? 'rotate-90' : '-rotate-90'}`} />
+              </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-3">
-              <WhisperRecapTab
-                recaps={recaps}
-                loading={recapsLoading}
-                error={recapsError}
-                triggering={triggering}
-              />
-            </div>
+            {!isRecapsCollapsed && (
+              <div className="flex-1 overflow-y-auto p-3">
+                <WhisperRecapTab
+                  recaps={recaps}
+                  loading={recapsLoading}
+                  error={recapsError}
+                  triggering={triggering}
+                />
+              </div>
+            )}
+            {isRecapsCollapsed && (
+              <div className="flex-1 flex flex-col items-center py-4 gap-4">
+                <div className="relative group">
+                  <Activity className="w-5 h-5 text-purple-400" />
+                  {recaps.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full border border-white dark:border-slate-900"></span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -153,9 +153,9 @@ class SpeakerIdentificationService {
   static async saveIdentityMapping(meetingId, speakerLabel, userId, confidenceScore, tierResolved, metadata = {}) {
     try {
       // Upsert — update if already exists for this meeting+label.
-      // Manual assignments (tier_resolved = 4, set by a human via the UI) are never
-      // overwritten by automated identification results.  A human correction is always
-      // treated as ground truth until explicitly changed by another manual action.
+      // Automated identification results will not overwrite manual assignments,
+      // EXCEPT when Tier 1 (Voice Fingerprint) resolves a real user_id, in which
+      // case biometric identification takes precedence over a manual assignment.
       const result = await prisma.$executeRaw`
         INSERT INTO speaker_identity_maps 
           (id, meeting_id, speaker_label, user_id, confidence_score, tier_resolved, metadata, created_at, updated_at)
@@ -168,10 +168,12 @@ class SpeakerIdentificationService {
           metadata         = EXCLUDED.metadata,
           updated_at       = NOW()
         WHERE
-          -- Always overwrite non-manual rows
-          speaker_identity_maps.tier_resolved != 4
-          -- Also overwrite manual assignments when biometrics resolved a real user
-          OR EXCLUDED.user_id IS NOT NULL
+          -- New mapping is Manual -> ALWAYS OVERWRITE
+          EXCLUDED.tier_resolved = 4
+          -- New mapping is Biometric -> Overwrite anything except Manual, OR overwrite manual if it resolves a user
+          OR (EXCLUDED.tier_resolved = 1 AND EXCLUDED.user_id IS NOT NULL)
+          -- Historical only overwrites if current state is Unresolved (tier NOT IN 1, 3, 4)
+          OR (EXCLUDED.tier_resolved = 3 AND speaker_identity_maps.tier_resolved NOT IN (1, 3, 4))
       `;
 
       // result === 0 means ON CONFLICT fired but the WHERE clause prevented the update
@@ -375,14 +377,18 @@ class SpeakerIdentificationService {
       } catch (_) { /* table may not exist */ }
 
       // ------------------------------------------------------------------
-      // 5. On-disk transcript_diarized.json  (ensures future AI jobs use real names)
+      // 5. On-disk transcript files  (ensures future AI jobs use real names)
       // ------------------------------------------------------------------
       try {
         if (fs.existsSync(MEETING_DATA_BASE_DIR)) {
           const dirEntries = fs.readdirSync(MEETING_DATA_BASE_DIR, { withFileTypes: true });
           const meetingDirEntry = dirEntries.find(e => e.isDirectory() && e.name.startsWith(`${meetingId}_`));
           if (meetingDirEntry) {
-            const diarizedPath = path.join(MEETING_DATA_BASE_DIR, meetingDirEntry.name, 'transcript_diarized.json');
+            const meetingDirPath = path.join(MEETING_DATA_BASE_DIR, meetingDirEntry.name);
+
+            // 5a. Rewrite transcript_diarized.json (speaker field per utterance)
+            //     Only update the specific speaker being resolved in this call.
+            const diarizedPath = path.join(meetingDirPath, 'transcript_diarized.json');
             if (fs.existsSync(diarizedPath)) {
               const data = JSON.parse(fs.readFileSync(diarizedPath, 'utf8'));
               if (Array.isArray(data.utterances)) {
@@ -395,16 +401,43 @@ class SpeakerIdentificationService {
                   return u;
                 });
                 if (changed) {
+                  // Issue 7 fix: Recompute metadata.speakers from updated utterances
+                  data.metadata.speakers = [...new Set(data.utterances.map(u => u.speaker).filter(Boolean))];
+                  data.metadata.generated = new Date().toISOString();
+                  
                   fs.writeFileSync(diarizedPath, JSON.stringify(data, null, 2), 'utf8');
                   stats.transcriptFile = true;
                 }
               }
             }
+
+            // 5b. Rebuild transcript_complete.txt from the now-updated JSON.
+            //     This applies ALL resolved speaker mappings at once (not just the
+            //     label being updated now), so SPEAKER_01, SPEAKER_02, etc. are all
+            //     substituted in a single pass — no stray labels left behind.
+            const rebuilt = await this._rebuildTxtFromJson(meetingId, meetingDirPath);
+            if (rebuilt) {
+              stats.transcriptFile = true;
+              console.log(`   ✅ [SpeakerID] Rebuilt transcript_complete.txt for meeting ${meetingId}`);
+            }
+
+            // 5c. Rebuild transcript_diarized.txt from the updated JSON
+            const rebuiltDiarized = await this._rebuildDiarizedTxtFromJson(meetingDirPath);
+            if (rebuiltDiarized) {
+              console.log(`   ✅ [SpeakerID] Rebuilt transcript_diarized.txt for meeting ${meetingId}`);
+            }
+
+            // 6. Regenerate transcript_stats.json after speakers are updated
+            const statsRegenerated = await this.regenerateStats(meetingId, meetingDirPath);
+            if (statsRegenerated) {
+              console.log(`   ✅ [SpeakerID] Regenerated transcript_stats.json for meeting ${meetingId}`);
+            }
           }
         }
       } catch (fileErr) {
-        console.warn(`[SpeakerID] Could not update transcript file for meeting ${meetingId}:`, fileErr.message);
+        console.warn(`[SpeakerID] Could not update transcript files for meeting ${meetingId}:`, fileErr.message);
       }
+
 
     } catch (err) {
       console.error(`[SpeakerID] cascadeNameUpdate error for ${speakerLabel} → ${userName}:`, err.message);
@@ -413,6 +446,181 @@ class SpeakerIdentificationService {
 
     console.log(`✅ [SpeakerID] Cascade complete: ${speakerLabel} → "${userName}" in meeting ${meetingId}`, stats);
     return { userName, stats };
+  }
+
+  /**
+   * Rebuild transcript_complete.txt from transcript_diarized.json, applying
+   * ALL currently resolved speaker mappings for this meeting in one pass.
+   *
+   * This is intentionally a full regeneration rather than a search-and-replace,
+   * so every SPEAKER_XX label (not just the one that triggered the cascade) is
+   * resolved. Called from cascadeNameUpdate step 5b.
+   *
+   * @param {number} meetingId
+   * @param {string} meetingDirPath - absolute path to the meeting's data directory
+   * @returns {boolean} true if the file was written
+   */
+  static async _rebuildTxtFromJson(meetingId, meetingDirPath) {
+    const diarizedPath = path.join(meetingDirPath, 'transcript_diarized.json');
+    const completeTxtPath = path.join(meetingDirPath, 'transcript_complete.txt');
+
+    if (!fs.existsSync(diarizedPath)) return false;
+
+    // Load the JSON (already has the current speaker updated by step 5a)
+    const data = JSON.parse(fs.readFileSync(diarizedPath, 'utf8'));
+    if (!Array.isArray(data.utterances) || data.utterances.length === 0) return false;
+
+    // Fetch all resolved speaker mappings for this meeting from the DB
+    const mappingRows = await prisma.$queryRaw`
+      SELECT sim.speaker_label, u.name as user_name
+      FROM speaker_identity_maps sim
+      JOIN users u ON sim.user_id = u.id
+      WHERE sim.meeting_id = ${meetingId}
+        AND sim.user_id IS NOT NULL
+    `;
+
+    // Build label → name lookup (case-insensitive key)
+    const nameMap = new Map();
+    for (const row of mappingRows) {
+      if (row.speaker_label && row.user_name) {
+        nameMap.set(row.speaker_label.toLowerCase(), row.user_name);
+      }
+    }
+
+    // Helper: resolve a speaker label to its display name
+    const resolveSpeaker = (label) => {
+      if (!label) return 'Unknown Speaker';
+      return nameMap.get(label.toLowerCase()) || label;
+    };
+
+    // Rebuild the file content from utterances
+    const header = `Kairo Complete Transcript\nGenerated: ${new Date().toISOString()}\n${'='.repeat(80)}\n\n`;
+    const lines = [header];
+
+    for (let i = 0; i < data.utterances.length; i++) {
+      const u = data.utterances[i];
+      const speaker = resolveSpeaker(u.speaker);
+      const timestamp = u.timestamp || '';
+      const text = (u.text || '').trim();
+      if (!text) continue;
+
+      // Format: [Chunk N] [timestamp]\nSpeaker: text\n\n
+      const chunkNum = u.chunk !== undefined ? u.chunk : i;
+      lines.push(`[Chunk ${chunkNum}] [${timestamp}]\n${speaker}: ${text}\n\n`);
+    }
+
+    fs.writeFileSync(completeTxtPath, lines.join(''), 'utf8');
+    return true;
+  }
+
+  /**
+   * Rebuild transcript_diarized.txt from the updated transcript_diarized.json.
+   * This applies ALL resolved speaker mappings for the human-readable diarized output.
+   *
+   * @param {string} meetingDirPath - absolute path to the meeting's data directory
+   * @returns {Promise<boolean>} true if the file was written
+   */
+  static async _rebuildDiarizedTxtFromJson(meetingDirPath) {
+    const diarizedJsonPath = path.join(meetingDirPath, 'transcript_diarized.json');
+    const diarizedTxtPath = path.join(meetingDirPath, 'transcript_diarized.txt');
+
+    if (!fs.existsSync(diarizedJsonPath)) return false;
+
+    try {
+      const data = JSON.parse(fs.readFileSync(diarizedJsonPath, 'utf8'));
+      if (!Array.isArray(data.utterances) || data.utterances.length === 0) return false;
+
+      let textOutput = `Kairo Speaker-Diarized Transcript\n`;
+      textOutput += `Generated: ${new Date().toISOString()}\n`;
+      textOutput += `${'='.repeat(80)}\n\n`;
+
+      for (const utterance of data.utterances) {
+        const speaker = utterance.speaker || 'UNKNOWN';
+
+        const startTime = utterance.diarized_start !== null && utterance.diarized_start !== undefined
+          ? utterance.diarized_start
+          : utterance.start_time;
+        const endTime = utterance.diarized_end !== null && utterance.diarized_end !== undefined
+          ? utterance.diarized_end
+          : utterance.end_time;
+
+        const timeRange = `[${startTime.toFixed(1)}s - ${endTime.toFixed(1)}s]`;
+        textOutput += `${speaker} ${timeRange}:\n${utterance.text}\n\n`;
+      }
+
+      fs.writeFileSync(diarizedTxtPath, textOutput, 'utf8');
+      return true;
+    } catch (e) {
+      console.warn('[SpeakerID] Error rebuilding transcript_diarized.txt:', e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Regenerate transcript_stats.json after speakers are updated.
+   * Reads from transcript_diarized.json and recalculates speaker statistics.
+   *
+   * @param {number} meetingId
+   * @param {string} meetingDirPath
+   * @returns {Promise<boolean>} true if the file was written
+   */
+  static async regenerateStats(meetingId, meetingDirPath) {
+    const diarizedJsonPath = path.join(meetingDirPath, 'transcript_diarized.json');
+    const statsPath = path.join(meetingDirPath, 'transcript_stats.json');
+
+    if (!fs.existsSync(diarizedJsonPath)) return false;
+
+    try {
+      const data = JSON.parse(fs.readFileSync(diarizedJsonPath, 'utf8'));
+      if (!Array.isArray(data.utterances) || data.utterances.length === 0) return false;
+
+      const utterances = data.utterances;
+      const speakers = [...new Set(utterances.map(u => u.speaker).filter(s => s && s !== 'UNKNOWN'))];
+      const totalWords = utterances.reduce((sum, u) => sum + (u.text ? u.text.trim().split(/\s+/).length : 0), 0);
+      const duration = utterances.length > 0
+        ? Math.max(...utterances.map(u => u.end_time || 0))
+        : 0;
+
+      // Ensure we get chunk counts and the old generated time if available
+      let oldStats = {};
+      if (fs.existsSync(statsPath)) {
+        try {
+          oldStats = JSON.parse(fs.readFileSync(statsPath, 'utf8'));
+        } catch (_) {}
+      }
+      
+      const chunkCount = oldStats.total_chunks !== undefined ? oldStats.total_chunks : [...new Set(utterances.map(u => u.chunk))].length;
+
+      const speakerStats = {};
+      speakers.forEach(speaker => {
+        const speakerUtterances = utterances.filter(u => u.speaker === speaker);
+        const speakingTime = speakerUtterances.reduce((sum, u) => sum + ((u.end_time || 0) - (u.start_time || 0)), 0);
+        const wordCount = speakerUtterances.reduce((sum, u) => sum + (u.text ? u.text.trim().split(/\s+/).length : 0), 0);
+
+        speakerStats[speaker] = {
+          utterance_count: speakerUtterances.length,
+          speaking_time_seconds: speakingTime,
+          word_count: wordCount,
+          speaking_percentage: duration > 0 ? ((speakingTime / duration) * 100).toFixed(1) : '0.0'
+        };
+      });
+
+      const newStats = {
+        total_chunks: chunkCount,
+        total_utterances: utterances.length,
+        total_words: totalWords,
+        duration_seconds: duration,
+        speakers: speakers,
+        speaker_statistics: speakerStats,
+        generated_at: new Date().toISOString()
+      };
+
+      fs.writeFileSync(statsPath, JSON.stringify(newStats, null, 2), 'utf8');
+      return true;
+    } catch (e) {
+      console.warn('[SpeakerID] Error regenerating transcript_stats.json:', e.message);
+      return false;
+    }
   }
 
   // ============================================================

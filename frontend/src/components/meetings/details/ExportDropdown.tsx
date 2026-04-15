@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, ChevronDown, FileText, FileImage, Share2 } from 'lucide-react';
+import { Download, ChevronDown, FileText, Share2 } from 'lucide-react';
 
 interface ExportDropdownProps {
   meeting: {

@@ -426,9 +426,9 @@ const WorkspaceOverview = () => {
 
   // Format upcoming meetings for display
   const upcomingMeetingsFormatted = shouldShowDummyData ? [
-    { id: 1, title: 'Sprint Planning', time: '2:00 PM', participants: ['AM', 'JD', 'SK', '+5'], duration: '60 min', status: 'Soon', remainingCount: 0, meetingLink: '#' },
-    { id: 2, title: 'Client Demo', time: '4:30 PM', participants: ['AM', 'RK', 'LM'], duration: '45 min', status: 'Scheduled', remainingCount: 0, meetingLink: '#' },
-    { id: 3, title: 'Team Standup', time: 'Tomorrow 9:00 AM', participants: ['AM', 'JD', 'SK', 'RK', '+8'], duration: '15 min', status: 'Scheduled', remainingCount: 0, meetingLink: '#' },
+    { id: 1, title: 'Sprint Planning', time: '2:00 PM', participants: ['AM', 'JD', 'SK', '+5'], duration: '60 min', status: 'Soon', remainingCount: 0, meetingLink: '#', participantCount: 8, platform: null, meetingStatus: 'scheduled' },
+    { id: 2, title: 'Client Demo', time: '4:30 PM', participants: ['AM', 'RK', 'LM'], duration: '45 min', status: 'Scheduled', remainingCount: 0, meetingLink: '#', participantCount: 3, platform: null, meetingStatus: 'scheduled' },
+    { id: 3, title: 'Team Standup', time: 'Tomorrow 9:00 AM', participants: ['AM', 'JD', 'SK', 'RK', '+8'], duration: '15 min', status: 'Scheduled', remainingCount: 0, meetingLink: '#', participantCount: 12, platform: null, meetingStatus: 'scheduled' },
   ] : upcomingMeetingsData.map(meeting => {
       const startTime = new Date(meeting.startTime);
       const now = new Date();

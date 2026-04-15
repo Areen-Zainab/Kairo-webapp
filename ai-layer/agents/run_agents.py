@@ -144,7 +144,14 @@ def main() -> None:
         result = decision_agent.run(transcript)
     elif agent_key == "action_items":
         action_agent = ActionItemAgent()
-        result = action_agent.run(transcript)
+        # Read existing action items from AGENT_CONTEXT (same pattern as summary agent)
+        context_json = os.getenv('AGENT_CONTEXT', '{}')
+        try:
+            context = json.loads(context_json) if context_json else {}
+        except json.JSONDecodeError:
+            context = {}
+        existing_items = context.get('existingActionItems') or None
+        result = action_agent.run(transcript, existing_items=existing_items)
     elif agent_key == "sentiment":
         sentiment_agent = SentimentAnalysisAgent()
         result = sentiment_agent.run(transcript)
@@ -169,9 +176,22 @@ def main() -> None:
         # Extract context components
         topics = context.get('topics')
         decisions = context.get('decisions')
-        action_items = context.get('actionItems')
+        raw_action_items = context.get('actionItems')
         sentiment = context.get('sentiment')
         participants = context.get('participants')
+
+        # Normalize action_items to a flat list — the summary agent always expects a list.
+        # The context-aware agent returns {enrichments, new_items}; flatten it here so
+        # summary_agent.py never needs to handle dicts.
+        if isinstance(raw_action_items, dict):
+            action_items = (
+                list(raw_action_items.get('new_items') or []) +
+                list(raw_action_items.get('enrichments') or [])
+            )
+        elif isinstance(raw_action_items, list):
+            action_items = raw_action_items
+        else:
+            action_items = []
         
         # Call summary agent with context
         result = summary_agent.run(

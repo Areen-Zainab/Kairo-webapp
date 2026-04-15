@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Task, TaskPriority, TaskStatus } from './types';
+import type { Task, TaskStatus } from './types';
 import { useTheme } from '../../../theme/ThemeProvider';
 import UserAvatar from '../../ui/UserAvatar';
 
@@ -38,11 +38,18 @@ const TaskCard: React.FC<TaskCardProps> = ({
     if (!dateString) return null;
     const date = new Date(dateString);
     const now = new Date();
-    const diffTime = date.getTime() - now.getTime();
+    
+    // Create "start of today" and "due date at midnight" to compare days
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dueDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    const diffTime = dueDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    if (diffDays < 0) return { text: 'Overdue', urgent: true };
-    if (diffDays === 0) return { text: 'Today', urgent: true };
+    const isDone = task.status === 'done';
+    
+    if (diffDays < 0) return { text: 'Overdue', urgent: !isDone };
+    if (diffDays === 0) return { text: 'Today', urgent: !isDone };
     if (diffDays === 1) return { text: 'Tomorrow', urgent: false };
     if (diffDays <= 7) return { text: `${diffDays} days`, urgent: false };
     return { text: date.toLocaleDateString(), urgent: false };
@@ -119,15 +126,25 @@ const TaskCard: React.FC<TaskCardProps> = ({
           </div>
         )}
 
-        {/* Assignee */}
-        {task.assignee && (
+        {/* Assignees */}
+        {task.assignees && task.assignees.length > 0 && (
           <div className="flex items-center gap-1 mb-2 sm:mb-3">
-            <div className="flex items-center gap-1.5">
-              <UserAvatar name={task.assignee} size="xs" />
-              <span className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-400">
+            <div className="flex -space-x-2 mr-2">
+              {task.assignees.map((assignee) => (
+                <div key={assignee.id} className="border-2 border-white dark:border-slate-800 rounded-full overflow-hidden" title={assignee.name}>
+                  <UserAvatar 
+                    name={assignee.name} 
+                    profilePictureUrl={assignee.profilePictureUrl} 
+                    size="xs" 
+                  />
+                </div>
+              ))}
+            </div>
+            {task.assignee && (
+              <span className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-400 truncate max-w-[100px]">
                 {task.assignee}
               </span>
-            </div>
+            )}
           </div>
         )}
 

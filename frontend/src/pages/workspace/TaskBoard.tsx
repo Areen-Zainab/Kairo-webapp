@@ -24,7 +24,7 @@ const mapColumnToStatus = (columnName: string): TaskStatus => {
 };
 
 // Helper to map backend task to frontend format
-const mapBackendTask = (backendTask: any, columnName: string): Task => {
+const mapBackendTask = (backendTask: any, columnName: string, members: any[] = []): Task => {
   // Generate initials for assignee avatar
   const getInitials = (name: string | null) => {
     if (!name) return '?';
@@ -33,20 +33,31 @@ const mapBackendTask = (backendTask: any, columnName: string): Task => {
 
   const assigneeName = backendTask.assignee || 'Unassigned';
   
+  // Try to find the assignee in workspace members to get their profile picture
+  const member = members.find(m => 
+    m.name === assigneeName || 
+    m.email === assigneeName || 
+    m.name?.toLowerCase() === assigneeName.toLowerCase()
+  );
+
   // Extract tags from TaskTag structure
   const taskTags = backendTask.tags ? backendTask.tags.map((taskTag: any) => taskTag.tag || taskTag) : [];
   
+  const status = mapColumnToStatus(columnName);
+
   return {
     id: String(backendTask.id),
     title: backendTask.title,
     description: backendTask.description || '',
-    status: mapColumnToStatus(columnName),
+    status: status,
+    columnName: columnName,
     priority: backendTask.priority as TaskPriority,
     assignees: backendTask.assignee ? [{
-      id: String(backendTask.id),
-      name: assigneeName,
-      email: assigneeName,
-      avatar: getInitials(assigneeName),
+      id: member ? String(member.id) : String(backendTask.id),
+      name: member?.name || assigneeName,
+      email: member?.email || assigneeName,
+      avatar: getInitials(member?.name || assigneeName),
+      profilePictureUrl: member?.profilePictureUrl,
       role: 'member'
     }] : [],
     assignee: backendTask.assignee,
@@ -70,7 +81,13 @@ const mapBackendTask = (backendTask: any, columnName: string): Task => {
       decisions: [],
       notes: []
     } : undefined,
-    isOverdue: backendTask.dueDate ? new Date(backendTask.dueDate) < new Date() && mapColumnToStatus(columnName) !== 'done' : false
+    isOverdue: (() => {
+      if (!backendTask.dueDate) return false;
+      if (status === 'done') return false;
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return new Date(backendTask.dueDate) < today;
+    })()
   };
 };
 
@@ -147,32 +164,32 @@ const TaskBoard: React.FC = () => {
       } else if (columnsResponse.data?.columns) {
         // Store columns
         setColumns(columnsResponse.data.columns);
-        
-        // Convert backend columns/tasks to frontend format
+
+        // 1. Process workspace members first
+        let resolvedMembers: any[] = [];
+        if (membersResponse.data?.allMembers) {
+          resolvedMembers = membersResponse.data.allMembers.map((m: any) => ({
+            id: m.userId ?? m.id,
+            name: m.user?.name ?? m.name ?? m.email,
+            email: m.user?.email ?? m.email,
+            profilePictureUrl: m.user?.profilePictureUrl ?? m.profilePictureUrl,
+          }));
+          setWorkspaceMembers(resolvedMembers);
+        }
+
+        // 2. Map tasks using the resolved members
         const allTasks: Task[] = [];
-        
         columnsResponse.data.columns.forEach(column => {
           column.tasks.forEach(task => {
-            allTasks.push(mapBackendTask(task, column.name));
+            allTasks.push(mapBackendTask(task, column.name, resolvedMembers));
           });
         });
-        
         setTasks(allTasks);
-      }
 
-      // Store tags
-      if (tagsResponse.data?.tags) {
-        setTags(tagsResponse.data.tags);
-      }
-
-      // Store workspace members
-      if (membersResponse.data?.allMembers) {
-        setWorkspaceMembers(membersResponse.data.allMembers.map((m: any) => ({
-          id: m.userId ?? m.id,
-          name: m.user?.name ?? m.name ?? m.email,
-          email: m.user?.email ?? m.email,
-          profilePictureUrl: m.user?.profilePictureUrl ?? m.profilePictureUrl,
-        })));
+        // Store tags
+        if (tagsResponse.data?.tags) {
+          setTags(tagsResponse.data.tags);
+        }
       }
     } catch (err: any) {
       console.error('Failed to fetch tasks:', err);
@@ -386,40 +403,73 @@ const TaskBoard: React.FC = () => {
   // Update overdue status
   useEffect(() => {
     setTasks(prevTasks => 
-      prevTasks.map(task => ({
-        ...task,
-        isOverdue: task.dueDate ? 
-          new Date(task.dueDate) < new Date() && task.status !== 'done' : 
-          false
-      }))
+      prevTasks.map(task => {
+        const isDone = task.status === 'done';
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const isOverdue = task.dueDate ? 
+          new Date(task.dueDate) < today && !isDone : 
+          false;
+        return {
+          ...task,
+          isOverdue
+        };
+      })
     );
-  }, []);
+  }, [tasks.length]); // Re-run if task count changes
 
   const handleTaskClick = (task: Task) => {
     setSelectedTask(task);
   };
 
   const handleTaskStatusChange = (taskId: string, newStatus: TaskStatus) => {
+    // Persist to backend by moving the task to the target kanban column.
+    const targetColumn = columns.find(col => mapColumnToStatus(col.name) === newStatus);
+    if (!targetColumn?.id) return;
+
     // Optimistic update
     setTasks(prevTasks =>
-      prevTasks.map(task =>
-        task.id === taskId
-          ? { ...task, status: newStatus, updatedAt: new Date().toISOString() }
-          : task
-      )
+      prevTasks.map(task => {
+        if (task.id === taskId) {
+          const isDone = newStatus === 'done';
+          const now = new Date();
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const isOverdue = task.dueDate ? 
+            new Date(task.dueDate) < today && !isDone : 
+            false;
+
+          return { 
+            ...task, 
+            status: newStatus, 
+            columnName: targetColumn.name,
+            isOverdue,
+            updatedAt: new Date().toISOString() 
+          };
+        }
+        return task;
+      })
     );
 
     // Keep selected task in sync so the modal UI updates immediately.
-    setSelectedTask(prev => (prev && prev.id === taskId)
-      ? { ...prev, status: newStatus, updatedAt: new Date().toISOString() }
-      : prev
-    );
+    setSelectedTask(prev => {
+      if (prev && prev.id === taskId) {
+        const isDone = newStatus === 'done';
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const isOverdue = prev.dueDate ? 
+          new Date(prev.dueDate) < today && !isDone : 
+          false;
 
-    // Persist to backend by moving the task to the target kanban column.
-    // Backend ignores `columnId` in PATCH /tasks/:taskId (not an allowed field),
-    // so we must use POST /tasks/:taskId/move with a real columnId.
-    const targetColumn = columns.find(col => mapColumnToStatus(col.name) === newStatus);
-    if (!targetColumn?.id) return;
+        return { 
+          ...prev, 
+          status: newStatus, 
+          columnName: targetColumn.name,
+          isOverdue,
+          updatedAt: new Date().toISOString() 
+        };
+      }
+      return prev;
+    });
 
     apiService
       .moveTask(parseInt(taskId), targetColumn.id)
@@ -452,6 +502,21 @@ const TaskBoard: React.FC = () => {
 
   const handleTaskMove = (taskId: string, _fromStatus: TaskStatus, toStatus: TaskStatus) => {
     handleTaskStatusChange(taskId, toStatus);
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const response = await apiService.deleteTask(parseInt(taskId));
+      if (response.error) {
+        alert(response.error);
+      } else {
+        setTasks(prevTasks => prevTasks.filter(t => t.id !== taskId));
+        setSelectedTask(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete task:', err);
+      alert(err.message || 'Failed to delete task');
+    }
   };
 
   // Get unique assignees from tasks
@@ -746,6 +811,7 @@ const TaskBoard: React.FC = () => {
           onClose={() => setSelectedTask(null)}
           onStatusChange={handleTaskStatusChange}
           onPriorityChange={handleTaskPriorityChange}
+          onDeleteTask={handleDeleteTask}
           onTaskUpdate={handleTaskUpdate}
           workspaceTags={tags.map((t: any) => ({ id: String(t.id), name: t.name, color: t.color }))}
           workspaceId={workspaceId ? parseInt(workspaceId) : undefined}

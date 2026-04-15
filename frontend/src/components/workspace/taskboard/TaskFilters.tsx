@@ -246,4 +246,3 @@ const TaskFiltersComponent: React.FC<TaskFiltersProps> = ({
 };
 
 export default TaskFiltersComponent;
-export type { TaskFilters };

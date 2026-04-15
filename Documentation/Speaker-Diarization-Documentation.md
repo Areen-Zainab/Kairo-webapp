@@ -5,6 +5,41 @@
 
 ---
 
+## 0. Voice Embedding Model
+
+### Model: SpeechBrain ECAPA-TDNN (`speechbrain/spkrec-ecapa-voxceleb`)
+
+Kairo uses **SpeechBrain's ECAPA-TDNN** (Emphasized Channel Attention, Propagation and Aggregation Time Delay Neural Network) as its canonical voice embedding model. All speaker fingerprints — whether enrolled at signup or extracted from live audio chunks — are stored as **192-dimensional L2-normalised vectors** in the `user_voice_embeddings` table via pgvector.
+
+### Why ECAPA-TDNN?
+
+| Property | Detail |
+|---|---|
+| **Architecture** | Time Delay Neural Network with channel attention and residual propagation — designed specifically for speaker verification, not generic speech recognition |
+| **Pre-trained dataset** | VoxCeleb (large-scale, multi-speaker, real-world audio across languages and devices) |
+| **Output dimensionality** | 192-dimensional vector — compact enough for fast cosine similarity at scale, expressive enough for accurate discrimination between speakers |
+| **Accuracy** | Achieves state-of-the-art Equal Error Rate (EER) on standard speaker verification benchmarks |
+| **Robustness** | Performs well on short utterances (≥5s for meeting segments, ≥2.5s for live chunks) and across recording devices |
+| **Local inference** | Runs fully on-device (CPU) via SpeechBrain — no external API calls, no latency spikes, no data leaving the server |
+| **Integration** | Consumed directly via `speechbrain.inference.speaker.EncoderClassifier`; persistent warm `--server` mode keeps the encoder in memory across all meetings, reducing per-chunk overhead to near-zero |
+
+### Why Not an Alternative?
+
+- **Pyannote ResNet34** (`wespeaker-voxceleb-resnet34-LM`) is included as a fallback. It produces 256-dimensional embeddings, which are trimmed/zero-padded to 192 to match the DB schema. It is less accurate than ECAPA-TDNN on short segments and is only activated if SpeechBrain is unavailable.
+- **MFCC mean** (64-dim) is a last-resort fallback used in development/testing only. It is not suitable for production identification.
+
+### Thresholds
+
+| Context | Minimum Audio Duration | Similarity Threshold |
+|---|---|---|
+| Voice enrollment | 15 seconds | — |
+| Post-meeting biometric identification (Tier 1) | 5 seconds | 0.72 (cross-device tolerant) |
+| Live per-chunk identification | 2.5 seconds | 0.55 (lower to handle 3s variability) |
+
+The separation of thresholds ensures the live path (which operates on short, potentially noisy chunks) remains non-blocking and non-fatal — it never interrupts transcription, and a failed identification simply reverts the segment to its generic `SPEAKER_XX` label until post-meeting processing resolves it with higher confidence.
+
+---
+
 ## 1. Pipeline Overview (Current State)
 
 ```

@@ -5,32 +5,37 @@ interface AIInsights {
     summary: {
         paragraph: string;
         bullets: string[];
-        confidence: number;
+        confidence?: number;
     } | null;
     actionItems: Array<{
-        id: number;
+        id?: number;
         title: string;
-        description: string;
-        assignee: string | null;
-        dueDate: string | null;
-        confidence: number;
+        description?: string;
+        assignee?: string | null;
+        dueDate?: string | null;
+        confidence?: number;
     }>;
     keyDecisions: Array<{
         decision: string;
-        rationale: string;
-        timestamp: string;
+        context?: string;
+        impact?: string;
+        rationale?: string;
+        participants?: string[];
+        timestamp?: number | string;
+        confidence?: number;
     }>;
     topics: Array<{
         name: string;
         mentions: number;
-        sentiment: string;
+        sentiment?: string;
     }>;
     sentiment: {
         overall: string;
-        confidence: number;
+        confidence?: number;
     } | null;
     participants: any[];
     generated: boolean;
+    aiInsightsError?: string | null;
 }
 
 export const useLiveAIInsights = (meetingId: string | undefined, pollingInterval: number = 10000) => {
@@ -47,7 +52,7 @@ export const useLiveAIInsights = (meetingId: string | undefined, pollingInterval
         const fetchInsights = async () => {
             try {
                 const response = await apiService.getAIInsights(parseInt(meetingId));
-                setInsights(response.data);
+                setInsights(response.data ?? null);
                 setError(null);
             } catch (err: any) {
                 console.error('Error fetching AI insights:', err);

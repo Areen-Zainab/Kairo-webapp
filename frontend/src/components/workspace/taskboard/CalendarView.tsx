@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Task, CalendarEvent } from './types';
+import type { Task } from './types';
 import { useTheme } from '../../../theme/ThemeProvider';
 
 interface CalendarViewProps {

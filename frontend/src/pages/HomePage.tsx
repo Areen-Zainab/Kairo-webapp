@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Brain, Calendar, Target, Users, BarChart3, MessageSquare, Sparkles, ArrowRight, CheckCircle2, Play, Mic, Video, Shield, Rocket, Globe, Bot, Activity, ChevronDown, X, Menu, Star, Award, Layers } from 'lucide-react';
+import { Zap, Brain, Target, Users, BarChart3, MessageSquare, Sparkles, ArrowRight, CheckCircle2, Play, Mic, Video, Shield, Rocket, Globe, Bot, Activity, ChevronDown, X, Menu, Star, Award, Layers } from 'lucide-react';
 import { useNavigate } from "react-router-dom";
 import { useToastContext } from '../context/ToastContext';
 

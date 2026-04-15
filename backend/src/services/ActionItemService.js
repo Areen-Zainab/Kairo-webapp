@@ -55,13 +55,34 @@ class ActionItemService {
       }
     }
 
-    // Append description if different and not already contained.
+    // Update description if different and meaningfully new.
     if (newItem.description && newItem.description !== existing.description) {
       const existingDesc = existingDescription.toLowerCase();
       const newDesc = (newItem.description || '').toLowerCase();
 
-      // Check if new description adds meaningful information
-      if (!existingDesc.includes(newDesc) && !newDesc.includes(existingDesc)) {
+      // Compute word-level Jaccard similarity to detect near-duplicate descriptions.
+      // Voice-transcription enrichments often rephrase the same content with noise.
+      const existingWords = new Set(existingDesc.split(/\s+/).filter(w => w.length > 3));
+      const newWords = new Set(newDesc.split(/\s+/).filter(w => w.length > 3));
+      const intersection = new Set([...existingWords].filter(w => newWords.has(w)));
+      const union = new Set([...existingWords, ...newWords]);
+      const similarity = union.size > 0 ? intersection.size / union.size : 0;
+
+      if (existingDesc.includes(newDesc) || newDesc.includes(existingDesc)) {
+        // Exact subset — already captured, skip
+      } else if (similarity >= 0.60) {
+        // Near-duplicate (>= 60% word overlap) — likely voice transcription noise.
+        // Only replace if the new version is notably longer (adds >=20% more words).
+        const newWordCount = newDesc.split(/\s+/).length;
+        const existingWordCount = existingDesc.split(/\s+/).length;
+        if (newWordCount > existingWordCount * 1.20) {
+          updates.description = newItem.description;
+          historyEntry.changes.description = 'replaced with more complete version';
+          hasChanges = true;
+        }
+        // Otherwise skip — not meaningfully different
+      } else {
+        // Genuinely new information — append with timestamp
         const timestamp = new Date().toLocaleString('en-US', { 
           month: 'short', 
           day: 'numeric', 
@@ -70,11 +91,6 @@ class ActionItemService {
         });
         updates.description = `${existing.description || ''}\n\n[Updated ${timestamp}]: ${newItem.description}`.trim();
         historyEntry.changes.description = 'appended new information';
-        hasChanges = true;
-      } else if (newItem.description.length > (existing.description || '').length) {
-        // New description is more detailed, replace it
-        updates.description = newItem.description;
-        historyEntry.changes.description = 'replaced with more detailed version';
         hasChanges = true;
       }
     }
@@ -279,88 +295,108 @@ class ActionItemService {
         return { added: 0, updated: 0, items: [] };
       }
 
-      console.log(`🔍 [ActionItemService] Extracting action items from ${normalizedTranscript.length} chars (${isIncremental ? 'incremental' : 'full'})...`);
-      let extractedItems = await AgentProcessingService.extractActionItems(normalizedTranscript);
-      console.log(`🔍 [ActionItemService] AI returned ${extractedItems?.length || 0} action items`);
-
-      if (!Array.isArray(extractedItems) || extractedItems.length === 0) {
-        const heuristicItems = this._extractHeuristicActionItems(normalizedTranscript);
-        if (heuristicItems.length > 0) {
-          console.log(`🔍 [ActionItemService] Heuristic fallback produced ${heuristicItems.length} action items`);
-          extractedItems = heuristicItems;
-        }
-      }
-
-      if (!Array.isArray(extractedItems) || extractedItems.length === 0) {
-        console.log(`⚠️ [ActionItemService] No action items extracted from AI`);
-        return { added: 0, updated: 0, items: [] };
-      }
-
-      // Filter by confidence threshold to reduce noise
-      // Lower threshold for incremental processing to catch items early
-      const CONFIDENCE_THRESHOLD = isIncremental ? 0.3 : 0.45;
-      console.log(`🔍 [ActionItemService] Filtering with confidence threshold: ${CONFIDENCE_THRESHOLD}`);
-      const highConfidenceItems = extractedItems.filter(item => {
-        const confidence = Number.isFinite(item?.confidence) ? item.confidence : 0.5;
-        return confidence >= CONFIDENCE_THRESHOLD;
+      // 1. Fetch existing items so the LLM has context to enrich rather than duplicate
+      const existingItems = await prisma.actionItem.findMany({
+        where: { meetingId, status: { in: ['pending', 'confirmed'] } }
       });
 
-      if (highConfidenceItems.length === 0) {
-        console.log(`⚠️ [ActionItemService] No high-confidence items (${extractedItems.length} items below threshold)`);
-        return { added: 0, updated: 0, items: [] };
-      }
-      
-      console.log(`✅ [ActionItemService] ${highConfidenceItems.length} high-confidence items to process`);
+      const existingContext = existingItems.map(i => ({
+        id: i.id,
+        title: i.title,
+        description: i.description || '',
+        status: i.status
+      }));
 
-      // Filter out placeholder/dummy action items
-      const realActionItems = highConfidenceItems.filter(item => {
+      const agentContext = existingContext.length > 0 ? { existingActionItems: existingContext } : null;
+
+      console.log(`🔍 [ActionItemService] Extracting action items from ${normalizedTranscript.length} chars (${isIncremental ? 'incremental' : 'full'}), ${existingItems.length} existing item(s) passed as context...`);
+
+      // 2. Call the agent — with or without context
+      let agentResponse = await AgentProcessingService.extractActionItems(normalizedTranscript, agentContext);
+
+      // 3. Detect response format: {enrichments, new_items} vs flat array
+      let enrichments = [];
+      let newItems = [];
+
+      if (agentResponse && typeof agentResponse === 'object' && !Array.isArray(agentResponse)
+          && ('enrichments' in agentResponse || 'new_items' in agentResponse)) {
+        // Context-aware response from LLM
+        enrichments = Array.isArray(agentResponse.enrichments) ? agentResponse.enrichments : [];
+        newItems = Array.isArray(agentResponse.new_items) ? agentResponse.new_items : [];
+        console.log(`🔍 [ActionItemService] LLM returned ${enrichments.length} enrichment(s) + ${newItems.length} new item(s)`);
+      } else {
+        // Flat list path (no context / fallback)
+        let flatItems = Array.isArray(agentResponse) ? agentResponse : [];
+        if (flatItems.length === 0) {
+          const heuristicItems = this._extractHeuristicActionItems(normalizedTranscript);
+          if (heuristicItems.length > 0) {
+            console.log(`🔍 [ActionItemService] Heuristic fallback produced ${heuristicItems.length} action item(s)`);
+            flatItems = heuristicItems;
+          }
+        }
+        newItems = flatItems;
+        console.log(`🔍 [ActionItemService] LLM returned flat list of ${newItems.length} item(s)`);
+      }
+
+      // 4. Confidence + placeholder filters for new items
+      const CONFIDENCE_THRESHOLD = isIncremental ? 0.3 : 0.45;
+      const placeholderPatterns = [
+        'no action items detected', 'no actionable items', 'no action items found',
+        'no tasks identified', 'no follow-up items', 'no action items were identified',
+        'no specific action items'
+      ];
+
+      const realNewItems = newItems.filter(item => {
+        const confidence = Number.isFinite(item?.confidence) ? item.confidence : 0.5;
+        if (confidence < CONFIDENCE_THRESHOLD) return false;
         const title = (item.title || '').toLowerCase();
         const description = (item.description || '').toLowerCase();
-        const action = (item.action || '').toLowerCase();
-        
-        // Filter out common placeholder patterns
-        const placeholderPatterns = [
-          'no action items detected',
-          'no actionable items',
-          'no action items found',
-          'no tasks identified',
-          'no follow-up items',
-          'no action items were identified',
-          'no specific action items'
-        ];
-        
-        return !placeholderPatterns.some(pattern => 
-          title.includes(pattern) || 
-          description.includes(pattern) || 
-          action.includes(pattern)
-        );
+        return !placeholderPatterns.some(p => title.includes(p) || description.includes(p));
       });
 
-      if (realActionItems.length === 0) {
-        console.log(`⚠️ [ActionItemService] All items were placeholders - no real action items to process`);
-        return { added: 0, updated: 0, items: [] };
-      }
-
-      console.log(`✅ [ActionItemService] ${realActionItems.length} real action items after filtering placeholders`);
-
-      const existingItems = await prisma.actionItem.findMany({
-        where: {
-          meetingId,
-          status: 'pending'
-        }
-      });
-
-      const existingMap = new Map();
-      existingItems.forEach((item) => {
-        existingMap.set(item.canonicalKey, item);
-      });
+      // Build lookup maps
+      const existingMap = new Map(existingItems.map(i => [i.canonicalKey, i]));
+      const existingIdMap = new Map(existingItems.map(i => [i.id, i]));
 
       let added = 0;
       let updated = 0;
-      const processedItems = [];
       const itemsToUpdate = [];
 
-      for (const item of realActionItems) {
+      // 5. Apply enrichments to existing items
+      for (const enr of enrichments) {
+        const existing = existingIdMap.get(enr.id);
+        if (!existing) continue;
+
+        // Only merge fields that are genuinely changing
+        const partial = {
+          title: enr.title || existing.title,
+          description: enr.description || existing.description,
+          assignee: enr.assignee || existing.assignee,
+          dueDate: enr.dueDate || existing.dueDate,
+          confidence: enr.confidence || existing.confidence
+        };
+
+        const { updates, hasChanges } = this._mergeActionItem(existing, { ...partial, sourceChunk });
+
+        if (hasChanges) {
+          // Preserve confirmed/rejected status — only update description/title/etc
+          const safeUpdates = { ...updates };
+          if (existing.status !== 'pending') {
+            delete safeUpdates.status; // Never override a user decision
+          }
+          const updatedItem = await prisma.actionItem.update({
+            where: { id: existing.id },
+            data: safeUpdates
+          });
+          itemsToUpdate.push(updatedItem);
+          updated++;
+        } else {
+          await prisma.actionItem.update({ where: { id: existing.id }, data: { lastSeenAt: new Date() } });
+        }
+      }
+
+      // 6. Insert genuinely new items (exact canonical key as safety net)
+      for (const item of realNewItems) {
         const normalizedItem = {
           title: item.title || item.description?.substring(0, 100) || 'Untitled Action Item',
           description: item.description || item.title || '',
@@ -370,30 +406,17 @@ class ActionItemService {
         };
 
         const canonicalKey = this._generateCanonicalKey(normalizedItem);
-        const existing = existingMap.get(canonicalKey);
+        const exactMatch = existingMap.get(canonicalKey);
 
-        if (existing) {
-          const { updates, hasChanges } = this._mergeActionItem(existing, {
-            ...normalizedItem,
-            sourceChunk
-          });
-
-          // Only update if there are actual changes (not just lastSeenAt)
+        if (exactMatch) {
+          // Exact duplicate — merge silently
+          const { updates, hasChanges } = this._mergeActionItem(exactMatch, { ...normalizedItem, sourceChunk });
           if (hasChanges) {
-            const updatedItem = await prisma.actionItem.update({
-              where: { id: existing.id },
-              data: updates
-            });
-
-            processedItems.push(updatedItem);
+            const updatedItem = await prisma.actionItem.update({ where: { id: exactMatch.id }, data: updates });
             itemsToUpdate.push(updatedItem);
             updated++;
           } else {
-            // Just update lastSeenAt without broadcasting
-            await prisma.actionItem.update({
-              where: { id: existing.id },
-              data: { lastSeenAt: new Date() }
-            });
+            await prisma.actionItem.update({ where: { id: exactMatch.id }, data: { lastSeenAt: new Date() } });
           }
         } else {
           const newItem = await prisma.actionItem.create({
@@ -413,26 +436,23 @@ class ActionItemService {
               lastSeenAt: new Date()
             }
           });
-
-          processedItems.push(newItem);
           itemsToUpdate.push(newItem);
           added++;
         }
       }
 
-      // Broadcast action items via WebSocket if any were added or updated
+      // 7. Broadcast via WebSocket
       if ((added > 0 || updated > 0) && itemsToUpdate.length > 0) {
         try {
           const WebSocketServer = require('./WebSocketServer');
-          const formattedItems = itemsToUpdate.map((item) => this._toDTO(item));
-          WebSocketServer.broadcastActionItems(meetingId, formattedItems);
+          WebSocketServer.broadcastActionItems(meetingId, itemsToUpdate.map(i => this._toDTO(i)));
         } catch (wsError) {
-          // Don't fail the extraction if WebSocket broadcast fails
           console.warn('⚠️ Failed to broadcast action items via WebSocket:', wsError.message);
         }
       }
 
-      return { added, updated, items: processedItems };
+      console.log(`✅ [ActionItemService] Processed: ${added} added, ${updated} updated`);
+      return { added, updated, items: itemsToUpdate };
     } catch (error) {
       console.error('Error extracting action items:', error);
       return { added: 0, updated: 0, items: [], error: error.message };

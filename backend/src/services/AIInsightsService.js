@@ -665,14 +665,36 @@ print(result)
       { key: 'action_items', name: 'Action Items' }
     ];
 
+    // Pre-fetch live action items to pass as context to the action_items agent
+    let liveActionItemsContext = null;
+    try {
+      const ActionItemService = require('./ActionItemService');
+      const liveItems = await ActionItemService.getByMeetingId(meetingId);
+      if (liveItems && liveItems.length > 0) {
+        liveActionItemsContext = {
+          existingActionItems: liveItems.map(i => ({
+            id: i.id,
+            title: i.title,
+            description: i.description || '',
+            status: i.status
+          }))
+        };
+        console.log(`  📋 Passing ${liveItems.length} live action item(s) as context to Action Items agent`);
+      }
+    } catch (ctxErr) {
+      console.warn(`  ⚠️ Could not fetch live action items for context: ${ctxErr.message}`);
+    }
+
     // Run text agents sequentially and save each as it completes
     const textResults = [];
     for (const { key, name } of textAgents) {
       try {
         console.log(`  Running ${name} agent...`);
+        // Pass live-item context only for the action_items agent
+        const agentContext = key === 'action_items' ? liveActionItemsContext : null;
         // Increased timeout to 10 minutes to allow for rate limit retries
         const result = await withTimeout(
-          this.runTextAgent(key, transcriptText),
+          this.runTextAgent(key, transcriptText, agentContext),
           10 * 60 * 1000, // 10 minutes (allows for rate limit retries)
           name
         );
@@ -788,9 +810,15 @@ print(result)
           case 'topics':
             insights.topics = result;
             break;
-          case 'action_items':
-            insights.actionItems = result;
+          case 'action_items': {
+            // The agent returns {enrichments, new_items} when running with context,
+            // or a flat array when running without context.
+            // We pass this structure directly to saveInsightsToDatabase.
+            if (result && typeof result === 'object') {
+              insights.actionItems = result;
+            }
             break;
+          }
         }
       }
     }
@@ -1106,11 +1134,61 @@ print(result)
         );
       };
 
+      // Determine if actionItems is valid and extract a flat array for the ai_insights table
+      let actionItemsArray = [];
+      let hasActionItems = false;
+
+      if (insights.actionItems && typeof insights.actionItems === 'object') {
+        if (Array.isArray(insights.actionItems)) {
+          actionItemsArray = insights.actionItems;
+          hasActionItems = actionItemsArray.length > 0;
+        } else if ('enrichments' in insights.actionItems || 'new_items' in insights.actionItems) {
+          // --- Hydration Step ---
+          // Enrichment objects are partial (e.g., only id + description).
+          // Before saving to ai_insights, merge each enrichment with its
+          // existing ActionItem record so the snapshot is fully readable.
+          let hydratedEnrichments = [];
+          const rawEnrichments = Array.isArray(insights.actionItems.enrichments) ? insights.actionItems.enrichments : [];
+
+          if (rawEnrichments.length > 0) {
+            try {
+              const meetingIdInt = parseInt(meetingIdStr);
+              const existingLiveItems = await tx.actionItem.findMany({
+                where: { meetingId: meetingIdInt }
+              });
+              const liveItemMap = new Map(existingLiveItems.map(i => [i.id, i]));
+
+              for (const enr of rawEnrichments) {
+                const base = liveItemMap.get(enr.id);
+                hydratedEnrichments.push({
+                  id: enr.id,
+                  title: enr.title || (base && base.title) || 'Action item',
+                  description: enr.description || (base && base.description) || '',
+                  assignee: enr.assignee || (base && base.assignee) || null,
+                  dueDate: enr.dueDate || (base && base.dueDate) || null,
+                  confidence: enr.confidence ?? (base && base.confidence) ?? 0.8
+                });
+              }
+              console.log(`   🔄 Hydrated ${hydratedEnrichments.length} enrichment(s) with existing titles/descriptions`);
+            } catch (hydrateErr) {
+              console.warn(`   ⚠️ Hydration failed, falling back to raw enrichments: ${hydrateErr.message}`);
+              hydratedEnrichments = rawEnrichments;
+            }
+          }
+
+          actionItemsArray = [
+            ...(Array.isArray(insights.actionItems.new_items) ? insights.actionItems.new_items : []),
+            ...hydratedEnrichments
+          ];
+          hasActionItems = actionItemsArray.length > 0;
+        }
+      }
+
       // Save action items (ALWAYS save, even if placeholder)
-      if (insights.actionItems && Array.isArray(insights.actionItems) && insights.actionItems.length > 0) {
-        const content = JSON.stringify(insights.actionItems);
-        const avgConfidence = insights.actionItems.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / insights.actionItems.length;
-        const isPlaceholder = isPlaceholderActionItems(insights.actionItems);
+      if (hasActionItems) {
+        const content = JSON.stringify(actionItemsArray);
+        const avgConfidence = actionItemsArray.reduce((sum, item) => sum + (item.confidence || 0.8), 0) / actionItemsArray.length;
+        const isPlaceholder = isPlaceholderActionItems(actionItemsArray);
 
         // Save to ai_insights table (for AI insights panel)
         await tx.aiInsight.create({
@@ -1126,55 +1204,115 @@ print(result)
         if (isPlaceholder) {
           console.log(`   ℹ️ No action items detected - saved placeholder message`);
         } else {
-          console.log(`   ✅ Saved ${insights.actionItems.length} action item(s) to ai_insights table`);
+          console.log(`   ✅ Saved ${actionItemsArray.length} action item(s) to ai_insights table`);
         }
 
         // Only sync to action_items table if NOT placeholder
         if (!isPlaceholder) {
           try {
             const meetingIdInt = parseInt(meetingIdStr);
+            const ActionItemService = require('./ActionItemService');
 
-            // Delete existing live action items (they were from partial transcript)
-            const deletedCount = await tx.actionItem.deleteMany({
+            // Fetch existing live action items (to merge, not delete)
+            const existingLiveItems = await prisma.actionItem.findMany({
               where: { meetingId: meetingIdInt }
             });
-            console.log(`   🔄 Deleted ${deletedCount.count} live action items (replacing with post-meeting regenerated items)`);
+            const existingMap = new Map(existingLiveItems.map(i => [i.canonicalKey, i]));
+            const existingIdMap = new Map(existingLiveItems.map(i => [i.id, i]));
 
-            // Insert post-meeting action items
-            const ActionItemService = require('./ActionItemService');
-            for (const item of insights.actionItems) {
+            // Detect response format: {enrichments, new_items} vs flat array
+            let enrichments = [];
+            let newItems = [];
+
+            const actionItemsResult = insights.actionItems;
+            if (actionItemsResult && typeof actionItemsResult === 'object' && !Array.isArray(actionItemsResult)
+                && ('enrichments' in actionItemsResult || 'new_items' in actionItemsResult)) {
+              enrichments = Array.isArray(actionItemsResult.enrichments) ? actionItemsResult.enrichments : [];
+              newItems = Array.isArray(actionItemsResult.new_items) ? actionItemsResult.new_items : [];
+              console.log(`   📋 Post-meeting: ${enrichments.length} enrichment(s) + ${newItems.length} new item(s)`);
+            } else {
+              // Flat list (no-context path or fallback)
+              newItems = Array.isArray(actionItemsResult) ? actionItemsResult : insights.actionItems;
+              console.log(`   📋 Post-meeting: flat list of ${newItems.length} item(s)`);
+            }
+
+            let syncAdded = 0;
+            let syncUpdated = 0;
+
+            // Apply enrichments to existing items (preserve confirmed/rejected status)
+            for (const enr of enrichments) {
+              const existing = existingIdMap.get(enr.id);
+              if (!existing) continue;
+              const partial = {
+                title: enr.title || existing.title,
+                description: enr.description || existing.description,
+                assignee: enr.assignee || existing.assignee,
+                dueDate: enr.dueDate || existing.dueDate,
+                confidence: enr.confidence || existing.confidence
+              };
+              const { updates, hasChanges } = ActionItemService._mergeActionItem(existing, partial);
+              if (hasChanges) {
+                const safeUpdates = { ...updates };
+                if (existing.status !== 'pending') delete safeUpdates.status;
+                await tx.actionItem.update({ where: { id: existing.id }, data: safeUpdates });
+                syncUpdated++;
+              }
+            }
+
+            // Merge or insert new items
+            for (const item of newItems) {
               const canonicalKey = ActionItemService._generateCanonicalKey({
                 title: item.action || item.task || item.title || '',
                 description: item.description || item.details || '',
                 assignee: item.assignee || item.owner || null
               });
 
-              // Parse natural-language due date using chrono-node
-              const rawDueDateText = item.due_date || item.deadline || null;
-              const TaskCreationService = require('./TaskCreationService');
-              const parsedDueDate = rawDueDateText
-                ? TaskCreationService.parseDeadline(rawDueDateText, new Date())
-                : null;
-
-              await tx.actionItem.create({
-                data: {
-                  meetingId: meetingIdInt,
-                  title: item.action || item.task || item.title || 'Action item',
+              const exactMatch = existingMap.get(canonicalKey);
+              if (exactMatch) {
+                // Already exists — merge
+                const { updates, hasChanges } = ActionItemService._mergeActionItem(exactMatch, {
+                  title: item.action || item.task || item.title || '',
                   description: item.description || item.details || '',
                   assignee: item.assignee || item.owner || null,
-                  dueDate: parsedDueDate,
-                  canonicalKey,
-                  confidence: item.confidence || avgConfidence,
-                  sourceChunk: null, // Post-meeting analysis, not from a specific chunk
-                  status: 'pending',
-                  rawData: item,
-                  updateHistory: [],
-                  firstSeenAt: new Date(),
-                  lastSeenAt: new Date()
+                  confidence: item.confidence || avgConfidence
+                });
+                if (hasChanges) {
+                  const safeUpdates = { ...updates };
+                  if (exactMatch.status !== 'pending') delete safeUpdates.status;
+                  await tx.actionItem.update({ where: { id: exactMatch.id }, data: safeUpdates });
+                  syncUpdated++;
                 }
-              });
+              } else {
+                // Genuinely new item — insert
+                const rawDueDateText = item.due_date || item.deadline || null;
+                const TaskCreationService = require('./TaskCreationService');
+                const parsedDueDate = rawDueDateText
+                  ? TaskCreationService.parseDeadline(rawDueDateText, new Date())
+                  : null;
+
+                const newItem = await tx.actionItem.create({
+                  data: {
+                    meetingId: meetingIdInt,
+                    title: item.action || item.task || item.title || 'Action item',
+                    description: item.description || item.details || '',
+                    assignee: item.assignee || item.owner || null,
+                    dueDate: parsedDueDate,
+                    canonicalKey,
+                    confidence: item.confidence || avgConfidence,
+                    sourceChunk: null,
+                    status: 'pending',
+                    rawData: item,
+                    updateHistory: [],
+                    firstSeenAt: new Date(),
+                    lastSeenAt: new Date()
+                  }
+                });
+                existingMap.set(canonicalKey, newItem);
+                syncAdded++;
+              }
             }
-            console.log(`   ✅ Synced ${insights.actionItems.length} action items to action_items table (post-meeting regeneration)`);
+
+            console.log(`   ✅ Post-meeting sync complete: ${syncAdded} added, ${syncUpdated} enriched (live items preserved)`);
           } catch (syncError) {
             console.error(`   ⚠️ Warning: Failed to sync action items to action_items table: ${syncError.message}`);
             // Don't fail the entire transaction, just log the warning

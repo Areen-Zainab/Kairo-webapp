@@ -175,8 +175,8 @@ export default function KairoOnboarding() {
               // Use the specific message from the backend if available
               const errorMsg = enrollResponse.data?.message || enrollResponse.error || 'Voice enrollment failed.';
               toast.error(`${errorMsg} You can re-enroll later in Settings.`);
-            } else if (enrollResponse.data?.snrDb && enrollResponse.data.snrDb < 15) {
-              console.warn('Voice enrolled but SNR is low:', enrollResponse.data.snrDb);
+            } else if (enrollResponse.data?.snr && enrollResponse.data.snr < 15) {
+              console.warn('Voice enrolled but SNR is low:', enrollResponse.data.snr);
               toast.warning('Voice enrolled, but background noise was detected. Consider re-enrolling later for better accuracy.');
             } else {
               console.log('Voice enrolled successfully!');

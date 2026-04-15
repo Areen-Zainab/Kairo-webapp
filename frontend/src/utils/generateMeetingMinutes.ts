@@ -178,27 +178,27 @@ export function generateMeetingMinutesFromInsights(
   if (insights.actionItems && insights.actionItems.length > 0) {
     insights.actionItems.forEach((item) => {
       // Skip if item text is missing or invalid
-      if (!item.item || typeof item.item !== 'string') return;
+      if (!item.title || typeof item.title !== 'string') return;
       
       // Skip placeholder action items
-      if (item.item === 'No action items detected.' || item.item === 'No action items detected') {
+      if (item.title === 'No action items detected.' || item.title === 'No action items detected') {
         return;
       }
 
       // Use description as additional context for better timestamp matching
-      const searchText = item.item;
-      const descriptionText = (item as any).description || ''; // Description might be in raw data
+      const searchText = item.title;
+      const descriptionText = item.description || '';
       const timestamp = findTimestamp(searchText, 'action-item', descriptionText);
       const participants = item.assignee ? [item.assignee] : [];
       
       minutes.push({
         id: generateId(),
-        title: item.item,
-        content: (item as any).description || item.item,
+        title: item.title,
+        content: item.description || item.title,
         timestamp: timestamp,
         category: 'action-item',
         participants: participants,
-        priority: item.priority === 'high' ? 'high' : item.priority === 'low' ? 'low' : 'medium',
+        priority: 'medium',
         aiGenerated: true
       });
     });

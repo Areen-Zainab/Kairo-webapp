@@ -68,7 +68,7 @@ class AgentProcessingService {
    * @returns {Promise<any>}
    * @private
    */
-  async _runAgents(transcriptText, agentKey = null) {
+  async _runAgents(transcriptText, agentKey = null, context = null) {
     const candidates = this.pythonCandidates.slice();
 
     return new Promise((resolve, reject) => {
@@ -94,6 +94,10 @@ class AgentProcessingService {
         const proc = spawn(cmd, args, {
           cwd: AI_LAYER_DIR, // Set working directory to ai-layer for module resolution
           shell: useShell,
+          env: {
+            ...process.env,
+            AGENT_CONTEXT: context ? JSON.stringify(context) : ''
+          }
         });
 
         let stdout = '';
@@ -203,10 +207,11 @@ class AgentProcessingService {
   /**
    * Run only the action item agent.
    * @param {string} transcriptText
-   * @returns {Promise<Array>}
+   * @param {object|null} context - Optional context, e.g. { existingActionItems: [...] }
+   * @returns {Promise<object>} - Either {enrichments, new_items} (with context) or Array (without)
    */
-  async extractActionItems(transcriptText) {
-    return this._runAgents(transcriptText || '', 'action_items');
+  async extractActionItems(transcriptText, context = null) {
+    return this._runAgents(transcriptText || '', 'action_items', context);
   }
 
   /**
