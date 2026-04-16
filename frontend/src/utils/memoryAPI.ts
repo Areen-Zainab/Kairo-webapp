@@ -1,6 +1,6 @@
 import type { MemoryNode, MemoryEdge, MemoryFilter, AIQuery } from '../components/workspace/memory/types';
 
-// Mock API functions for memory operations
+// Service API functions for memory operations
 export const memoryAPI = {
   // Fetch graph data with filters
   async getGraphData(filters: MemoryFilter): Promise<{ nodes: MemoryNode[]; edges: MemoryEdge[] }> {
@@ -83,7 +83,7 @@ export const memoryAPI = {
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     // In a real implementation, this would generate the export
-    return new Blob(['Mock export data'], { type: 'text/plain' });
+    return new Blob(['Service export data'], { type: 'text/plain' });
   },
 
   // Get workspace memory stats

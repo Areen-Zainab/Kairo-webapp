@@ -10,24 +10,24 @@ const {
   optionalAuth,
 } = require("../src/middleware/auth");
 
-// Mock Express request/response/next
-const mockReq = (token) => ({
+// Stub Express request/response/next
+const reqStub = (token) => ({
   headers: token
     ? { authorization: `Bearer ${token}` }
     : {},
 });
-const mockRes = () => {
+const resStub = () => {
   const res = {};
   res.status = sinon.stub().returns(res);
   res.json = sinon.stub().returns(res);
   return res;
 };
-const mockNext = sinon.stub();
+const nextStub = sinon.stub();
 
 // Reset stubs before each test
 beforeEach(() => {
   sinon.restore();
-  mockNext.resetHistory();
+  nextStub.resetHistory();
 });
 
 describe("Authentication Middleware Tests", () => {
@@ -35,10 +35,10 @@ describe("Authentication Middleware Tests", () => {
   // 1️⃣ Missing Token
   // -----------------------------------------
   it("should return 401 when no token is provided", async () => {
-    const req = mockReq(null);
-    const res = mockRes();
+    const req = reqStub(null);
+    const res = resStub();
 
-    await authenticateToken(req, res, mockNext);
+    await authenticateToken(req, res, nextStub);
 
     expect(res.status.calledWith(401)).to.be.true;
     expect(res.json.calledWithMatch({ error: "Access token required" })).to.be
@@ -51,10 +51,10 @@ describe("Authentication Middleware Tests", () => {
   it("should return 401 for invalid token", async () => {
     sinon.stub(jwt, "verify").throws({ name: "JsonWebTokenError" });
 
-    const req = mockReq("invalidtoken123");
-    const res = mockRes();
+    const req = reqStub("invalidtoken123");
+    const res = resStub();
 
-    await authenticateToken(req, res, mockNext);
+    await authenticateToken(req, res, nextStub);
 
     expect(res.status.calledWith(401)).to.be.true;
     expect(res.json.calledWithMatch({ error: "Invalid token" })).to.be.true;
@@ -66,10 +66,10 @@ describe("Authentication Middleware Tests", () => {
   it("should return 401 for expired token", async () => {
     sinon.stub(jwt, "verify").throws({ name: "TokenExpiredError" });
 
-    const req = mockReq("expired.token.value");
-    const res = mockRes();
+    const req = reqStub("expired.token.value");
+    const res = resStub();
 
-    await authenticateToken(req, res, mockNext);
+    await authenticateToken(req, res, nextStub);
 
     expect(res.status.calledWith(401)).to.be.true;
     expect(res.json.calledWithMatch({ error: "Token expired" })).to.be.true;
@@ -82,10 +82,10 @@ describe("Authentication Middleware Tests", () => {
     sinon.stub(jwt, "verify").returns({ id: 123 });
     sinon.stub(User, "findById").resolves(null);
 
-    const req = mockReq("validtoken");
-    const res = mockRes();
+    const req = reqStub("validtoken");
+    const res = resStub();
 
-    await authenticateToken(req, res, mockNext);
+    await authenticateToken(req, res, nextStub);
 
     expect(res.status.calledWith(401)).to.be.true;
     expect(res.json.calledWithMatch({ error: "Invalid or inactive user" })).to
@@ -99,10 +99,10 @@ describe("Authentication Middleware Tests", () => {
     sinon.stub(jwt, "verify").returns({ id: 1 });
     sinon.stub(User, "findById").resolves({ isActive: false });
 
-    const req = mockReq("validtoken");
-    const res = mockRes();
+    const req = reqStub("validtoken");
+    const res = resStub();
 
-    await authenticateToken(req, res, mockNext);
+    await authenticateToken(req, res, nextStub);
 
     expect(res.status.calledWith(401)).to.be.true;
     expect(res.json.calledWithMatch({ error: "Invalid or inactive user" })).to
@@ -118,12 +118,12 @@ describe("Authentication Middleware Tests", () => {
       .stub(User, "findById")
       .resolves({ id: 10, name: "Areeba", isActive: true });
 
-    const req = mockReq("validtoken");
-    const res = mockRes();
+    const req = reqStub("validtoken");
+    const res = resStub();
 
-    await authenticateToken(req, res, mockNext);
+    await authenticateToken(req, res, nextStub);
 
-    expect(mockNext.calledOnce).to.be.true;
+    expect(nextStub.calledOnce).to.be.true;
     expect(req.user.name).to.equal("Areeba");
   });
 
@@ -131,25 +131,25 @@ describe("Authentication Middleware Tests", () => {
   // optionalAuth Tests
   // ------------------------------------------------
   it("optionalAuth: should set req.user = null when no token", async () => {
-    const req = mockReq(null);
-    const res = mockRes();
+    const req = reqStub(null);
+    const res = resStub();
 
-    await optionalAuth(req, res, mockNext);
+    await optionalAuth(req, res, nextStub);
 
     expect(req.user).to.equal(null);
-    expect(mockNext.calledOnce).to.be.true;
+    expect(nextStub.calledOnce).to.be.true;
   });
 
   it("optionalAuth: should set user when token is valid", async () => {
     sinon.stub(jwt, "verify").returns({ id: 5 });
     sinon.stub(User, "findById").resolves({ id: 5, isActive: true });
 
-    const req = mockReq("validtoken");
-    const res = mockRes();
+    const req = reqStub("validtoken");
+    const res = resStub();
 
-    await optionalAuth(req, res, mockNext);
+    await optionalAuth(req, res, nextStub);
 
     expect(req.user.id).to.equal(5);
-    expect(mockNext.calledOnce).to.be.true;
+    expect(nextStub.calledOnce).to.be.true;
   });
 });

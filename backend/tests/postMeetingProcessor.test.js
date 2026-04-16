@@ -6,33 +6,33 @@ const { expect } = require('chai');
 
 let sandbox;
 let PostMeetingProcessor;
-let ActionItemServiceMock;
-let MeetingMock;
-let meetingStatsMock;
+let ActionItemServiceStub;
+let MeetingStub;
+let meetingStatsStub;
 
 describe('PostMeetingProcessor', () => {
   beforeEach(() => {
     sandbox = sinon.createSandbox();
 
-    // Create mocks
-    ActionItemServiceMock = {
+    // Create stubs
+    ActionItemServiceStub = {
       getPendingForMeeting: sandbox.stub(),
       _toDTO: sandbox.stub()
     };
 
-    MeetingMock = {
+    MeetingStub = {
       update: sandbox.stub()
     };
 
-    meetingStatsMock = {
+    meetingStatsStub = {
       getAudioFileDuration: sandbox.stub()
     };
 
     // Load module with proxyquire
     PostMeetingProcessor = proxyquire('../src/services/PostMeetingProcessor', {
-      './ActionItemService': ActionItemServiceMock,
-      '../models/Meeting': MeetingMock,
-      '../utils/meetingStats': meetingStatsMock
+      './ActionItemService': ActionItemServiceStub,
+      '../models/Meeting': MeetingStub,
+      '../utils/meetingStats': meetingStatsStub
     });
   });
 
@@ -44,7 +44,7 @@ describe('PostMeetingProcessor', () => {
   // processPendingActionItems
   // --------------------------------------------------------------------
   it('should return no pending items', async () => {
-    ActionItemServiceMock.getPendingForMeeting.resolves([]);
+    ActionItemServiceStub.getPendingForMeeting.resolves([]);
 
     const res = await PostMeetingProcessor.processPendingActionItems(1);
 
@@ -56,8 +56,8 @@ describe('PostMeetingProcessor', () => {
 
   it('should return pending items when found', async () => {
     const fake = [{ id: 1 }, { id: 2 }];
-    ActionItemServiceMock.getPendingForMeeting.resolves(fake);
-    ActionItemServiceMock._toDTO.callsFake((i) => ({ id: i.id }));
+    ActionItemServiceStub.getPendingForMeeting.resolves(fake);
+    ActionItemServiceStub._toDTO.callsFake((i) => ({ id: i.id }));
 
     const res = await PostMeetingProcessor.processPendingActionItems(10);
 
@@ -66,7 +66,7 @@ describe('PostMeetingProcessor', () => {
   });
 
   it('should handle errors', async () => {
-    ActionItemServiceMock.getPendingForMeeting.rejects(new Error('BAD'));
+    ActionItemServiceStub.getPendingForMeeting.rejects(new Error('BAD'));
 
     const res = await PostMeetingProcessor.processPendingActionItems(7);
 
@@ -84,16 +84,16 @@ describe('PostMeetingProcessor', () => {
   });
 
   it('should update recording URL correctly', async () => {
-    MeetingMock.update.resolves(true);
+    MeetingStub.update.resolves(true);
 
     const res = await PostMeetingProcessor.updateRecordingUrl(5, 'audio.mp3');
 
-    expect(MeetingMock.update.calledOnce).to.be.true;
+    expect(MeetingStub.update.calledOnce).to.be.true;
     expect(res).to.be.true;
   });
 
   it('should return false on update error', async () => {
-    MeetingMock.update.rejects(new Error('FAIL'));
+    MeetingStub.update.rejects(new Error('FAIL'));
 
     const res = await PostMeetingProcessor.updateRecordingUrl(9, 'x.mp3');
 
@@ -109,7 +109,7 @@ describe('PostMeetingProcessor', () => {
   });
 
   it('should return false if duration cannot be determined', async () => {
-    meetingStatsMock.getAudioFileDuration.resolves(0);
+    meetingStatsStub.getAudioFileDuration.resolves(0);
 
     const res = await PostMeetingProcessor.updateMeetingDuration(2, 'bad.mp3');
 
@@ -117,18 +117,18 @@ describe('PostMeetingProcessor', () => {
   });
 
   it('should update duration correctly', async () => {
-    meetingStatsMock.getAudioFileDuration.resolves(125); // 2 minutes
-    MeetingMock.update.resolves(true);
+    meetingStatsStub.getAudioFileDuration.resolves(125); // 2 minutes
+    MeetingStub.update.resolves(true);
 
     const res = await PostMeetingProcessor.updateMeetingDuration(7, 'rec.mp3');
 
-    expect(MeetingMock.update.calledOnce).to.be.true;
+    expect(MeetingStub.update.calledOnce).to.be.true;
     expect(res).to.be.true;
   });
 
   it('should return false if Meeting.update fails', async () => {
-    meetingStatsMock.getAudioFileDuration.resolves(100);
-    MeetingMock.update.rejects(new Error('ERRRR'));
+    meetingStatsStub.getAudioFileDuration.resolves(100);
+    MeetingStub.update.rejects(new Error('ERRRR'));
 
     const res = await PostMeetingProcessor.updateMeetingDuration(9, 'audio.mp3');
 

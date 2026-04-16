@@ -368,7 +368,7 @@ class TranscriptionService {
     }
 
     // Split into lines
-    const lines = text.split('\\n');
+    const lines = text.split(/\r?\n/);
     const cleanedLines = [];
 
     for (const line of lines) {

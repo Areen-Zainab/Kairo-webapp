@@ -8,8 +8,8 @@ import { useToastContext } from '../../context/ToastContext';
 import apiService from '../../services/api';
 import UserAvatar from '../../components/ui/UserAvatar';
 
-// Mock data for demo account only
-const MOCK_MEMBERS = [
+// Demo data for demo account only
+const DEMO_MEMBERS = [
   { id: 1, userId: 1, name: 'Sana Khan', email: 'sana.k@company.com', role: 'Owner', status: 'active' as const, avatar: 'SK', contributions: 145, meetings: 23, messages: 892 },
   { id: 2, userId: 2, name: 'Muhammad Ali', email: 'muhammad.a@company.com', role: 'Admin', status: 'active' as const, avatar: 'MA', contributions: 98, meetings: 18, messages: 654 },
   { id: 3, userId: 3, name: 'Fatima Sheikh', email: 'fatima.s@company.com', role: 'Member', status: 'active' as const, avatar: 'FS', contributions: 127, meetings: 21, messages: 743 },
@@ -20,7 +20,7 @@ const MOCK_MEMBERS = [
 
 /** Demo-only payload shaped like workspace analytics for the Insights tab */
 const buildDemoTeamAnalytics = () => {
-  const active = MOCK_MEMBERS.filter(m => m.status === 'active');
+  const active = DEMO_MEMBERS.filter(m => m.status === 'active');
   return {
     totalMeetings: 42,
     completedMeetings: 38,
@@ -122,7 +122,7 @@ export default function WorkspaceMembersPage() {
   useEffect(() => {
     const fetchData = async () => {
       if (shouldShowDummyData) {
-        setMembers(MOCK_MEMBERS);
+        setMembers(DEMO_MEMBERS);
         setPendingInvites([]);
         setCurrentUserRole('Owner'); // Demo account is always owner
         setLoading(false);

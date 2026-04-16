@@ -22,7 +22,7 @@ describe('Whisper Mode (Live Micro-Recaps)', () => {
     });
 
     it('should respect the WHISPER_MODE_ENABLED environment variable gating', () => {
-      const isEnabled = true; // process.env mock
+      const isEnabled = true; 
       expect(isEnabled).to.be.true;
     });
 

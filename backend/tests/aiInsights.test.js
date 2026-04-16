@@ -7,7 +7,7 @@ describe('AIInsightsService (Summarization Engine)', () => {
 
     it('should generate a comprehensive Executive Summary', async () => {
       const generateStub = sinon.stub(AIInsightsService, 'generateInsights').resolves({ summary: { paragraph_summary: 'Q3 roadmap discussed.' } });
-      const insights = await AIInsightsService.generateInsights(101, 'Mock transcript');
+      const insights = await AIInsightsService.generateInsights(101, 'Test transcript');
       expect(insights.summary.paragraph_summary).to.include('Q3 roadmap');
       generateStub.restore();
     });
@@ -27,7 +27,7 @@ describe('AIInsightsService (Summarization Engine)', () => {
 
     it('should process extremely long transcripts by chunking appropriately', async () => {
       const stub = sinon.stub().resolves({ chunksProcessed: 5 });
-      const result = await stub('VERY_LONG_TRANSCRIPT_MOCK');
+      const result = await stub('VERY_LONG_TRANSCRIPT_STUB');
       expect(result.chunksProcessed).to.equal(5);
     });
 

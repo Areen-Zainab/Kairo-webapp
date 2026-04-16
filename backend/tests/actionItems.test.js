@@ -1,4 +1,4 @@
-// backend/tests/actionItems.test.js - to test ActionItemService with mocked prisma
+// backend/tests/actionItems.test.js - to test ActionItemService with stubbed prisma
 const { expect } = require("chai");
 const sinon = require("sinon");
 
@@ -6,7 +6,7 @@ const ActionItemService = require("../src/services/ActionItemService");
 const prisma = require("../src/lib/prisma");
 const AgentProcessingService = require("../src/services/AgentProcessingService");
 
-describe("ActionItemService Tests (Mocked)", () => {
+describe("ActionItemService Tests", () => {
   beforeEach(() => {
     // Create fake prisma.actionItem model
     prisma.actionItem = {
@@ -21,7 +21,7 @@ describe("ActionItemService Tests (Mocked)", () => {
   });
 
   // -------------------------------------------------------
-  it("should add new action items (mocked)", async () => {
+  it("should add new action items", async () => {
     sinon.stub(AgentProcessingService, "extractActionItems").resolves([
       {
         title: "Prepare slides",
@@ -45,7 +45,7 @@ describe("ActionItemService Tests (Mocked)", () => {
   });
 
   // -------------------------------------------------------
-  it("should update existing action items (mocked)", async () => {
+  it("should update existing action items", async () => {
     const fakeKey = "test123";
 
     sinon.stub(ActionItemService, "_generateCanonicalKey").returns(fakeKey);

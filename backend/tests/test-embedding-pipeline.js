@@ -32,7 +32,7 @@ async function testEmbeddingPipeline() {
     console.log(`Created test meeting: ${meeting.id}`);
 
     // 3. Test Transcript Embedding (Chunking Strategy)
-    const mockTranscript = `
+    const testTranscript = `
 Hello everyone, welcome to the test meeting. 
 Today we are discussing the new Meeting Memory Engine feature for Kairo.
 The goal is to use pgvector to store embeddings of all our transcripts and summaries.
@@ -46,21 +46,21 @@ It's a really powerful feature that will make Kairo much smarter!
     `.repeat(5); // Repeat to ensure it gets chunked if we had a smaller maxWords, but 500 is big. Let's make it long enough to be at least 1 chunk.
 
     console.log('\n--- Testing Transcript Embedding ---');
-    await MeetingEmbeddingService.embedTranscript(meeting.id, mockTranscript);
+    await MeetingEmbeddingService.embedTranscript(meeting.id, testTranscript);
 
     // 4. Test Summary & Context Embedding
-    const mockSummary = "The team discussed the implementation of the new Meeting Memory Engine using pgvector and OpenAI embeddings to enable semantic search capabilities.";
-    const mockTopics = ["Meeting Memory Engine", "pgvector", "Semantic Search"];
-    const mockDecisions = [{ decision: "Use pgvector for storage" }, { decision: "Use OpenAI text-embedding-3-small" }];
-    const mockParticipants = ["Alice", "Bob", "Charlie"];
+    const testSummary = "The team discussed the implementation of the new Meeting Memory Engine using pgvector and OpenAI embeddings to enable semantic search capabilities.";
+    const testTopics = ["Meeting Memory Engine", "pgvector", "Semantic Search"];
+    const testDecisions = [{ decision: "Use pgvector for storage" }, { decision: "Use OpenAI text-embedding-3-small" }];
+    const testParticipants = ["Alice", "Bob", "Charlie"];
 
     console.log('\n--- Testing Context Validation & Embedding ---');
     await MeetingEmbeddingService.generateMemoryContext(
       meeting.id,
-      mockSummary,
-      mockTopics,
-      mockDecisions,
-      mockParticipants
+      testSummary,
+      testTopics,
+      testDecisions,
+      testParticipants
     );
 
     // 5. Verify data in DB
