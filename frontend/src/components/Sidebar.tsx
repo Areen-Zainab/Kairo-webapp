@@ -211,7 +211,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'meetings', icon: Video, label: 'Meetings', badge: upcomingMeetingsCount > 0 ? String(upcomingMeetingsCount) : null, path: '/workspace/meetings' },
     { id: 'tasks', icon: CheckSquare, label: 'Task Boards', badge: String(inProgressTasksCount), path: '/workspace/tasks' },
     { id: 'memory', icon: Brain, label: 'Meeting Memory', badge: null, path: '/workspace/memory' },
-    { id: 'transcripts', icon: FileText, label: 'Transcripts', badge: null, path: '/workspace/transcripts' },
     { id: 'analytics', icon: BarChart3, label: 'Analytics', badge: null, path: '/workspace/analytics' },
   ];
 

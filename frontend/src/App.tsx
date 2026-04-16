@@ -20,7 +20,6 @@ import WorkspaceSettings from "./pages/workspace/WorkspaceSettings";
 import TaskBoard from "./pages/workspace/TaskBoard";
 import MemoryView from "./pages/workspace/MemoryView";
 import Analytics from "./pages/workspace/Analytics";
-import Transcripts from "./pages/workspace/Transcripts";
 
 import MeetingsDashboard from "./pages/meetings/MeetingsMain";
 import LiveMeetingView from "./pages/meetings/MeetingLive";
@@ -61,7 +60,6 @@ function App() {
         <Route path="/workspace/:workspaceId/tasks" element={<TaskBoard key="tasks" />} />
         <Route path="/workspace/:workspaceId/memory" element={<MemoryView key="memory" />} />
         <Route path="/workspace/:workspaceId/analytics" element={<Analytics key="analytics" />} />
-        <Route path="/workspace/:workspaceId/transcripts" element={<Transcripts key="transcripts" />} />
         
         {/* Legacy workspace routes (without ID) */}
         <Route path="/workspace" element={<WorkspaceMainPage key="workspace-legacy" />} />
@@ -70,7 +68,6 @@ function App() {
         <Route path="/workspace/tasks" element={<TaskBoard key="tasks-legacy" />} />
         <Route path="/workspace/memory" element={<MemoryView key="memory-legacy" />} />
         <Route path="/workspace/analytics" element={<Analytics key="analytics-legacy" />} />
-        <Route path="/workspace/transcripts" element={<Transcripts key="transcripts-legacy" />} />
 
         {/* Meetings Routes - Support workspace ID in URL */}
         <Route path="/workspace/:workspaceId/meetings" element={<MeetingsDashboard key="meetings" />} />
