@@ -16,7 +16,7 @@
 
 ### Overall Progress: ~95% Complete
 
-> **Last Updated:** April 9, 2026 *(code-verified — not self-reported)*
+> **Last Updated:** April 24, 2026 
 
 **Corrected Since Earlier Audits (previously mis-reported as incomplete):**
 - ✅ **Quiet hours enforcement** — `ReminderService._isInQuietHours()` IS implemented and IS called on line 69 of `checkAndSendReminders()`. Handles overnight ranges (e.g. 22:00–07:00 UTC).
@@ -25,10 +25,8 @@
 - ✅ **Privacy Mode (full stack)** — Backend: `PrivacyModeService.js`, `PATCH /api/meetings/:id/privacy-mode`, transcription gate, AI insights filter. **Frontend:** `MeetingLive.tsx` — Kairo Bot dropdown toggle (`togglePrivacyMode` → `apiService.updateMeetingPrivacyMode`), optimistic UI, top-bar “Privacy Mode ON” badge, status indicator; `TranscriptTab.tsx` shows privacy state and system messages.
 
 **Remaining Gaps (verified, non-optional product work):**
-- 🔄 **Speaker identification** — Post-meeting biometric matching, manual assignment UI, cascade name propagation, and **live per-chunk identification** all implemented. Remaining: within-meeting guest profiling (unresolved speakers labelled "Guest A/B" with their own embeddings).
+- 🔄 **Speaker diarization** —within-meeting **guest profiling** for unresolved speakers (Guest A/B + meeting-scoped embeddings) and **full streaming diarization** (windowed stable `SPEAKER_XX` on the live stream).
 - ❌ **Task Contextual Micro-Channels** — 70% implemented.
-- ⚠️ **Knowledge Graph — no persistent storage** *(optional scale-up)* — graph is regenerated per request (with 60s cache); no `graph_nodes`/`graph_edges` tables.
-- ⚠️ **Graph click-to-expand UI** — `/neighbours` endpoint exists and `apiService.getNodeNeighbours()` is defined; `MemoryView` node click only opens the context panel — neighbour expansion is not merged into the canvas.
 
 **Optional / out-of-scope for core roadmap (tracked separately):**
 - Calendar Integration — UI mockup only.
@@ -42,26 +40,26 @@
 
 1. **Team and Workspace Management** — 100% Complete
 2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom)
-3. **Real-Time Transcription (WhisperX)** — 90% Complete (speaker names still generic)
+3. **Real-Time Transcription (WhisperX)** — ~100% Complete (live + post speaker ID mapping)
 4. **Summarization Engine** — 100% Complete
-5. **Action Item Detection** — 90% Complete (auto task creation + deadline parsing + priority classification; real-time detection missing)
+5. **Action Item Detection** — ~95% Complete (periodic live extraction + post-meeting pipeline + Kanban task creation; remaining: assignee fuzzy-match to workspace members)
 6. **Role-Based Access Control (RBAC)** — 100% Complete
 7. **Note-Taking** — 100% Complete
 8. **Interactive Transcript Review & Timeline** — 100% Complete
 9. **Analytics Dashboard** — 100% Complete
 10. **Kanban Board Integration** — 100% Complete
-11. **Meeting Memory Engine (Embedding Pipeline)** — ✅ 90% Complete *(embeddings auto-triggered post-insights, transcript + summary embedded, memory context generated — verified in code)*
-12. **Auto Follow-Up Reminders** — ✅ 100% Complete *(quiet hours enforcement confirmed in code — `_isInQuietHours()` called at line 69 of `checkAndSendReminders()`)*
-13. **Task Extraction and Deadline Parsing** — ✅ 100% Complete *(chrono-node integrated; ISO dates + natural language like "next Friday", "in 2 days")*
+11. **Meeting Memory Engine (Embedding Pipeline)** — 100% Complete *(embeddings auto-triggered post-insights, transcript + summary embedded, memory context generated)*
+12. **Auto Follow-Up Reminders** — 100% Complete *(quiet hours enforcement confirmed)*
+13. **Task Extraction and Deadline Parsing** — 100% Complete *(chrono-node integrated; ISO dates + natural language like "next Friday", "in 2 days")*
 14. **Whisper Mode (Micro-Recap During Meeting)** — 100% Complete *(MicroSummaryService + cron + manual trigger + WebSocket + useWhisperRecaps + WhisperRecapTab + "Catch Me Up" button)*
-15. **Smart Search & Query** — ✅ 100% Complete *(hybrid pgvector+FTS in `hybridSearchWorkspaceMeetings()`, result highlighting via `HighlightedSnippet` in `SmartSearchModal.tsx` — all code-verified)*
-16. **Privacy Mode (pause/resume transcription)** — ✅ 100% Complete *(backend + `MeetingLive.tsx` / `TranscriptTab.tsx` UI — `updateMeetingPrivacyMode`, toggle in Kairo Bot menu, badges and transcript messaging)*
-17. **Related Meetings + Memory Context** — ✅ 100% Complete *(MemoryContextService + findRelatedMeetings + all routes)*
+15. **Smart Search & Query** — 100% Complete *(hybrid pgvector+FTS, result highlighting)*
+16. **Privacy Mode (pause/resume transcription)** — 100% Complete
+17. **Related Meetings + Memory Context** — 100% Complete *(MemoryContextService + findRelatedMeetings)*
 
-### 🔄 PARTIALLY IMPLEMENTED (2/20 core)
+### 🔄 PARTIALLY IMPLEMENTED (3/20 core)
 
-18. **Speaker Diarization** — 85% Complete *(Full post-meeting pipeline: diarization → biometric matching → cascade name propagation → UI assignment. Live per-chunk identification during meetings also implemented. Remaining: within-meeting guest profiling for unresolved speakers.)*
-19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(caching, auth guards, neighbour expansion API, real query-bar integration done; optional persistent storage + click-to-expand UI pending)*
+18. **Speaker Diarization** — ~85% Complete *(**Remaining:** within-meeting **guest profiling** (unresolved speakers → Guest A/B + embeddings; see `speaker-diarization.md` Layer 8) and **full streaming diarization** (windowed live multi-speaker `SPEAKER_XX`) — see subsection **Speaker Diarization — remaining scope** in Core Features.)*
+19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(auth guards, neighbour expansion API, real query-bar integration, in-process graph assembly reuse; optional persistent storage + click-to-expand UI pending)*
 20. **Task Contextual Micro-Channels** — 70% Complete
 
 ### Optional (stretch / ecosystem — not counted in core 20)
@@ -92,7 +90,7 @@
 ---
 
 ### 2. Real-Time Transcription (WhisperX-based)
-**Status:** ✅ 95% COMPLETE
+**Status:** ✅ 100% COMPLETE
 **Technologies:** WhisperX, Pyannote (via WhisperX diarization path), Python, WebSocket, Node.js, pgvector, SpeechBrain ECAPA-TDNN
 
 #### ✅ What's Working:
@@ -109,15 +107,21 @@
 - Transcripts saved in JSON and text formats
 - **Privacy gate**: `TranscriptionService.js` checks `PrivacyModeService.isEnabled()` per chunk; drops chunk silently if privacy mode active
 
-#### ⚠️ What's Missing:
-- **Full streaming diarization** (pyannote windowed segmentation on live audio, producing stable SPEAKER_XX clusters in real-time) — the current live ID uses a simpler single-speaker-per-chunk assumption without cross-speaker segmentation; see outline below
-- First chunk delay ~25s due to model loading
-- No multilingual support
-- Live captions not synchronized with video tiles
+
+#### 🔄 Optional Enhancements:
+- [ ] multilingual ASR
+- [ ] captions synced to video tiles
+
+---
+
+### 2b. Speaker Diarization
+**Status:** 🔄 ~85% COMPLETE — post-meeting and live enrolled-user flows are shipped; items below are the open scope.
+
+#### ⚠️ What's Missing
+- [ ] **Full streaming diarization** — windowed live multi-speaker clustering (stable `SPEAKER_XX` on the stream). Distinct from **per-chunk live display names** for enrolled users (`LiveSpeakerIdentifier`).
+- [ ] **Within-meeting guest profiling** — label unresolved speakers as "Guest A", "Guest B" with their own embeddings (see `speaker-diarization.md` Layer 8).
 
 #### 📋 Streaming diarization service path (live labels — design only)
-
-*Goal:* produce **updating** speaker cluster labels during the meeting without waiting for `finalize()`, while keeping **post-meeting full-file diarization** as the timing source of truth where possible.
 
 1. **Audio path**  
    - Reuse the same captured stream the bot already writes to chunk files / optional ring buffer.  
@@ -152,16 +156,6 @@
    - **P2:** Stable `SPEAKER_XX` mapping across windows + metrics (latency, mismatch vs final).  
    - **P3:** Tie-in to enrollment / historical ID for **live** display names (higher risk; strict consent).
 
-#### 📋 To-Do:
-
-**MEDIUM PRIORITY:**
-- [ ] Within-meeting guest profiling: label unresolved speakers as "Guest A", "Guest B" with their own embeddings (see `speaker-diarization.md` Layer 8)
-- [ ] Full streaming diarization (windowed pyannote on live audio for stable multi-speaker SPEAKER_XX labels — distinct from the current per-chunk ID approach)
-
-**LOW PRIORITY:**
-- [ ] Add multilingual transcription support
-- [ ] Migrate to Faster-Whisper (see `Faster_Whisper_Migration_Roadmap.md`)
-
 ---
 
 ### 3. Summarization Engine
@@ -191,7 +185,6 @@
 - "Catch Me Up" button in live meeting Top Bar
 
 #### 🔄 Optional Enhancements:
-- [ ] Smart triggering (topic changes, new participant joins)
 - [ ] Include decisions/action items in recap text
 
 ---
@@ -199,7 +192,7 @@
 ## 🔹 KNOWLEDGE & MEMORY
 
 ### 5. Meeting Memory Engine
-**Status:** 🔄 90% COMPLETE  
+**Status:** 🔄 100% COMPLETE  
 **Priority:** High  
 **Technologies:** PostgreSQL (pgvector), Sentence Transformers (Xenova/all-MiniLM-L6-v2), Node.js
 
@@ -228,22 +221,18 @@
 - pgvector extension installed and HNSW indexes created
 
 #### ⚠️ What's Missing:
-- Manual embeddings/context regeneration endpoint not implemented (only AI-insights regeneration exists)
-- Notes and action item embeddings are not generated (only transcript + summary)
-- Result caching for frequent `/context` and `/related` queries not implemented
+- **Note + confirmed action-item vectors:** `embedMeetingNotes` / `embedConfirmedActionItems` exist and run inside `regenerateMeetingEmbeddings` (e.g. full **reprocess** in `MeetingReprocessService`). The primary `generateInsights` path currently embeds **transcript** and builds **memory context** but does not automatically call the notes/action-item embedding step on every first-time completion — product polish is to hook that into the normal pipeline (or on note save), not to add an end-user “Regenerate” control.
 - `meeting_relationships` table is not populated as a persistent step; `/related` works via on-demand fallback similarity
 
 #### 📋 Remaining To-Do:
 
-**MEDIUM PRIORITY:**
-- [ ] Add manual embeddings-only regeneration endpoint (e.g. `POST /api/meetings/:id/regenerate-embeddings`)
-- [ ] Add embedding generation for notes and action items (currently only transcript + summary)
-- [ ] Implement result caching for frequent `/context` and `/related` queries
+**MEDIUM PRIORITY: (Optional)**
+- [ ] Invoke note + confirmed action-item embedding as part of the default post-meeting flow (or on relevant saves), so hybrid search is complete without relying on a reprocess cycle
 
 ---
 
 ### 6. Meeting Memory Graph (Knowledge Graph)
-**Status:** 🔄 80% COMPLETE *(caching, auth, neighbour expansion, real query-bar integration complete; persistent storage + click-to-expand UI pending)*
+**Status:** 🔄 80% COMPLETE *(auth guards, neighbour expansion API, real query-bar integration, short-lived in-process graph assembly reuse; optional persistent storage + click-to-expand UI pending)*
 **Priority:** High
 **Technologies:** PostgreSQL (adjacency lists), React Canvas
 
@@ -268,10 +257,7 @@
 - Frontend click-to-expand using `/neighbours` endpoint is not yet wired to any UI interaction
 - `meeting_relationships` table is not yet populated (on-demand vector fallback in `MemoryContextService` compensates)
 
-#### 📋 Implementation Phases:
-
-**PHASE 1: Baseline (Completed)** — query-time assembly + `/memory/graph` + `/memory/graph/stats` + frontend wiring
-**PHASE 2: Interaction + Hardening (Completed)** — caching, auth guards, neighbour expansion endpoint, real query-bar wiring
+#### 📋 To Do:
 **PHASE 3: UI Expansion (Pending)** — wire `/neighbours` to node click-to-expand in `GraphCanvas`
 **PHASE 4: Persistence (Optional)** — add `graph_nodes`/`graph_edges` tables for faster reads on large workspaces
 
@@ -280,7 +266,7 @@
 ## 🔹 ACTIONABILITY & TASK CONTEXT
 
 ### 7. Action Item Detection
-**Status:** ✅ 90% COMPLETE
+**Status:** ✅ 95% COMPLETE
 **Technologies:** Grok API, Node.js
 
 #### ✅ What's Working:
@@ -295,13 +281,9 @@
 
 #### ⚠️ What's Missing:
 - Assignee names not matched to workspace users
-- Real-time action item detection during meetings
 
 #### 📋 To-Do:
-
-**MEDIUM PRIORITY:**
 - [ ] Fuzzy-match assignee name to workspace users
-- [ ] Real-time action item detection during meetings
 
 ---
 
@@ -369,7 +351,7 @@
 ## 🔹 PRIVACY & COMPLIANCE
 
 ### 11. Privacy Mode (Pause/Resume Transcription)
-**Status:** ✅ 100% COMPLETE *(April 2026 — code-verified)*
+**Status:** ✅ 100% COMPLETE
 **Priority:** Medium
 **Technologies:** Node.js, PostgreSQL (metadata JSON), Puppeteer, React
 
@@ -391,6 +373,7 @@
 - `TranscriptTab.tsx` — privacy banner when active; system lines for privacy on/off events
 
 #### 📋 Optional (compliance / enterprise — not core FYP)
+
 
 - [ ] "Confidential" meeting flag + meeting-level access restrictions
 - [ ] Data retention policies, audit logging, GDPR export
@@ -476,36 +459,19 @@
 
 ## MASTER TO-DO LIST
 
-### 🔥 HIGH PRIORITY (Do Now)
+### HIGH PRIORITY (Do Now)
 
 | # | Task | Effort | Status |
 |---|---|---|---|
-| 1 | **Speaker guest profiling** — label unresolved SPEAKER_XX as "Guest A/B" with their own embeddings; surface in UI | 2-3 days | ⬜ TODO |
-| 2 | **Knowledge Graph click-to-expand** — wire `getNodeNeighbours` / `/neighbours` to node-click in `MemoryView` + `GraphCanvas` (merge neighbour nodes into graph state) | ~1 day | ⬜ TODO |
+| 1 | **Speaker diarization — remaining** — (A) **Guest profiling:** unresolved `SPEAKER_XX` → Guest A/B + meeting-scoped embeddings + UI (`speaker-diarization.md` Layer 8). (B) **Full streaming diarization:** windowed live `SPEAKER_XX` (design §2b). | 1–2 weeks | TODO |
+| 2 | **Knowledge Graph click-to-expand** — wire `getNodeNeighbours` / `/neighbours` to node-click in `MemoryView` + `GraphCanvas` (merge neighbour nodes into graph state) | ~1 day | TODO |
 
-### ⚡ MEDIUM PRIORITY
+### MEDIUM PRIORITY
 
 | # | Task | Effort |
 |---|---|---|
 | 3 | Fuzzy-match assignee name to workspace users in `TaskCreationService` | 2-3 days |
-| 4 | Task Contextual Micro-Channels (schema → service → TaskDetailModal tab → WS) | ~1 week |
-| 5 | Manual embeddings regeneration endpoint (`POST /api/meetings/:id/regenerate-embeddings`) | 1 day |
-| 6 | Embed notes and confirmed action items for richer search | 1-2 days |
-| 7 | Result caching for frequent `/context` and `/related` memory routes | TBD |
-| 8 | Real-time action item detection during live meetings (vs post-meeting only today) | TBD |
-
-### ✅ CONFIRMED DONE (previously listed as TODO)
-
-| # | Task | Verified In |
-|---|---|---|
-| — | Quiet hours enforcement in `ReminderService` | `ReminderService.js` (`checkAndSendReminders`, `_isInQuietHours`) |
-| — | Hybrid search (pgvector + FTS) | `MeetingEmbeddingService.js` (`hybridSearchWorkspaceMeetings`) |
-| — | Result highlighting in `SmartSearchModal` | `SmartSearchModal.tsx` (`HighlightedSnippet`) |
-| — | Privacy Mode — backend + live UI | `PrivacyModeService.js`, `meetingRoutes.js`, `TranscriptionService.js`, `MeetingLive.tsx`, `TranscriptTab.tsx` |
-| — | Speaker assignment UI (manual name mapping) | `SpeakerAssignmentPopover.tsx`, `TranscriptPanel.tsx`, `/api/speakers/meetings/:id/assign` |
-| — | Post-meeting biometric speaker identification | `SpeakerMatchingEngine.js`, `SpeakerIdentificationService.js`, `MeetingReprocessService.js` |
-| — | Live per-chunk speaker identification | `EmbeddingServerProcess.js`, `LiveSpeakerIdentifier.js`, `TranscriptionService.js`, `useLiveTranscript.ts` |
-| — | Cascade name propagation (transcript, insights, action items) | `SpeakerIdentificationService.cascadeNameUpdate` |
+| 4 | Task Contextual Micro-Channels — finish polish: “View full meeting” navigation, manual task–meeting linking, any remaining WebSocket coverage (`TaskContextService`, `TaskDetailModal`, `useMeetingTaskMention`) | ~1 week |
 
 ### 📊 LOW PRIORITY / POST-FYP
 
@@ -522,28 +488,18 @@
 
 ## CONCLUSION
 
-Kairo is **~95% complete** on core scope (code-verified, April 9, 2026). The core product is essentially feature-complete. Speaker diarization has advanced significantly: post-meeting biometric identification, cascade name propagation, manual assignment UI with identification badges, and **live per-chunk speaker identification** during meetings are all fully implemented.
+Kairo is **~95% complete** on core scope (code-verified, April 24, 2026). The core product is essentially feature-complete. Speaker diarization has advanced significantly: post-meeting biometric identification, cascade name propagation, manual assignment UI with identification badges, and **live per-chunk speaker identification** during meetings are all fully implemented.
 
-**The only non-optional remaining work:**
+**Non-optional remaining work (matches Master To-Do above):**
 
-1. **Speaker guest profiling** — label unresolved `SPEAKER_XX` speakers as "Guest A/B" with meeting-scoped embeddings (see `speaker-diarization.md` Layer 8)
+1. **Speaker diarization — remaining** — **Guest profiling** for unresolved speakers (Guest A/B + embeddings; `speaker-diarization.md` Layer 8) and **full streaming diarization** (§2b); aligns with Master To-Do #1
 2. **Knowledge Graph click-to-expand** — wire the existing `/neighbours` API to a node click in `MemoryView` / `GraphCanvas`
-3. **Task Contextual Micro-Channels** — 70% complete; finish "View full meeting" navigation and manual task–meeting linking
+3. **Task Contextual Micro-Channels** — finish "View full meeting" navigation, manual task–meeting linking, and any remaining WebSocket coverage
 
-Everything else is either done or explicitly out of scope.
-
-**Medium-priority polish (non-blocking):**
-- Assignee fuzzy-match to workspace users in `TaskCreationService`
-- Manual embeddings regeneration endpoint
-- Embeddings for notes and confirmed action items
-- Optional `/context`/`/related` caching
-
-**Optional / stretch:** Calendar, third-party integrations, multimodal capture, graph table persistence (`graph_nodes`/`graph_edges`), Faster-Whisper migration, multilingual transcription, email/push reminders, enterprise privacy (retention, audit, GDPR).
 
 **Note:** Microsoft Teams support is NOT in scope. Focus is Google Meet and Zoom.
 
 ---
 
-*Last Updated: April 9, 2026*
-*Last audit: cross-checked against `EmbeddingServerProcess.js`, `LiveSpeakerIdentifier.js`, `TranscriptionService.js`, `useLiveTranscript.ts`, `TranscriptPanel.tsx`, `SpeakerMatchingEngine.js`, `MeetingReprocessService.js`, `SpeakerAssignmentPopover.tsx`, `MemoryView.tsx` / `GraphCanvas.tsx` (neighbours not wired), `TaskCreationService.js`*
+*Last Updated: April 24, 2026*
 *Maintained by: Kairo Team*

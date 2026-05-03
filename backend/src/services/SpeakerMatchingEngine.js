@@ -30,7 +30,7 @@ const { findMeetingDirectory, findCompleteAudioFile, getDiarizedTranscript } = r
 // ============================================================
 // CONFIG
 // ============================================================
-const COSINE_THRESHOLD = 0.60;   // Tier 1 match threshold
+const COSINE_THRESHOLD = 0.55;   // Tier 1 match threshold
 // 0.70 handles cross-device acoustic mismatch (browser mic enroll vs bot recording).
 
 const EMBEDDING_DECAY_MONTHS = 6;      // Reduce confidence for embeddings older than this

@@ -64,6 +64,7 @@ const MemoryTab: React.FC<MemoryTabProps> = ({ transcriptEntries = [], workspace
     setError(null);
 
     try {
+      console.log(`[MemoryTab] Searching workspace ${wsId} with query (${query.length} chars)`);
       const res = await apiService.searchMeetingMemory(wsId, query, 5);
       if (res.error) {
         setError(res.error);
@@ -102,24 +103,24 @@ const MemoryTab: React.FC<MemoryTabProps> = ({ transcriptEntries = [], workspace
     }
   };
 
-  // Run immediately when we first have enough transcript (after a short delay),
-  // then every 2 minutes after that.
+  // Run immediately on mount (tab open), then every 2 minutes.
+  // Guard: don't start timers until workspaceId is actually available.
   useEffect(() => {
-    // Initial search fires after 15 s so the user sees *something* early
-    const initialTimer = setTimeout(() => {
-      runSearch();
-    }, 15_000);
+    const wsId = workspaceId ? Number(workspaceId) : null;
+    if (!wsId || isNaN(wsId)) return;
+
+    // Fire immediately — by the time the user opens this tab there's already transcript
+    runSearch();
 
     const interval = setInterval(() => {
       runSearch();
     }, SEARCH_INTERVAL_MS);
 
     return () => {
-      clearTimeout(initialTimer);
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]); // Re-init when workspace changes
+  }, [workspaceId]);
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '—';

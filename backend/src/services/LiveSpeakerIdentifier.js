@@ -26,7 +26,7 @@ const embeddingServer = require('./EmbeddingServerProcess');
 const LIVE_SPEAKER_ID_ENABLED = true;
 
 /** Minimum cosine similarity to accept a match (lower than post-meeting 0.72 to account for 3s audio). */
-const LIVE_THRESHOLD = 0.55;
+const LIVE_THRESHOLD = 0.50;
 
 /** Number of recent chunk results kept for majority vote. */
 const WINDOW_SIZE = 4;

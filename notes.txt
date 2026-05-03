@@ -1,34 +1,13 @@
 # **Kairo Frontend Implementation Plan (Phased To-Do List)**
 
----
-DONE: 
-- Connected dashboard to sidebar
-- reorganized files to be easier to handle
-- onboarding ---> calendar sync
-- onboarding + signin connected to dashboard
-- meeting dashboard
-- meeting live page 
-- create workspace modal
-- add members modal
-- team members page
-- workspace settings
-- calendar
-- notifications
-- tasks
-- light/dark mode
-- graph page with dummy data 
-- post meeting page with dummy data
-- transcript veiw page with dummy data
-- backend setup
-
 
 DO with backend:
-- Add protected route logic using `AuthContext` ---> Ensure that only authenticated users can access internal Kairo pages
+* [DONE] Protected internal pages: `UserContext` + per-page redirect to `/login` when not authenticated (same intent as `AuthContext` gate)
 * [x] Build reusable UI components:
   * [x] `Button`
   * [x] `InputField`
   * [x] `FormContainer`
-- Divide Dshboard into components:   `DashboardCard` (meeting summary, action item preview)
+* [DONE] Divide Dshboard into components:   `DashboardCard` (meeting summary, action item preview)
 
 
 ## **📦 Phase 1 — Core Setup & Auth Flow**
@@ -57,7 +36,7 @@ DO with backend:
   * [DONE] `PageWrapper` (shared container with padding and grid layout) ---> DONE
 * [DONE] Make layout responsive and adaptive ---> DONE
 * [DONE] Add route-based highlighting in sidebar ---> DONE
-* [DONE] Integrate logout functionality ---> 
+* [DONE] Integrate logout functionality
 
 ---
 
@@ -79,11 +58,11 @@ DO with backend:
 **Goal:** Build the interactive meeting memory and graph explorer.
 **To-Do:**
 
-* [DONE] Create `/memory` page (main visualization)
-* [ ] Create `/memory/:topic` dynamic route for topic details
-* [ ] Build components:
+* [DONE] Create `/memory` page (main visualization) — in app: `/workspace/:workspaceId/memory` (and legacy `/workspace/memory`)
+* [DONE] Topic detail UX: `ContextPanel` + `TopicDetailSummary` on node select (no separate `/memory/:topic` URL)
+* [DONE] Build components:
   * [DONE] `GraphCanvas` (D3.js / Vis.js for graph visualization)
-  * [ ] `GraphNodeTooltip` (hover summary)
+  * [DONE] Hover / selection summaries (`GraphCanvas` hover + `ContextPanel`; covers former `GraphNodeTooltip` intent)
   * [DONE] `SearchPanel` (topic/speaker filters)
   * [ ] `TimelineBar` (chronological graph evolution)
 * [DONE] Add loading and empty states for graph view
@@ -109,7 +88,7 @@ DO with backend:
 * [DONE] Create `/analytics` page
 * [DONE] Build visualization components using Recharts:
   * [DONE] `StatsCard` (headline metrics)
-  * [DONE ] `BarChart`
+  * [DONE] `BarChart`
   * [DONE] `PieChart`
   * [DONE] `LineChart`
   * [DONE] `SummaryPanel`
@@ -125,11 +104,12 @@ DO with backend:
 **To-Do:**
 
 * [ ] Optimize component structure and code splitting
-* [ ] Add skeleton loaders and empty states
+* [ ] Add skeleton loaders and empty states (beyond basic loading / empty copy)
 * [ ] Ensure full responsiveness (desktop-first, then tablet/mobile)
-* [ ] Add persistent session handling via localStorage
+* [DONE] Add persistent session handling via localStorage (`UserContext`: token, workspace, demo user)
 * [ ] Apply lazy loading for heavy routes (Memory, Analytics)
-* [ ] Integrate ESLint + Prettier + Husky for code linting and formatting
+* [DONE] ESLint wired (`frontend/eslint.config.js`, `npm run lint`)
+* [ ] Prettier + Husky (not set up in repo yet)
 * [ ] QA testing across major browsers
 * [ ] Prepare for Electron adaptation (if applicable)
 
