@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Settings, Bell, Lock, Clock, Fingerprint } from 'lucide-react';
+import { User, Settings, Bell, Lock, Clock, Fingerprint, Calendar } from 'lucide-react';
 import type { UserProfile } from '../../context/UserContext';
 import Layout from '../../components/Layout';
 import { useUser } from '../../context/UserContext';
@@ -12,8 +12,9 @@ import SecurityTab from '../../components/profileSettings/SecurityTab';
 import NotificationsTab from '../../components/profileSettings/NotificationTab';
 import RemindersTab from '../../components/profileSettings/RemindersTab';
 import VoiceTab from '../../components/profileSettings/VoiceTab';
+import CalendarSettings from '../../components/profileSettings/CalendarSettings';
 
-type TabType = 'profile' | 'preferences' | 'security' | 'notifications' | 'reminders' | 'voice';
+type TabType = 'profile' | 'preferences' | 'security' | 'notifications' | 'reminders' | 'voice' | 'calendar';
 
 interface Tab {
   id: TabType;
@@ -48,6 +49,7 @@ const ProfileSettings = () => {
     notifications: null,
     reminders: null,
     voice: null,
+    calendar: null,
   });
 
   // Initialize preferences from user data
@@ -156,6 +158,7 @@ const ProfileSettings = () => {
     { id: 'notifications', label: 'Notifications', icon: <Bell className="w-4 h-4" /> },
     { id: 'reminders', label: 'Reminders', icon: <Clock className="w-4 h-4" /> },
     { id: 'voice', label: 'Voice Profile', icon: <Fingerprint className="w-4 h-4" /> },
+    { id: 'calendar', label: 'Calendar', icon: <Calendar className="w-4 h-4" /> },
   ];
 
   const handlePasswordChange = async (currentPassword: string, newPassword: string) => {
@@ -255,6 +258,8 @@ const ProfileSettings = () => {
         return <RemindersTab />;
       case 'voice':
         return <VoiceTab />;
+      case 'calendar':
+        return <CalendarSettings />;
       default:
         return null;
     }

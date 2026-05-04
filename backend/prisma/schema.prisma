@@ -42,6 +42,7 @@ model User {
   meetingFiles         MeetingFile[]
   confirmedActionItems ActionItem[]          @relation("ActionItemConfirmedBy")
   rejectedActionItems  ActionItem[]          @relation("ActionItemRejectedBy")
+  calendarConnections  CalendarConnection[]
 
   @@map("users")
 }
@@ -544,3 +545,38 @@ model SentReminder {
   @@map("sent_reminders")
 }
 
+// ── Calendar Integration (Plan A – Google OAuth) ─────────────────────────────
+
+model CalendarConnection {
+  id                Int       @id @default(autoincrement())
+  userId            Int       @map("user_id")
+  /// oauth_google | oauth_microsoft | ics_url | caldav
+  type              String
+  label             String?
+  isEnabled         Boolean   @default(true) @map("is_enabled")
+  /// For OAuth: which calendar to sync (default: 'primary')
+  calendarId        String?   @default("primary") @map("calendar_id")
+  /// Provider user identifier (e.g. Google email)
+  providerAccountId String?   @map("provider_account_id")
+  /// OAuth access token (short-lived)
+  accessToken       String?   @map("access_token") @db.Text
+  /// OAuth refresh token (long-lived)
+  refreshToken      String?   @map("refresh_token") @db.Text
+  /// When the access token expires
+  expiryDate        DateTime? @map("expiry_date")
+  lastSyncAt        DateTime? @map("last_sync_at")
+  lastSyncError     String?   @map("last_sync_error") @db.Text
+  /// CalDAV / ICS backup fields (Option 2 – future)
+  icsUrl            String?   @map("ics_url") @db.Text
+  caldavUrl         String?   @map("caldav_url") @db.Text
+  caldavUsername    String?   @map("caldav_username")
+  caldavPassword    String?   @map("caldav_password") @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type, isEnabled])
+  @@map("calendar_connections")
+}

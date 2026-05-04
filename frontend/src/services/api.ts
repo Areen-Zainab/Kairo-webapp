@@ -1652,6 +1652,46 @@ class ApiService {
   async getWorkspaceEnrolledUsers(workspaceId: number): Promise<ApiResponse<{ users: Array<{ id: number; name: string; profilePictureUrl?: string; lastEnrollment?: string }> }>> {
     return this.request<{ users: Array<{ id: number; name: string; profilePictureUrl?: string; lastEnrollment?: string }> }>(`/speakers/workspace/${workspaceId}/enrolled`);
   }
+
+  // ── Calendar Integration (Plan A — Google OAuth) ───────────────────────────
+
+  /** Check if the calendar feature is enabled on the backend */
+  async getCalendarStatus(): Promise<ApiResponse<{ enabled: boolean; providers: string[] }>> {
+    return this.request<{ enabled: boolean; providers: string[] }>('/calendar/status');
+  }
+
+  /** List all calendar connections for the current user (secrets redacted) */
+  async listCalendarConnections(): Promise<ApiResponse<{ connections: any[] }>> {
+    return this.request<{ connections: any[] }>('/calendar/connections');
+  }
+
+  /**
+   * Get the Google OAuth consent URL.
+   * The caller should do: window.location.href = url;
+   */
+  async getGoogleCalendarAuthUrl(): Promise<ApiResponse<{ url: string }>> {
+    return this.request<{ url: string }>('/calendar/oauth/google/start');
+  }
+
+  /**
+   * Trigger a manual sync for a specific calendar connection.
+   */
+  async syncCalendarConnection(connectionId: number): Promise<ApiResponse<{ success: boolean; result: any }>> {
+    return this.request<{ success: boolean; result: any }>(
+      `/calendar/connections/${connectionId}/sync`,
+      { method: 'POST' }
+    );
+  }
+
+  /**
+   * Disconnect (delete) a calendar connection and revoke Google token.
+   */
+  async deleteCalendarConnection(connectionId: number): Promise<ApiResponse<{ success: boolean }>> {
+    return this.request<{ success: boolean }>(
+      `/calendar/connections/${connectionId}`,
+      { method: 'DELETE' }
+    );
+  }
 }
 
 

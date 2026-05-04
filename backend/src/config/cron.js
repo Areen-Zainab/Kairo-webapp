@@ -4,11 +4,13 @@ const autoJoinMeetings = require('../jobs/autoJoinMeetings');
 const preloadModels = require('../jobs/preloadModels');
 const checkTaskReminders = require('../jobs/checkTaskReminders');
 const runWhisperMode = require('../jobs/runWhisperMode');
+const syncCalendars = require('../jobs/syncCalendars');
 
 let meetingStatusCronJob = null;
 let autoJoinCronJob = null;
 let preloadModelsCronJob = null;
 let taskRemindersCronJob = null;
+let calendarSyncCronJob = null;
 let whisperModeCronJob = null;
 
 /**
@@ -99,7 +101,29 @@ function initializeCronJobs() {
   });
   
   console.log('   - Task reminders: every 15 minutes');
-  
+
+  // Calendar sync — runs every 15 minutes when ENABLE_CALENDAR_INTEGRATION=true
+  if (process.env.ENABLE_CALENDAR_INTEGRATION === 'true') {
+    calendarSyncCronJob = cron.schedule('*/15 * * * *', async () => {
+      try {
+        const result = await syncCalendars();
+        if (result.success && (result.created > 0 || result.updated > 0)) {
+          console.log(`✅ Calendar sync: +${result.created} created, ~${result.updated} updated, ${result.errors} errors`);
+        } else if (!result.success) {
+          console.error('❌ Calendar sync failed:', result.error);
+        }
+      } catch (error) {
+        console.error('❌ Error in calendar sync job:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC',
+    });
+    console.log('   - Calendar sync: every 15 minutes (enabled)');
+  } else {
+    console.log('   - Calendar sync: disabled (set ENABLE_CALENDAR_INTEGRATION=true to enable)');
+  }
+
   // Whisper Mode - micro recaps during active meetings
   // Guarded by WHISPER_MODE_ENABLED to avoid additive risk when feature is not desired.
   if (process.env.WHISPER_MODE_ENABLED === 'true') {
@@ -150,6 +174,11 @@ function stopCronJobs() {
   if (taskRemindersCronJob) {
     taskRemindersCronJob.stop();
     console.log('   - Task reminders job stopped');
+  }
+
+  if (calendarSyncCronJob) {
+    calendarSyncCronJob.stop();
+    console.log('   - Calendar sync job stopped');
   }
 
   if (whisperModeCronJob) {

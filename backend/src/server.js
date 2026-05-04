@@ -66,6 +66,7 @@ const taskRoutes = require("./routes/taskRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
 const memoryRoutes = require("./routes/memoryRoutes");
 const speakerRoutes = require("./routes/speakerRoutes");
+const calendarRoutes = require("./routes/calendarRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/workspaces", workspaceRoutes);
@@ -77,6 +78,12 @@ app.use("/api", taskRoutes);
 app.use("/api/reminders", reminderRoutes);
 app.use("/api/workspaces/:workspaceId/memory", memoryRoutes);
 app.use("/api/speakers", speakerRoutes);
+
+// Calendar integration — feature-gated
+if (process.env.ENABLE_CALENDAR_INTEGRATION === 'true') {
+  app.use("/api/calendar", calendarRoutes);
+  console.log('✅ Calendar integration routes registered (/api/calendar)');
+}
 
 // Health check route
 app.get("/", (req, res) => {
