@@ -110,8 +110,6 @@ DO with backend:
 * [ ] Apply lazy loading for heavy routes (Memory, Analytics)
 * [DONE] ESLint wired (`frontend/eslint.config.js`, `npm run lint`)
 * [ ] Prettier + Husky (not set up in repo yet)
-* [ ] QA testing across major browsers
-* [ ] Prepare for Electron adaptation (if applicable)
 
 ---
 

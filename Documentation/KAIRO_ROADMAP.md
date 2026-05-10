@@ -14,29 +14,29 @@
 
 ## EXECUTIVE SUMMARY
 
-### Overall Progress: ~95% Complete
+### Overall Progress: ~97% Complete
 
-> **Last Updated:** April 24, 2026 
+> **Last Updated:** May 10, 2026 
 
 **Corrected Since Earlier Audits (previously mis-reported as incomplete):**
 - ✅ **Quiet hours enforcement** — `ReminderService._isInQuietHours()` IS implemented and IS called on line 69 of `checkAndSendReminders()`. Handles overnight ranges (e.g. 22:00–07:00 UTC).
 - ✅ **Hybrid search (pgvector + FTS)** — `MeetingEmbeddingService.hybridSearchWorkspaceMeetings()` IS implemented (lines 219–304) using `plainto_tsquery('english', ...)` + cosine similarity, merged with 60/40 weighting. `memoryController.semanticSearch` calls it.
 - ✅ **Result highlighting in SmartSearchModal** — `HighlightedSnippet` component renders `<mark>` tags using `matchedTerms[]` passed from backend.
 - ✅ **Privacy Mode (full stack)** — Backend: `PrivacyModeService.js`, `PATCH /api/meetings/:id/privacy-mode`, transcription gate, AI insights filter. **Frontend:** `MeetingLive.tsx` — Kairo Bot dropdown toggle (`togglePrivacyMode` → `apiService.updateMeetingPrivacyMode`), optimistic UI, top-bar “Privacy Mode ON” badge, status indicator; `TranscriptTab.tsx` shows privacy state and system messages.
+- ✅ **Calendar Integration (in-scope)** — **Google Calendar** path shipped: OAuth, periodic sync, `Meeting` upserts for auto-join alignment (`ENABLE_CALENDAR_INTEGRATION`; see §15).
 
 **Remaining Gaps (verified, non-optional product work):**
 - 🔄 **Speaker diarization** —within-meeting **guest profiling** for unresolved speakers (Guest A/B + meeting-scoped embeddings) and **full streaming diarization** (windowed stable `SPEAKER_XX` on the live stream).
 - ❌ **Task Contextual Micro-Channels** — 70% implemented.
 
-**Optional / out-of-scope for core roadmap (tracked separately):**
-- Calendar Integration — UI mockup only.
-- Third-party integrations — UI mockups only.
+**Optional / stretch (tracked separately — not required for core product completeness):**
+- Third-party integrations (e.g. Jira, Slack) — UI mockups only.
 
 ---
 
 ## IMPLEMENTATION STATUS OVERVIEW
 
-### ✅ COMPLETED FEATURES (17/20 core)
+### ✅ COMPLETED FEATURES (18/21 core)
 
 1. **Team and Workspace Management** — 100% Complete
 2. **Auto-Join & Capture** — 100% Complete (Google Meet/Zoom)
@@ -55,17 +55,17 @@
 15. **Smart Search & Query** — 100% Complete *(hybrid pgvector+FTS, result highlighting)*
 16. **Privacy Mode (pause/resume transcription)** — 100% Complete
 17. **Related Meetings + Memory Context** — 100% Complete *(MemoryContextService + findRelatedMeetings)*
+18. **Calendar Integration (Google Calendar)** — 100% Complete *(OAuth, scheduled sync, `Meeting` materialization; feature-flag `ENABLE_CALENDAR_INTEGRATION`; see §15)*
 
-### 🔄 PARTIALLY IMPLEMENTED (3/20 core)
+### 🔄 PARTIALLY IMPLEMENTED (3/21 core)
 
-18. **Speaker Diarization** — ~85% Complete *(**Remaining:** within-meeting **guest profiling** (unresolved speakers → Guest A/B + embeddings; see `speaker-diarization.md` Layer 8) and **full streaming diarization** (windowed live multi-speaker `SPEAKER_XX`) — see subsection **Speaker Diarization — remaining scope** in Core Features.)*
-19. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(auth guards, neighbour expansion API, real query-bar integration, in-process graph assembly reuse; optional persistent storage + click-to-expand UI pending)*
-20. **Task Contextual Micro-Channels** — 70% Complete
+19. **Speaker Diarization** — ~85% Complete *(**Remaining:** within-meeting **guest profiling** (unresolved speakers → Guest A/B + embeddings; see `speaker-diarization.md` Layer 8) and **full streaming diarization** (windowed live multi-speaker `SPEAKER_XX`) — see subsection **Speaker Diarization — remaining scope** in Core Features.)*
+20. **Meeting Memory Graph (Knowledge Graph)** — 80% Complete *(auth guards, neighbour expansion API, real query-bar integration, in-process graph assembly reuse; optional persistent storage + click-to-expand UI pending)*
+21. **Task Contextual Micro-Channels** — 70% Complete
 
-### Optional (stretch / ecosystem — not counted in core 20)
+### Stretch / beyond core 21 (not counted above)
 
 - **Multimodal Meeting Capture** — 20% Complete (audio/video only)
-- **Calendar Integrations** — 0% Complete (UI mockup exists)
 - **Third-Party Tool Integrations** — 0% Complete (UI mockups exist)
 
 ---
@@ -429,8 +429,21 @@
 ## 🔹 INTEGRATIONS & ECOSYSTEM
 
 ### 15. Calendar Integrations
-**Status:** ❌ 0% COMPLETE (UI mockup exists)
-**Priority:** Low (optional for FYP)
+**Status:** ✅ **Complete** — Google Calendar OAuth, sync, and `Meeting` upserts (production path behind `ENABLE_CALENDAR_INTEGRATION`).
+**Scope:** **In-scope core feature** — connects the user’s Google Calendar so meetings appear in Kairo and participate in the same auto-join / `Meeting` lifecycle as native meetings.
+
+#### ✅ What's Working (code-verified, May 2026):
+
+**Backend**
+- Feature flag: routes mount when `ENABLE_CALENDAR_INTEGRATION=true` (`server.js` → `/api/calendar/*`).
+- **`CalendarConnection`** model (`schema.prisma`) — OAuth tokens, `calendarId`, sync timestamps/errors.
+- **`calendarRoutes.js`** — `GET /api/calendar/status`, `GET /api/calendar/oauth/google/start`, `GET /api/calendar/oauth/google/callback`, `GET /api/calendar/connections`, `POST /api/calendar/connections/:id/sync`, `DELETE /api/calendar/connections/:id`.
+- **`calendarSync.js`** — Lists Google Calendar events via API; upserts eligible events as Kairo **`Meeting`** rows with `meetingSource: 'google-calendar'` and stable dedup in `metadata.calendar` (uid).
+- **Scheduled sync** — `cron.js` runs calendar sync every **15 minutes** when the flag is enabled; job logic in `jobs/syncCalendars.js`.
+
+**Frontend**
+- **`CalendarStep.tsx`** (onboarding) — Real OAuth: calls `/calendar/oauth/google/start`, redirects to Google consent; handles `?calendar=connected|denied|error` after callback.
+- **`CalendarSettings.tsx`** (profile) — Lists connections, sync now, disconnect.
 
 ### 16. Third-Party Tool Integrations
 **Status:** ❌ 0% COMPLETE (UI mockups exist)
@@ -475,7 +488,6 @@
 
 ### 📊 LOW PRIORITY / POST-FYP
 
-- Calendar Integration (Google/Outlook OAuth)
 - Third-party integrations (Jira, Slack, Trello)
 - Multimodal capture (slide screenshots + OCR)
 - Multilingual transcription
@@ -488,7 +500,7 @@
 
 ## CONCLUSION
 
-Kairo is **~95% complete** on core scope (code-verified, April 24, 2026). The core product is essentially feature-complete. Speaker diarization has advanced significantly: post-meeting biometric identification, cascade name propagation, manual assignment UI with identification badges, and **live per-chunk speaker identification** during meetings are all fully implemented.
+Kairo is **~97% complete** on core scope (code-verified, May 10, 2026). The core product is essentially feature-complete. **Calendar integration** is **in-scope** and delivered for **Google Calendar** (OAuth, periodic sync, meetings materialized for existing auto-join flows) when `ENABLE_CALENDAR_INTEGRATION=true`. Speaker diarization has advanced significantly: post-meeting biometric identification, cascade name propagation, manual assignment UI with identification badges, and **live per-chunk speaker identification** during meetings are all fully implemented.
 
 **Non-optional remaining work (matches Master To-Do above):**
 
@@ -501,5 +513,5 @@ Kairo is **~95% complete** on core scope (code-verified, April 24, 2026). The co
 
 ---
 
-*Last Updated: April 24, 2026*
+*Last Updated: May 10, 2026*
 *Maintained by: Kairo Team*
