@@ -1,0 +1,49 @@
+# ──────────────── docker-compose.yml ────────────────
+
+
+services:
+  # 1. Database: PostgreSQL with pgvector extension
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: kairo_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: kairo_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  # 2. Backend: Node.js + Python AI Layer
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: kairo_backend
+    restart: always
+    depends_on:
+      - db
+    env_file:
+      - .env.docker
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./backend/src:/app/backend/src # Mount source for easier debugging (optional)
+
+  # 3. Frontend: React + Nginx
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: kairo_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  db_data:

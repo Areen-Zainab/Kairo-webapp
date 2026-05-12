@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+venv/
+.env
+.env.*
+!.env.docker
+
+# Build outputs
+dist/
+build/
+out/
+
+# Version control
+.git/
+.gitignore
+
+# Project-specific data
+backend/data/meetings/
+backend/prisma/migrations/
+ai-layer/whisperX/models/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
