@@ -1,8 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
-import type { GraphData, MemoryFilter, MemoryNode, MemoryEdge } from '../components/workspace/memory/types';
+import type { GraphData, MemoryFilter } from '../components/workspace/memory/types';
 
-const applyFilters = (graphData: GraphData, filters: MemoryFilter): GraphData => {
+/** Applies MemoryFilter rules — reused when merging expanded neighbour subgraphs. */
+export const applyMemoryGraphFilters = (
+  graphData: GraphData,
+  filters: MemoryFilter
+): GraphData => {
   let filteredNodes = graphData.nodes;
   let filteredEdges = graphData.edges;
 
@@ -20,7 +24,7 @@ const applyFilters = (graphData: GraphData, filters: MemoryFilter): GraphData =>
     filteredNodes = filteredNodes.filter(
       (node) =>
         node.label.toLowerCase().includes(searchLower) ||
-        node.summary.toLowerCase().includes(searchLower) ||
+        (node.summary ?? '').toLowerCase().includes(searchLower) ||
         (node.data.keywords &&
           node.data.keywords.some((keyword) => keyword.toLowerCase().includes(searchLower)))
     );
@@ -67,7 +71,7 @@ const applyFilters = (graphData: GraphData, filters: MemoryFilter): GraphData =>
   return { nodes: filteredNodes, edges: filteredEdges };
 };
 
-export const useGraphData = (workspaceId: string, filters: MemoryFilter) => {
+export const useGraphData = (workspaceId: string) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [remoteGraphData, setRemoteGraphData] = useState<GraphData>({ nodes: [], edges: [] });
@@ -115,7 +119,5 @@ export const useGraphData = (workspaceId: string, filters: MemoryFilter) => {
     };
   }, [workspaceId]);
 
-  const graphData = useMemo(() => applyFilters(remoteGraphData, filters), [remoteGraphData, filters]);
-
-  return { graphData, loading, error };
+  return { rawGraphData: remoteGraphData, loading, error };
 };

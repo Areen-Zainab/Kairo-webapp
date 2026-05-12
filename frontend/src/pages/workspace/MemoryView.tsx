@@ -8,6 +8,7 @@ import MemoryFAB from '../../components/workspace/memory/MemoryFAB';
 import MemoryQueryBar from '../../components/workspace/memory/MemoryQueryBar';
 import ExportDropdown from '../../components/workspace/memory/ExportDropdown';
 import { useGraphData } from '../../hooks/useGraphData';
+import { useGraphExpansion } from '../../hooks/useGraphExpansion';
 import { useQueryMemory } from '../../hooks/useQueryMemory';
 import { useUser } from '../../context/UserContext';
 import type {
@@ -19,10 +20,7 @@ import type {
   MemorySearchHit
 } from '../../components/workspace/memory/types';
 import apiService from '../../services/api';
-import {
-  clearWorkspaceMemorySearch,
-  loadWorkspaceMemorySearch
-} from '../../utils/memorySearchSession';
+import { clearWorkspaceMemorySearch } from '../../utils/memorySearchSession';
 
 const MemoryView: React.FC = () => {
   const navigate = useNavigate();
@@ -70,7 +68,14 @@ const MemoryView: React.FC = () => {
     }
   }, [isAuthenticated, loading, navigate]);
 
-  const { graphData, loading: graphLoading, error } = useGraphData(workspaceId || '', filters);
+  const { rawGraphData, loading: graphLoading, error } = useGraphData(workspaceId || '');
+  const {
+    graphData,
+    expandFromNode,
+    clearExpansions,
+    expansionLoading,
+    expansionError,
+  } = useGraphExpansion(workspaceId || '', filters, rawGraphData);
   const { queryMemory, isQuerying } = useQueryMemory(workspaceId || '');
 
   // Note: Smart Search results are saved to session storage by SmartSearchModal and useQueryMemory,
@@ -119,6 +124,7 @@ const MemoryView: React.FC = () => {
   }, [workspaceId]);
 
   const handleNodeClick = (node: MemoryNode) => {
+    void expandFromNode(node.id);
     setSelectedNode(node);
     setIsContextPanelOpen(true);
   };
@@ -189,6 +195,7 @@ const MemoryView: React.FC = () => {
   };
 
   const handleResetGraph = () => {
+    clearExpansions();
     setViewport({
       x: 0,
       y: 0,
@@ -305,12 +312,26 @@ const MemoryView: React.FC = () => {
         </div>
 
         {/* Filter Bar */}
-        <div className="flex-shrink-0 px-6 py-3 backdrop-blur-sm border-b bg-white/60 border-slate-200/50 dark:bg-slate-800/30 dark:border-slate-700/30 relative z-10">
+        <div className="flex-shrink-0 px-6 py-3 backdrop-blur-sm border-b bg-white/60 border-slate-200/50 dark:bg-slate-800/30 dark:border-slate-700/30 relative z-10 space-y-2">
           <MemoryFilterBar
             filters={filters}
             onFiltersChange={handleFilterChange}
             workspaceMemory={workspaceMemory}
           />
+          {(expansionLoading || expansionError) && (
+            <div className="flex items-center gap-2 text-sm">
+              {expansionLoading && (
+                <span className="text-slate-600 dark:text-slate-400">
+                  Loading neighbour nodes…
+                </span>
+              )}
+              {expansionError && (
+                <span className="text-red-600 dark:text-red-400" role="alert">
+                  {expansionError}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Main Content */}
