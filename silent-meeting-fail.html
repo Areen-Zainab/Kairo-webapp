@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Silent Meeting Fail — Kairo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ══════════════════════════════════════════
+       DESIGN TOKENS
+    ══════════════════════════════════════════ */
+    :root {
+      --bg:          #070412;
+      --card:        #13102a;
+      --card-border: rgba(139,92,246,.2);
+      --card-shadow: 0 0 80px rgba(124,58,237,.16);
+      --text-1:      #ffffff;
+      --text-2:      rgba(255,255,255,.58);
+      --text-3:      rgba(255,255,255,.32);
+      --divider:     rgba(139,92,246,.13);
+      --label-col:   rgba(167,139,250,.42);
+      --p600: #7c3aed; --p500: #8b5cf6;
+      --p400: #a78bfa; --p300: #c4b5fd;
+      --green: #34d399; --teal: #22d3ee;
+      --red:   #f87171; --yel:  #fbbf24;
+      /* WhatsApp dark */
+      --wa-shell:    #111; --wa-notch:    #2a2a2a;
+      --wa-hdr:      #1f2c34; --wa-body:     #0b141a;
+      --wa-in:       #202c33; --wa-out:      #005c4b;
+      --wa-txt:      #e9edef; --wa-muted:    #8696a0;
+      --wa-sender:   #53bdeb;
+      --wa-date-bg:  rgba(255,255,255,.07);
+      --wa-date-txt: rgba(255,255,255,.44);
+      /* check / kanban */
+      --ck-bg: var(--card); --ck-border: rgba(139,92,246,.16);
+      --ck-text: #e2e8f0;   --ck-sub: rgba(255,255,255,.36);
+      --kb-text: rgba(255,255,255,.76); --kb-due: rgba(255,255,255,.32);
+      --tl-dim: rgba(255,255,255,.3); --tl-sub: rgba(255,255,255,.48);
+    }
+
+    html[data-theme="light"] {
+      --bg:          #f3f1ff;
+      --card:        #ffffff;
+      --card-border: rgba(109,40,217,.18);
+      --card-shadow: 0 6px 40px rgba(109,40,217,.08), 0 1px 4px rgba(0,0,0,.05);
+      --text-1:      #1e1b4b; --text-2: rgba(30,27,75,.62);
+      --text-3:      rgba(30,27,75,.38); --divider: rgba(109,40,217,.11);
+      --label-col:   rgba(109,40,217,.48);
+      --p400: #7c3aed; --p300: #6d28d9;
+      --wa-shell:    #d2d2d2; --wa-notch: #b5b5b5;
+      --wa-hdr:      #075e54; --wa-body:  #efeae2;
+      --wa-in:       #ffffff; --wa-out:   #d9fdd3;
+      --wa-txt:      #111b21; --wa-muted: #667781;
+      --wa-sender:   #008069;
+      --wa-date-bg:  rgba(0,0,0,.07); --wa-date-txt: rgba(0,0,0,.5);
+      --ck-bg: #fff; --ck-border: rgba(109,40,217,.17);
+      --ck-text: #1e1b4b; --ck-sub: rgba(30,27,75,.5);
+      --kb-text: rgba(30,27,75,.78); --kb-due: rgba(30,27,75,.46);
+      --tl-dim: rgba(30,27,75,.28); --tl-sub: rgba(30,27,75,.55);
+    }
+
+    /* ══════════════════════════════════════════
+       BASE
+    ══════════════════════════════════════════ */
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: var(--bg);
+      /* dot grid */
+      background-image: radial-gradient(rgba(139,92,246,.28) 1.5px, transparent 1.5px);
+      background-size: 30px 30px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--text-1);
+      user-select: none;
+      transition: background-color .5s ease, color .5s ease;
+    }
+    html[data-theme="light"] body,
+    html[data-theme="light"] {
+      background-image: radial-gradient(rgba(109,40,217,.13) 1.5px, transparent 1.5px);
+      background-size: 30px 30px;
+    }
+    #bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+    /* ══════════════════════════════════════════
+       SCENE TRANSITIONS  — physics slide + overlap
+       Out: translateX(-50px) + fade
+       In:  translateX(50px) → 0 + fade
+       Both run simultaneously (90ms stagger)
+    ══════════════════════════════════════════ */
+    .scene {
+      position: fixed; inset: 0; z-index: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      opacity: 0;
+      transform: translateX(50px) scale(.982);
+      pointer-events: none;
+      transition:
+        opacity  .6s cubic-bezier(.22,1,.36,1),
+        transform .65s cubic-bezier(.22,1,.36,1);
+      will-change: transform, opacity;
+    }
+    .scene.active  { opacity: 1; transform: none; pointer-events: auto; }
+    .scene.leaving { opacity: 0; transform: translateX(-50px) scale(.982); pointer-events: none; }
+
+    /* ══════════════════════════════════════════
+       CHROME
+    ══════════════════════════════════════════ */
+    #logo {
+      position: fixed; top: 1.2rem; left: 1.8rem; z-index: 200;
+      display: flex; align-items: center; gap: .65rem;
+      text-decoration: none;
+    }
+    .logo-icon-wrap {
+      position: relative; flex-shrink: 0;
+      animation: spark-idle 4s ease-in-out infinite;
+    }
+    .logo-icon-glow {
+      position: absolute; inset: -1px;
+      background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+      border-radius: 12px;
+      filter: blur(7px);
+      opacity: .55;
+      transition: opacity .3s ease;
+    }
+    #logo:hover .logo-icon-glow { opacity: .8; }
+    .logo-icon-box {
+      position: relative;
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+      border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 14px rgba(139,92,246,.45);
+      transition: transform .2s ease;
+    }
+    #logo:hover .logo-icon-box { transform: scale(1.06); }
+    .logo-icon-svg { width: 22px; height: 22px; }
+    .logo-text {
+      font-size: 1.6rem; font-weight: 900; letter-spacing: -.5px;
+      background: linear-gradient(to right, #8b5cf6, #3b82f6, #06b6d4);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    @keyframes spark-idle {
+      0%,100% { transform: scale(1)    rotate(0deg);  }
+      45%      { transform: scale(1.08) rotate(8deg);  }
+      75%      { transform: scale(.96)  rotate(-4deg); }
+    }
+    #controls {
+      position: fixed; top: 1.1rem; right: 1.6rem; z-index: 200;
+      display: flex; gap: .5rem;
+    }
+    .ctrl-btn {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: rgba(139,92,246,.1); border: 1px solid var(--card-border);
+      color: var(--p400); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s, transform .15s, color .4s;
+      backdrop-filter: blur(8px);
+    }
+    .ctrl-btn:hover { background: rgba(139,92,246,.24); transform: scale(1.1); }
+    .ctrl-btn svg   { width: 16px; height: 16px; }
+    html[data-theme="light"] .ctrl-btn { background: rgba(109,40,217,.08); }
+    html[data-theme="light"] .ctrl-btn:hover { background: rgba(109,40,217,.18); }
+
+    #progress-bar {
+      position: fixed; bottom: 0; left: 0; z-index: 200; height: 4px; width: 0%;
+      background: linear-gradient(90deg, var(--p500), var(--teal));
+      border-radius: 0 3px 3px 0;
+    }
+    #scene-dots {
+      position: fixed; bottom: 1.6rem; left: 50%; transform: translateX(-50%);
+      z-index: 200; display: flex; gap: .5rem; align-items: center;
+    }
+    .sdot {
+      height: 7px; width: 7px; border-radius: 4px;
+      background: rgba(139,92,246,.22);
+      transition: width .4s cubic-bezier(.34,1.56,.64,1), background .3s ease;
+    }
+    .sdot.active { width: 26px; background: var(--p400); }
+    html[data-theme="light"] .sdot { background: rgba(109,40,217,.2); }
+
+    .scene-label {
+      position: absolute; top: 1.4rem;
+      font-size: .82rem; font-weight: 700; letter-spacing: .16em;
+      text-transform: uppercase; color: var(--label-col);
+      transition: color .45s;
+    }
+
+    /* ══════════════════════════════════════════
+       SCENE 1 — Meeting card
+    ══════════════════════════════════════════ */
+    #s1 { gap: 0; }
+
+    .room {
+      width: min(940px, 93vw);
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 26px;
+      padding: 3rem 3.6rem 2.8rem;
+      box-shadow: var(--card-shadow);
+      transition: background .5s, border-color .5s, box-shadow .5s;
+    }
+    .room-title {
+      font-size: 1rem; font-weight: 700; letter-spacing: .13em;
+      text-transform: uppercase; color: var(--text-2);
+      margin-bottom: 2rem; transition: color .5s;
+    }
+    .avatars { display: flex; gap: 1.8rem; margin-bottom: 2.1rem; flex-wrap: wrap; }
+    .av { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
+    .av-circle {
+      width: 82px; height: 82px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2.2rem;
+      border: 2px solid var(--card-border);
+      position: relative;
+      transition: border-color .35s ease;
+    }
+    .av-circle.speaking { border-color: var(--p400); }
+    .av-circle.speaking::after {
+      content: '';
+      position: absolute; inset: -6px; border-radius: 50%;
+      border: 2.5px solid var(--p400);
+      animation: pulse-ring 1.1s cubic-bezier(.4,0,.6,1) infinite;
+    }
+    @keyframes pulse-ring {
+      0%   { opacity: .9; transform: scale(1); }
+      100% { opacity: 0;  transform: scale(1.55); }
+    }
+    .av-name { font-size: .88rem; color: var(--text-3); font-weight: 600; transition: color .5s; }
+
+    .divider { height: 1px; background: var(--divider); margin: 0 0 2.1rem; transition: background .5s; }
+
+    .end-banner { text-align: center; }
+    .end-badge {
+      display: inline-block;
+      background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.3);
+      color: var(--red); border-radius: 10px;
+      font-size: 1.15rem; font-weight: 700; letter-spacing: .07em;
+      padding: .45rem 1.3rem; margin-bottom: 1.6rem;
+      text-transform: uppercase;
+      transition: box-shadow .3s ease;
+    }
+    .end-badge.chaos-pulse {
+      animation: badge-chaos .55s ease forwards;
+    }
+    @keyframes badge-chaos {
+      0%   { box-shadow: 0 0 0 0 rgba(248,113,113,.5); }
+      50%  { box-shadow: 0 0 0 12px rgba(248,113,113,0); transform: scale(1.04); }
+      100% { box-shadow: 0 0 0 0 rgba(248,113,113,0); }
+    }
+
+    .silence-bubble {
+      background: rgba(139,92,246,.07); border: 1px solid rgba(139,92,246,.18);
+      border-radius: 18px; padding: 1.5rem 2rem;
+      margin: 0 auto; max-width: 560px;
+      opacity: 0; transform: translateY(16px);
+      transition: opacity .55s cubic-bezier(.22,1,.36,1), transform .55s cubic-bezier(.22,1,.36,1);
+    }
+    .silence-bubble.show { opacity: 1; transform: translateY(0); }
+    html[data-theme="light"] .silence-bubble { background: rgba(109,40,217,.05); border-color: rgba(109,40,217,.15); }
+
+    .speaker-name {
+      font-size: .95rem; color: var(--p400); font-weight: 700;
+      letter-spacing: .07em; margin-bottom: .7rem; transition: color .5s;
+    }
+    .speech-text {
+      font-size: 1.95rem; font-weight: 700; color: var(--text-1);
+      line-height: 1.26; min-height: 1.45em; transition: color .5s;
+    }
+    .cursor-blink {
+      display: inline-block; width: 2.5px; height: 1.05em;
+      background: var(--yel); margin-left: 4px; vertical-align: middle;
+      animation: blink .8s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* ══════════════════════════════════════════
+       SCENE 2 — WhatsApp
+    ══════════════════════════════════════════ */
+    #s2 { gap: 0; }
+
+    .phone-shell {
+      width: min(480px, 90vw);
+      background: var(--wa-shell);
+      border-radius: 38px;
+      border: 1px solid rgba(255,255,255,.08);
+      overflow: hidden;
+      box-shadow: 0 32px 90px rgba(0,0,0,.6), 0 0 0 6px rgba(255,255,255,.04);
+      animation: phone-arrive .7s cubic-bezier(.34,1.28,.64,1) both;
+      transition: background .5s, box-shadow .5s, border-color .5s;
+    }
+    @keyframes phone-arrive {
+      from { transform: translateY(28px) scale(.96); opacity: 0; }
+      to   { transform: none; opacity: 1; }
+    }
+    html[data-theme="light"] .phone-shell {
+      border-color: rgba(0,0,0,.1);
+      box-shadow: 0 28px 80px rgba(0,0,0,.2), 0 0 0 6px rgba(0,0,0,.04);
+    }
+    .phone-notch {
+      height: 28px; background: var(--wa-shell);
+      display: flex; align-items: center; justify-content: center; transition: background .5s;
+    }
+    .phone-notch::after {
+      content: ''; width: 88px; height: 6px;
+      background: var(--wa-notch); border-radius: 10px; transition: background .5s;
+    }
+    .wa-header {
+      background: var(--wa-hdr); padding: .85rem 1.3rem;
+      display: flex; align-items: center; gap: .9rem; transition: background .5s;
+    }
+    .wa-header-icon {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: linear-gradient(135deg, #128C7E, #25D366);
+      display: flex; align-items: center; justify-content: center; font-size: 1.25rem;
+    }
+    .wa-header-text { flex: 1; }
+    .wa-header-name { font-size: 1.1rem; font-weight: 700; color: #e9edef; }
+    .wa-header-sub  { font-size: .82rem; color: rgba(255,255,255,.55); margin-top: 1px; }
+    .wa-body {
+      background: var(--wa-body);
+      background-image: radial-gradient(var(--wa-date-bg) 1px, transparent 1px);
+      background-size: 22px 22px;
+      padding: 1rem 1rem;
+      min-height: 420px;
+      display: flex; flex-direction: column; gap: .65rem;
+      transition: background-color .5s;
+    }
+    .wa-date-badge {
+      align-self: center;
+      background: var(--wa-date-bg); border-radius: 9px; padding: .28rem .9rem;
+      font-size: .78rem; color: var(--wa-date-txt); margin-bottom: .15rem;
+      transition: background .5s, color .5s;
+    }
+    .wa-msg {
+      display: flex; flex-direction: column; max-width: 82%;
+      opacity: 0; transform: translateY(10px) scale(.96);
+      transition: opacity .42s cubic-bezier(.22,1,.36,1), transform .46s cubic-bezier(.22,1,.36,1);
+    }
+    .wa-msg.show  { opacity: 1; transform: none; }
+    .wa-msg.incoming { align-self: flex-start; }
+    .wa-msg.outgoing { align-self: flex-end; }
+    .wa-bubble {
+      padding: .68rem .95rem .55rem; border-radius: 12px;
+      font-size: 1.08rem; line-height: 1.44; color: var(--wa-txt);
+      transition: background .5s, color .5s;
+    }
+    .wa-msg.incoming .wa-bubble { background: var(--wa-in);  border-radius: 0 12px 12px 12px; }
+    .wa-msg.outgoing .wa-bubble { background: var(--wa-out); border-radius: 12px 0 12px 12px; }
+    .wa-sender { font-size: .84rem; color: var(--wa-sender); font-weight: 700; margin-bottom: .22rem; transition: color .5s; }
+    .wa-time   { font-size: .74rem; color: var(--wa-muted); margin-top: .28rem; text-align: right; transition: color .5s; }
+    .wa-typing { align-self: flex-start; opacity: 0; transition: opacity .3s ease; padding: .25rem 0; }
+    .wa-typing.show { opacity: 1; }
+    .wa-typing-bubble {
+      background: var(--wa-in); border-radius: 0 12px 12px 12px;
+      padding: .56rem .82rem; display: flex; gap: 4px; align-items: center;
+      transition: background .5s;
+    }
+    .tdot { width: 7px; height: 7px; background: var(--wa-muted); border-radius: 50%; transition: background .5s; }
+    .tdot:nth-child(1) { animation: tdots 1.1s  .0s ease infinite; }
+    .tdot:nth-child(2) { animation: tdots 1.1s .18s ease infinite; }
+    .tdot:nth-child(3) { animation: tdots 1.1s .36s ease infinite; }
+    @keyframes tdots {
+      0%,60%,100% { transform: translateY(0);   opacity: .4; }
+      30%          { transform: translateY(-5px); opacity: 1; }
+    }
+
+    /* Kairo-bot bridge message */
+    .wa-msg.kairo-bot .wa-bubble {
+      background: rgba(52,211,153,.15) !important;
+      border: 1px solid rgba(52,211,153,.35) !important;
+      border-radius: 12px !important;
+    }
+    html[data-theme="light"] .wa-msg.kairo-bot .wa-bubble {
+      background: rgba(5,150,105,.1) !important;
+      border-color: rgba(5,150,105,.3) !important;
+    }
+    .wa-msg.kairo-bot .wa-sender { color: var(--green) !important; }
+    html[data-theme="light"] .wa-msg.kairo-bot .wa-sender { color: #059669 !important; }
+    .wa-msg.kairo-bot.show .wa-bubble {
+      animation: bot-glow .7s .2s ease both;
+    }
+    @keyframes bot-glow {
+      0%   { box-shadow: 0 0 0 0 rgba(52,211,153,.5); }
+      60%  { box-shadow: 0 0 0 10px rgba(52,211,153,.0); }
+      100% { box-shadow: none; }
+    }
+
+    .chaos-label {
+      font-size: 1rem; font-weight: 700; letter-spacing: .16em;
+      text-transform: uppercase; color: var(--red);
+      margin-bottom: 1.1rem; opacity: 0;
+      transition: opacity .45s cubic-bezier(.22,1,.36,1);
+    }
+    .chaos-label.show { opacity: 1; }
+
+    /* ══════════════════════════════════════════
+       SCENE 3 — Kairo UI
+    ══════════════════════════════════════════ */
+    #s3 { gap: 1.1rem; }
+
+    .kairo-panel { width: min(980px, 95vw); }
+    .kairo-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+    .kairo-title {
+      font-size: 1.45rem; font-weight: 800; color: var(--p400);
+      letter-spacing: -.2px; transition: color .5s;
+    }
+    html[data-theme="light"] .kairo-title { color: #5b21b6; }
+    .kairo-subtitle { font-size: .98rem; color: var(--text-2); font-weight: 500; margin-top: .2rem; transition: color .5s; }
+    .badge-live {
+      background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.3);
+      color: var(--green); border-radius: 20px; padding: .34rem 1rem;
+      font-size: .88rem; font-weight: 700; letter-spacing: .08em;
+      display: flex; align-items: center; gap: .45rem; flex-shrink: 0;
+    }
+    html[data-theme="light"] .badge-live { color: #059669; border-color: rgba(5,150,105,.22); background: rgba(5,150,105,.06); }
+    .badge-live::before {
+      content: ''; width: 7px; height: 7px; background: currentColor;
+      border-radius: 50%; animation: pulse-dot 1.4s ease infinite;
+    }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    .check-list { display: flex; flex-direction: column; gap: .82rem; margin-bottom: 1.5rem; }
+    .check-item {
+      display: flex; align-items: center; gap: 1.1rem;
+      background: var(--ck-bg); border: 1px solid var(--ck-border);
+      border-radius: 16px; padding: 1.15rem 1.5rem;
+      opacity: 0; transform: translateX(-22px);
+      transition:
+        opacity .46s cubic-bezier(.22,1,.36,1),
+        transform .5s cubic-bezier(.22,1,.36,1),
+        border-color .35s ease, background .5s;
+    }
+    .check-item.show { opacity: 1; transform: none; border-color: rgba(52,211,153,.32); }
+    html[data-theme="light"] .check-item.show { border-color: rgba(5,150,105,.22); }
+    .check-item.victory { animation: victory-pulse .6s ease; }
+    @keyframes victory-pulse {
+      0%,100% { box-shadow: none; }
+      50% { box-shadow: 0 0 0 6px rgba(52,211,153,.2); }
+    }
+
+    .check-icon {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: rgba(52,211,153,.12); border: 2px solid rgba(52,211,153,.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; flex-shrink: 0; color: var(--green);
+      opacity: 0; transform: scale(0);
+      transition: opacity .3s ease .1s, transform .46s cubic-bezier(.34,1.56,.64,1) .1s;
+    }
+    html[data-theme="light"] .check-icon { color: #059669; background: rgba(5,150,105,.1); border-color: rgba(5,150,105,.3); }
+    .check-item.show .check-icon { opacity: 1; transform: scale(1); }
+    .check-text { font-size: 1.22rem; font-weight: 600; color: var(--ck-text); transition: color .5s; }
+    .check-sub  { font-size: .94rem; color: var(--ck-sub); margin-top: .2rem; transition: color .5s; }
+
+    .kanban {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: .95rem;
+      opacity: 0; transform: translateY(16px);
+      transition: opacity .52s cubic-bezier(.22,1,.36,1), transform .56s cubic-bezier(.22,1,.36,1);
+    }
+    .kanban.show { opacity: 1; transform: none; }
+    .kol-header {
+      font-size: .82rem; font-weight: 800; letter-spacing: .13em;
+      text-transform: uppercase; margin-bottom: .7rem;
+      padding: .42rem .88rem; border-radius: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .kol-header .count {
+      font-size: .76rem; background: rgba(255,255,255,.1); border-radius: 10px; padding: .1rem .48rem;
+    }
+    html[data-theme="light"] .kol-header .count { background: rgba(0,0,0,.08); }
+    .kol-todo .kol-header { background: rgba(248,113,113,.09); color: var(--red); }
+    .kol-prog .kol-header { background: rgba(251,191,36,.09);  color: var(--yel); }
+    .kol-done .kol-header { background: rgba(52,211,153,.09);  color: var(--green); }
+    html[data-theme="light"] .kol-todo .kol-header { background: rgba(220,38,38,.07); color: #dc2626; }
+    html[data-theme="light"] .kol-prog .kol-header { background: rgba(217,119,6,.07); color: #d97706; }
+    html[data-theme="light"] .kol-done .kol-header { background: rgba(5,150,105,.07); color: #059669; }
+
+    .kcard {
+      background: var(--ck-bg); border-radius: 13px; border: 1px solid var(--ck-border);
+      padding: .9rem 1.1rem; margin-bottom: .58rem;
+      font-size: 1rem; color: var(--kb-text); line-height: 1.42;
+      opacity: 0; transform: translateY(9px);
+      transition:
+        opacity .36s cubic-bezier(.22,1,.36,1),
+        transform .4s cubic-bezier(.22,1,.36,1),
+        background .5s, border-color .5s, color .5s;
+    }
+    .kcard.show { opacity: 1; transform: none; }
+    .kcard-name { font-size: .82rem; font-weight: 700; color: var(--p400); margin-top: .36rem; transition: color .5s; }
+    html[data-theme="light"] .kcard-name { color: #6d28d9; }
+    .kcard-due  { font-size: .78rem; color: var(--kb-due); margin-top: .18rem; transition: color .5s; }
+    .kcard-tag  {
+      display: inline-block; background: rgba(139,92,246,.13); border-radius: 6px;
+      padding: .1rem .52rem; font-size: .72rem; font-weight: 700; color: var(--p400);
+      letter-spacing: .04em; margin-top: .34rem; transition: background .5s, color .5s;
+    }
+    html[data-theme="light"] .kcard-tag { background: rgba(109,40,217,.1); color: #6d28d9; }
+
+    /* ══════════════════════════════════════════
+       SCENE 4 — Tagline
+    ══════════════════════════════════════════ */
+    #s4 {
+      text-align: center;
+      background: radial-gradient(ellipse 65% 55% at 50% 50%, rgba(124,58,237,.18) 0%, transparent 70%);
+    }
+    html[data-theme="light"] #s4 {
+      background: radial-gradient(ellipse 65% 55% at 50% 50%, rgba(109,40,217,.06) 0%, transparent 70%);
+    }
+    .tagline-pre {
+      font-size: clamp(.9rem, 2.2vw, 1.2rem);
+      font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+      color: var(--text-2); margin-bottom: 1.4rem;
+      opacity: 0; transform: translateY(10px);
+      transition: opacity .48s cubic-bezier(.22,1,.36,1), transform .5s cubic-bezier(.22,1,.36,1), color .5s;
+    }
+    .tagline-pre.show { opacity: 1; transform: none; }
+    .tagline {
+      font-size: clamp(3.4rem, 9.5vw, 7.5rem);
+      font-weight: 900; line-height: 1.06; letter-spacing: -.035em;
+      opacity: 0; transform: scale(.88) translateY(22px);
+      transition: opacity .7s cubic-bezier(.22,1,.36,1), transform .76s cubic-bezier(.22,1,.36,1);
+    }
+    .tagline.show { opacity: 1; transform: none; }
+    .t-dim    { color: var(--tl-dim); transition: color .5s; }
+    .t-accent {
+      background: linear-gradient(135deg, var(--p400) 0%, var(--teal) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    html[data-theme="light"] .t-accent {
+      background: linear-gradient(135deg, #6d28d9 0%, #0891b2 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .tagline-sub {
+      font-size: clamp(1.15rem, 3vw, 1.6rem);
+      color: var(--tl-sub); margin-top: 1.5rem; font-weight: 500;
+      max-width: 680px; line-height: 1.5;
+      opacity: 0; transition: opacity .5s ease .24s, color .5s;
+    }
+    .tagline-sub.show { opacity: 1; }
+    .kairo-cta {
+      margin-top: 2.2rem;
+      display: inline-flex; align-items: center; gap: .6rem;
+      background: linear-gradient(135deg, var(--p600), #6d28d9);
+      border: none; border-radius: 50px; padding: 1.1rem 2.6rem;
+      font-size: 1.18rem; font-weight: 700; color: #fff;
+      cursor: pointer; letter-spacing: .03em;
+      box-shadow: 0 10px 32px rgba(124,58,237,.48);
+      opacity: 0; transform: translateY(12px);
+      transition:
+        opacity .42s ease .5s,
+        transform .46s cubic-bezier(.22,1,.36,1) .5s,
+        box-shadow .22s ease;
+      text-decoration: none;
+    }
+    .kairo-cta.show { opacity: 1; transform: none; }
+    .kairo-cta:hover { box-shadow: 0 16px 42px rgba(124,58,237,.64); }
+
+    /* ══════════════════════════════════════════
+       GLITCH overlay
+    ══════════════════════════════════════════ */
+    .glitch-layer {
+      position: fixed; inset: 0; z-index: 300; pointer-events: none; opacity: 0;
+      background: repeating-linear-gradient(
+        transparent 0px, transparent 3px, rgba(139,92,246,.025) 3px, rgba(139,92,246,.025) 4px
+      );
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="bg"></canvas>
+<div class="glitch-layer" id="glitch"></div>
+<div id="logo">
+  <div class="logo-icon-wrap">
+    <div class="logo-icon-glow"></div>
+    <div class="logo-icon-box">
+      <!-- Lucide Sparkles icon -->
+      <svg class="logo-icon-svg" viewBox="0 0 24 24" fill="none"
+           stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.937A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+        <path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/>
+      </svg>
+    </div>
+  </div>
+  <span class="logo-text">Kairo</span>
+</div>
+
+<div id="controls">
+  <button class="ctrl-btn" id="theme-btn" title="Toggle light / dark">
+    <svg id="icon-moon" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+    </svg>
+    <svg id="icon-sun" viewBox="0 0 20 20" fill="currentColor" style="display:none">
+      <circle cx="10" cy="10" r="3.5"/>
+      <path stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"
+        d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41"/>
+    </svg>
+  </button>
+  <button class="ctrl-btn" id="fs-btn" title="Toggle fullscreen">
+    <svg id="icon-expand" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <path d="M3 7V3h4M17 7V3h-4M3 13v4h4M17 13v4h-4"/>
+    </svg>
+    <svg id="icon-compress" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="display:none">
+      <path d="M7 3v4H3M13 3v4h4M7 17v-4H3M13 17v-4h4"/>
+    </svg>
+  </button>
+</div>
+
+<div id="scene-dots">
+  <span class="sdot active"></span>
+  <span class="sdot"></span>
+  <span class="sdot"></span>
+  <span class="sdot"></span>
+</div>
+<div id="progress-bar"></div>
+
+<!-- ══════ SCENE 1 — Meeting Ends ══════ -->
+<div class="scene" id="s1">
+  <span class="scene-label">Scene 1 — The Meeting Ends</span>
+  <div class="room">
+    <div class="room-title">📅 Q2 Sync · just now</div>
+    <div class="avatars">
+      <div class="av">
+        <div class="av-circle" style="background:rgba(139,92,246,.13)">👩‍💼</div>
+        <div class="av-name">Sarah</div>
+      </div>
+      <div class="av">
+        <div class="av-circle" style="background:rgba(34,211,238,.1)">👨‍💻</div>
+        <div class="av-name">Raza</div>
+      </div>
+      <div class="av">
+        <div class="av-circle" style="background:rgba(251,191,36,.1)">🧑‍🎨</div>
+        <div class="av-name">Mia</div>
+      </div>
+      <div class="av">
+        <div class="av-circle" style="background:rgba(52,211,153,.1)" id="omar-av">👨‍📊</div>
+        <div class="av-name">Omar</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="end-banner">
+      <div class="end-badge" id="end-badge">⏰ Meeting Ended</div>
+      <div class="silence-bubble" id="silence-bubble">
+        <div class="speaker-name">OMAR</div>
+        <div class="speech-text" id="speech-text"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ SCENE 2 — WhatsApp Chaos ══════ -->
+<div class="scene" id="s2">
+  <span class="scene-label">Scene 2 — The Chaos After</span>
+  <div class="chaos-label" id="chaos-label">📱 Team WhatsApp Group</div>
+  <div class="phone-shell" id="phone-shell">
+    <div class="phone-notch"></div>
+    <div class="wa-header">
+      <div class="wa-header-icon">💬</div>
+      <div class="wa-header-text">
+        <div class="wa-header-name">Q2 Sync Team 🔥</div>
+        <div class="wa-header-sub">5 members</div>
+      </div>
+    </div>
+    <div class="wa-body">
+      <div class="wa-date-badge">Today</div>
+      <div class="wa-msg incoming" id="wm1">
+        <div class="wa-sender">Sarah</div>
+        <div class="wa-bubble">Wait… what's my task again? 😅<div class="wa-time">3:01 PM</div></div>
+      </div>
+      <div class="wa-msg outgoing" id="wm2">
+        <div class="wa-bubble">Same. When was the deadline?<div class="wa-time">3:02 PM</div></div>
+      </div>
+      <div class="wa-msg incoming" id="wm3">
+        <div class="wa-sender">Raza</div>
+        <div class="wa-bubble">Who said they'd handle the design review??<div class="wa-time">3:02 PM</div></div>
+      </div>
+      <div class="wa-msg incoming" id="wm4">
+        <div class="wa-sender">Mia</div>
+        <div class="wa-bubble">I thought Omar was on that 🤔<div class="wa-time">3:03 PM</div></div>
+      </div>
+      <div class="wa-msg outgoing" id="wm5">
+        <div class="wa-bubble">No I said I'd look into it NOT own it 😭<div class="wa-time">3:03 PM</div></div>
+      </div>
+      <!-- Bridge message — Kairo bot appears, linking to Scene 3 -->
+      <div class="wa-msg incoming kairo-bot" id="wm6">
+        <div class="wa-sender">✦ Kairo Bot</div>
+        <div class="wa-bubble">✨ Meeting detected. Auto-generating your action plan now…<div class="wa-time">3:03 PM</div></div>
+      </div>
+      <div class="wa-typing" id="wm-typing">
+        <div class="wa-typing-bubble">
+          <div class="tdot"></div><div class="tdot"></div><div class="tdot"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ SCENE 3 — Kairo UI ══════ -->
+<div class="scene" id="s3">
+  <span class="scene-label">Scene 3 — Kairo to the Rescue</span>
+  <div class="kairo-panel">
+    <div class="kairo-header">
+      <div>
+        <div class="kairo-title" style="display:flex;align-items:center;gap:.5rem;">
+          <div style="position:relative;flex-shrink:0;">
+            <div style="position:absolute;inset:-1px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);border-radius:8px;filter:blur(5px);opacity:.5;"></div>
+            <div style="position:relative;width:28px;height:28px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);border-radius:7px;display:flex;align-items:center;justify-content:center;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.937A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+                <path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/>
+              </svg>
+            </div>
+          </div>
+          <span style="-webkit-text-fill-color:transparent;background:linear-gradient(to right,#8b5cf6,#3b82f6,#06b6d4);-webkit-background-clip:text;">Kairo · Q2 Sync — Auto-Summary</span>
+        </div>
+        <div class="kairo-subtitle">Generated instantly from your meeting</div>
+      </div>
+      <div class="badge-live">Processing complete</div>
+    </div>
+    <div class="check-list">
+      <div class="check-item" id="ci1">
+        <div class="check-icon">✔</div>
+        <div>
+          <div class="check-text">Tasks auto-created from discussion</div>
+          <div class="check-sub">4 action items extracted · zero manual entry</div>
+        </div>
+      </div>
+      <div class="check-item" id="ci2">
+        <div class="check-icon">✔</div>
+        <div>
+          <div class="check-text">Names assigned to every task</div>
+          <div class="check-sub">Sarah · Raza · Mia · Omar — all mapped</div>
+        </div>
+      </div>
+      <div class="check-item" id="ci3">
+        <div class="check-icon">✔</div>
+        <div>
+          <div class="check-text">Deadlines extracted automatically</div>
+          <div class="check-sub">Dates mentioned in conversation → due dates</div>
+        </div>
+      </div>
+      <div class="check-item" id="ci4">
+        <div class="check-icon">✔</div>
+        <div>
+          <div class="check-text">Kanban board ready</div>
+          <div class="check-sub">Columns populated · team notified</div>
+        </div>
+      </div>
+    </div>
+    <div class="kanban" id="kanban">
+      <div class="kol kol-todo">
+        <div class="kol-header">To Do <span class="count">2</span></div>
+        <div class="kcard" id="kc1">
+          Finalize landing page copy
+          <div class="kcard-name">👩‍💼 Sarah</div>
+          <div class="kcard-due">📅 Due May 16</div>
+          <div class="kcard-tag">COPY</div>
+        </div>
+        <div class="kcard" id="kc2">
+          Set up staging environment
+          <div class="kcard-name">👨‍💻 Raza</div>
+          <div class="kcard-due">📅 Due May 15</div>
+          <div class="kcard-tag">INFRA</div>
+        </div>
+      </div>
+      <div class="kol kol-prog">
+        <div class="kol-header">In Progress <span class="count">1</span></div>
+        <div class="kcard" id="kc3">
+          Design review — homepage
+          <div class="kcard-name">🧑‍🎨 Mia</div>
+          <div class="kcard-due">📅 Due May 14</div>
+          <div class="kcard-tag">DESIGN</div>
+        </div>
+      </div>
+      <div class="kol kol-done">
+        <div class="kol-header">Done <span class="count">1</span></div>
+        <div class="kcard" id="kc4">
+          Share Q2 budget breakdown
+          <div class="kcard-name">👨‍📊 Omar</div>
+          <div class="kcard-due">✅ Completed</div>
+          <div class="kcard-tag">FINANCE</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ SCENE 4 — Tagline ══════ -->
+<div class="scene" id="s4">
+  <div class="tagline-pre" id="t-pre">The truth nobody says out loud</div>
+  <div class="tagline" id="tagline">
+    <div class="t-dim">Meetings don't fail.</div>
+    <div class="t-accent">Memory does.</div>
+  </div>
+  <div class="tagline-sub" id="t-sub">
+    Kairo turns every meeting into a clear, assigned action plan — automatically.
+  </div>
+  <a href="#" class="kairo-cta" id="t-cta">Try Kairo Free →</a>
+</div>
+
+<script>
+/* ── BACKGROUND CANVAS ──────────────────────── */
+(function () {
+  const cv  = document.getElementById('bg');
+  const ctx = cv.getContext('2d');
+  let W, H, pts = [];
+
+  function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const isLight = () => document.documentElement.dataset.theme === 'light';
+
+  function mkPt(randY) {
+    return {
+      x: Math.random() * W,
+      y: randY ? Math.random() * H : H + Math.random() * 70,
+      r: Math.random() * 2 + .5,
+      v: Math.random() * .38 + .12,
+      op: Math.random() * .34 + .08,
+      hue: Math.random() < .6 ? 270 : 190,
+    };
+  }
+  for (let i = 0; i < 60; i++) pts.push(mkPt(true));
+
+  (function frame() {
+    ctx.clearRect(0, 0, W, H);
+    const light = isLight();
+
+    /* particles only — dot grid is rendered via CSS background-image */
+    pts.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = light
+        ? `hsla(${p.hue},62%,46%,${p.op * .5})`
+        : `hsla(${p.hue},82%,70%,${p.op})`;
+      ctx.fill();
+      p.y -= p.v;
+      if (p.y < -10) Object.assign(p, mkPt(false));
+    });
+    requestAnimationFrame(frame);
+  })();
+})();
+
+/* ── UTILS ──────────────────────────────────── */
+const $     = id => document.getElementById(id);
+const show  = el  => el.classList.add('show');
+const hide  = el  => el.classList.remove('show');
+const delay = ms  => new Promise(r => setTimeout(r, ms));
+
+/* ── PROGRESS BAR ───────────────────────────── */
+const BAR = $('progress-bar');
+let barCur = 0, barRaf;
+function setProgress(to, ms) {
+  const t0 = performance.now(), from = barCur, d = to - from;
+  cancelAnimationFrame(barRaf);
+  (function step(now) {
+    const t = Math.min(1, (now - t0) / ms);
+    barCur = from + d * t;
+    BAR.style.width = barCur + '%';
+    if (t < 1) barRaf = requestAnimationFrame(step);
+  })(performance.now());
+}
+
+/* ── SCENE DOTS ─────────────────────────────── */
+const sdots = document.querySelectorAll('.sdot');
+function setDot(i) { sdots.forEach((d, j) => d.classList.toggle('active', j === i)); }
+
+/* ── SCENE TRANSITIONS — overlapping slide ───── */
+const SCENES = ['s1','s2','s3','s4'];
+let activeScene = null;
+
+async function activateScene(nextId) {
+  const outId = activeScene;
+  if (outId && outId !== nextId) {
+    const out = $(outId);
+    out.classList.remove('active');
+    out.classList.add('leaving');
+    setTimeout(() => out.classList.remove('leaving'), 800);
+  }
+  /* 110ms overlap — both scenes mid-transition simultaneously */
+  await delay(110);
+  activeScene = nextId;
+  $(nextId).classList.add('active');
+  setDot(SCENES.indexOf(nextId));
+}
+
+/* ── TYPEWRITER ─────────────────────────────── */
+async function typewrite(el, text, spd = 40) {
+  el.innerHTML = '';
+  for (let i = 0; i < text.length; i++) {
+    el.innerHTML = text.slice(0, i + 1) + '<span class="cursor-blink"></span>';
+    await delay(spd);
+  }
+  el.innerHTML = text;
+}
+
+/* ══════════════════════════════════════════════
+   SCENE 1 — Meeting ends
+   Bridge: badge pulses red just before exit →
+   visually "launches" the chaos in S2
+══════════════════════════════════════════════ */
+async function runScene1() {
+  await activateScene('s1');
+  setProgress(0, 100);
+  await delay(650);
+
+  $('omar-av').classList.add('speaking');
+  await delay(450);
+
+  show($('silence-bubble'));
+  await delay(230);
+  await typewrite($('speech-text'), 'So… what did we decide?', 44);
+
+  setProgress(25, 5200);
+  await delay(3500);
+
+  /* ← BRIDGE: badge pulses red → signals chaos coming */
+  $('omar-av').classList.remove('speaking');
+  $('end-badge').classList.add('chaos-pulse');
+  await delay(700);
+}
+
+/* ══════════════════════════════════════════════
+   SCENE 2 — WhatsApp chaos
+   Bridge: Kairo-bot message appears last →
+   directly leads eye into Scene 3
+══════════════════════════════════════════════ */
+async function runScene2() {
+  await activateScene('s2');
+  setProgress(25, 100);
+
+  await delay(180);
+  show($('chaos-label'));
+  await delay(340);
+
+  const msgs = ['wm1','wm2','wm3','wm4','wm5'];
+  const gaps = [420, 700, 640, 580, 620];
+
+  for (let i = 0; i < msgs.length; i++) {
+    await delay(gaps[i]);
+    show($(msgs[i]));
+    if (i < msgs.length - 1) {
+      show($('wm-typing')); await delay(330); hide($('wm-typing'));
+    }
+  }
+
+  /* ← BRIDGE: Kairo bot message glows green before S3 */
+  await delay(420);
+  show($('wm-typing')); await delay(500); hide($('wm-typing'));
+  show($('wm6'));   /* ← green glow bot message */
+
+  setProgress(50, 2800);
+  await delay(1600);
+}
+
+/* ══════════════════════════════════════════════
+   SCENE 3 — Kairo UI
+   Bridge: all check items pulse green in sync
+   before exiting → echoes the tagline's energy
+══════════════════════════════════════════════ */
+async function runScene3() {
+  await activateScene('s3');
+  setProgress(50, 100);
+  await delay(280);
+
+  for (let i = 0; i < 4; i++) {
+    await delay(i === 0 ? 260 : 460);
+    show($('ci' + (i + 1)));
+  }
+
+  await delay(520);
+  show($('kanban'));
+  await delay(250);
+
+  for (const id of ['kc1','kc2','kc3','kc4']) {
+    await delay(180);
+    show($(id));
+  }
+
+  setProgress(85, 4200);
+  await delay(3600);
+
+  /* ← BRIDGE: all check items pulse green together before S4 */
+  ['ci1','ci2','ci3','ci4'].forEach(id => $(id).classList.add('victory'));
+  await delay(700);
+}
+
+/* ══════════════════════════════════════════════
+   SCENE 4 — Tagline
+══════════════════════════════════════════════ */
+async function runScene4() {
+  await activateScene('s4');
+  setProgress(85, 100);
+
+  await delay(240);
+  show($('t-pre'));
+  await delay(380);
+  show($('tagline'));
+  await delay(420);
+  show($('t-sub'));
+  await delay(340);
+  show($('t-cta'));
+
+  setProgress(100, 2500);
+  await delay(2800);
+}
+
+/* ── RESET ──────────────────────────────────── */
+function resetAll() {
+  $('silence-bubble').classList.remove('show');
+  $('speech-text').innerHTML = '';
+  $('omar-av').classList.remove('speaking');
+  $('end-badge').classList.remove('chaos-pulse');
+
+  ['chaos-label','wm1','wm2','wm3','wm4','wm5','wm6','wm-typing']
+    .forEach(id => $(id).classList.remove('show'));
+
+  ['ci1','ci2','ci3','ci4'].forEach(id =>
+    $(id).classList.remove('show','victory'));
+
+  ['kanban','kc1','kc2','kc3','kc4']
+    .forEach(id => $(id).classList.remove('show'));
+
+  ['t-pre','tagline','t-sub','t-cta']
+    .forEach(id => $(id).classList.remove('show'));
+
+  SCENES.forEach(id => $(id).classList.remove('active','leaving'));
+  activeScene = null;
+  barCur = 0; BAR.style.width = '0%';
+  setDot(0);
+}
+
+/* ── MAIN LOOP ──────────────────────────────── */
+async function runLoop() {
+  while (true) {
+    resetAll();
+    await delay(80);
+    await runScene1();
+    await runScene2();
+    await runScene3();
+    await runScene4();
+    SCENES.forEach(id => $(id).classList.remove('active'));
+    await delay(800);
+  }
+}
+
+/* ── FULLSCREEN ─────────────────────────────── */
+$('fs-btn').addEventListener('click', () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen();
+});
+document.addEventListener('fullscreenchange', () => {
+  const f = !!document.fullscreenElement;
+  $('icon-expand').style.display   = f ? 'none' : '';
+  $('icon-compress').style.display = f ? ''     : 'none';
+});
+
+/* ── THEME TOGGLE ───────────────────────────── */
+$('theme-btn').addEventListener('click', () => {
+  const html = document.documentElement;
+  const toLt = html.dataset.theme !== 'light';
+  html.dataset.theme = toLt ? 'light' : 'dark';
+  $('icon-moon').style.display = toLt ? 'none' : '';
+  $('icon-sun').style.display  = toLt ? ''     : 'none';
+});
+
+/* ── GLITCH ─────────────────────────────────── */
+setInterval(() => {
+  const g = $('glitch'); g.style.opacity = '1';
+  setTimeout(() => { g.style.opacity = '0'; }, 60);
+}, 9000);
+
+runLoop();
+</script>
+</body>
+</html>
