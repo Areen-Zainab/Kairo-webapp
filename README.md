@@ -34,175 +34,172 @@ Most meeting tools stop at transcription. Kairo's defining capability is what ha
 
 | Capability | Details |
 |---|---|
-| **Autonomous Meeting Capture** | Headless Puppeteer bot auto-joins Google Meet and Zoom; captures audio via virtual routing |
-| **Real-Time Transcription** | WhisperX (faster-whisper backend, `small` model, CPU int8) streaming live over WebSocket |
-| **Live Speaker Identification** | Per-chunk biometric identification using ECAPA-TDNN 192-dim voice embeddings; sliding-window majority vote; sub-second WebSocket push |
-| **Post-Meeting Diarization** | Full-file WhisperX + pyannote `DiarizationPipeline`; multi-tier speaker matching engine; cascade name propagation |
-| **Multi-Model AI Insights** | Six insight types (Summary, Decisions, Topics, Sentiment, Action Items, Participant Analysis) via Mistral + Groq; parallel agent execution |
-| **Meeting Memory Engine** | 384-dim MiniLM-L6-v2 embeddings via `@xenova/transformers`; pgvector HNSW indexes; hybrid vector + FTS search |
-| **Workspace Knowledge Graph** | Query-time graph assembly from meetings, memory contexts, and tasks; BFS neighbour expansion; React Canvas visualizer |
-| **Kanban Task Board** | AI-extracted action items promoted to drag-and-drop tasks; deadline parsing via chrono-node; tag-based filtering |
-| **Whisper Mode** | Periodic Groq-powered micro-recaps pushed over WebSocket during live meetings; "Catch Me Up" on demand |
-| **Privacy Mode** | Per-meeting pause/resume toggle; transcription gate; AI insight filtering over privacy intervals |
-| **Google Calendar Integration** | OAuth 2.0 sync; 15-minute cron; `Meeting` materialization for auto-join alignment |
-| **Analytics Dashboard** | Four-tab workspace analytics (Overview, Participants, Action Items, Insights); real backend data; multiple chart types |
-| **Smart Search** | Hybrid semantic + full-text search with `<mark>` snippet highlighting; keyboard navigation; debounced |
-| **RBAC** | Four workspace roles (owner, admin, member, observer); middleware-enforced on all API routes |
-| **Auto Reminders** | Cron-driven task deadline reminders; quiet-hours enforcement; configurable intervals; deduplication |
+| **Autonomous Meeting Capture** | Headless Puppeteer bot auto-joins Google Meet and Zoom; virtual audio routing; no GPU required |
+| **Real-Time Transcription** | WhisperX (faster-whisper, `small`, CPU int8) streamed live over WebSocket; SRT, JSON, and plain text output |
+| **Live Speaker Identification** | Per-chunk ECAPA-TDNN biometric identification; sliding-window majority vote; real-time WebSocket label push |
+| **Post-Meeting Diarization** | WhisperX + pyannote full-file diarization; multi-tier speaker matching; cascade name propagation across all derived data |
+| **Multi-Model AI Insights** | Six insight types (Summary, Decisions, Topics, Sentiment, Action Items, Participant Analysis) via Mistral + Groq; parallel agents; three-tier fallback |
+| **Meeting Memory Engine** | Local 384-dim MiniLM-L6-v2 embeddings; pgvector HNSW indexes; hybrid 60/40 vector + FTS search; per-meeting memory context |
+| **Workspace Knowledge Graph** | Query-time graph assembly from meetings, contexts, and tasks; BFS neighbour expansion; React Canvas visualizer |
+| **Kanban Task Board** | Drag-and-drop board; AI action items auto-promoted to tasks; natural language deadline parsing; meeting context panel per task |
+| **Whisper Mode** | Groq-powered live micro-recaps on a configurable schedule; manual "Catch Me Up" trigger; WebSocket push |
+| **Privacy Mode** | Per-meeting pause/resume; transcription gate per audio chunk; LLM insight filtering over privacy intervals |
+| **Smart Search** | Workspace-wide hybrid semantic + full-text search; matched-term highlighting; keyboard navigation |
+| **Google Calendar Integration** | OAuth 2.0 sync; 15-minute cron; calendar events materialized as Kairo meetings for auto-join |
+| **Analytics Dashboard** | Four-tab workspace analytics (Overview, Participants, Action Items, Insights); time-range filters; multiple chart types |
+| **Team and Workspace Management** | Multi-workspace support; invite flow; four-role RBAC (owner, admin, member, observer); activity audit log |
+| **Note-Taking** | Per-meeting user notes with full CRUD; notes embedded into memory for hybrid search |
+| **Meeting File Attachments** | File upload and download per meeting; stored via Supabase storage |
+| **Interactive Transcript Review** | Click-to-seek playback; visual timeline with event markers; speaker-attributed entries; identification badges |
+| **Auto Follow-Up Reminders** | Cron-driven deadline reminders; configurable advance intervals; quiet-hours enforcement; deduplication |
 
 ---
 
 ## Feature Reference
 
-### Auto-Join and Audio Capture
+### Auto-Join, Capture, and Transcription
 
-Kairo deploys a Puppeteer-based headless bot that joins Google Meet and Zoom meetings automatically. The bot handles:
-
-- Scheduled and on-demand join via `MeetingBot` and the `bot-join/` sub-services
-- Virtual audio routing for clean audio capture
-- Real-time audio chunking (approximately 3-second windows) written to `backend/data/meetings/` per meeting
-- Meeting lifecycle management: `scheduled → in-progress → completed`
-- Duplicate-join protection and session state tracking
-- Graceful shutdown with child-process tracking and cron cleanup
-
-### Real-Time Transcription
-
-The transcription pipeline is built on WhisperX (faster-whisper backend):
-
-- `ModelPreloader.js` loads the WhisperX model at server startup to eliminate cold-start latency on the first meeting
-- `TranscriptionService.js` processes each audio chunk and broadcasts transcribed text over WebSocket in real time
-- Each chunk is processed at `model_size=small`, `device=CPU`, `compute_type=int8` — no GPU requirement
-- Transcripts are saved to disk in JSON, plain text, and SRT formats
-- The live `TranscriptTab` renders speaker-attributed, timestamped entries as they arrive
+The bot manages the full meeting lifecycle (`scheduled → in-progress → completed`) with duplicate-join protection and clean process teardown. Audio is captured via virtual routing into ~3-second chunks and transcribed immediately by WhisperX (`small` model, CPU int8 — no GPU required). The model is preloaded at server startup to eliminate cold-start latency. Transcribed text is broadcast over WebSocket as it arrives and persisted in JSON, plain text, and SRT formats.
 
 ### Speaker Diarization and Identification
 
-Speaker processing is the most architecturally sophisticated component of Kairo, operating at three distinct stages:
+Resolution happens in three distinct stages:
 
 **Voice Enrollment**
-- Users record a 15–30 second voice sample during onboarding or from profile settings
-- `VoiceEmbeddingService.py` extracts a 192-dimensional ECAPA-TDNN (SpeechBrain `spkrec-ecapa-voxceleb`) embedding
-- Embeddings are stored in `user_voice_embeddings` via pgvector; a 256-dim pyannote ResNet34 fallback is trimmed to 192 for schema compatibility
-- Consent is tracked per-user; auto-enrollment fires from `ProfileTab` when consent is present
+- Users record a 15–30 second sample; SNR is validated before enrollment is accepted
+- A 192-dimensional ECAPA-TDNN embedding (SpeechBrain `spkrec-ecapa-voxceleb`, VoxCeleb-trained) is stored per user
+- Consent is tracked independently; a 256-dim pyannote ResNet34 fallback is available if SpeechBrain is unavailable
 
-**Live Per-Chunk Identification**
-- `EmbeddingServerProcess.js` manages a persistent warm Python encoder process (adaptive 35s cold-start timeout, 10s subsequent; exponential-backoff restart)
-- `LiveSpeakerIdentifier.js` loads all enrolled workspace user embeddings at meeting start
-- For each ~3s audio chunk: embed → cosine similarity against enrolled profiles → sliding-window majority vote (`WINDOW=4`, `MIN_VOTES=2`) at `LIVE_THRESHOLD=0.55`
-- Confirmed speaker identity is broadcast as `live_speaker_update` over WebSocket; `useLiveTranscript.ts` patches the displayed label in real time with a pending-override map for race-condition safety
+**Live Identification (per ~3s chunk)**
+- A persistent warm Python encoder process embeds each audio chunk (adaptive 35s cold-start, 10s subsequent; exponential-backoff restart on failure)
+- Cosine similarity at `threshold=0.55` against all enrolled workspace members; a sliding-window majority vote (`WINDOW=4`, `MIN_VOTES=2`) prevents label flicker
+- Confirmed identity is pushed to all connected clients over WebSocket in real time
 
 **Post-Meeting Identification**
-- Full recording is re-processed by `transcribe-whisper.py --diarize` using WhisperX + pyannote `DiarizationPipeline`, producing `transcript_diarized.json` with `SPEAKER_00`, `SPEAKER_01`, etc.
-- `SpeakerMatchingEngine.js` runs a multi-tier resolution pipeline: Tier 1 (biometric cosine similarity at `0.72`), Tier 3 (historical `speaker_identity_maps` lookup), Tier 4 (manual UI assignment)
-- `SpeakerIdentificationService.saveIdentityMapping` UPSERT preserves manual (Tier 4) assignments unless a higher-confidence biometric match supersedes
-- **Cascade name propagation** rewrites resolved names across `action_items`, `ai_insights`, `meeting_memory_contexts`, `meeting_embeddings`, and on-disk `transcript_diarized.json` before AI insights generation
-- Frontend displays Biometric (green), Manual (amber), and Historical (blue) identification badges per transcript entry
-- `SpeakerAssignmentPopover` exposes manual assignment for any unresolved speaker label (`SPEAKER_XX`, `"Speaker 1"`, `"Unknown"`, etc.)
+- Full recording is re-diarized with WhisperX + pyannote to produce stable `SPEAKER_XX` labels
+- A multi-tier matching engine resolves labels to real names:
+
+| Tier | Method | Threshold |
+|---|---|---|
+| 1 | Biometric cosine similarity | 0.65 |
+| 3 | Historical speaker identity maps | — |
+| 4 | Manual assignment via transcript UI | — |
+
+- Resolved names cascade-propagate across the transcript, insights, action items, and memory embeddings before AI processing begins
+- Per-entry badges (Biometric, Manual, Historical) indicate how each speaker was resolved; manual assignments are preserved unless a higher-confidence biometric match supersedes them
 
 ### AI Insights Engine
 
-Six insight types are generated post-meeting via a parallel multi-model Python agent architecture orchestrated from Node.js:
+Six insight types are generated post-meeting via a parallel multi-model Python agent pipeline:
 
-| Insight Type | Model | Justification |
+| Insight Type | Model | Notes |
 |---|---|---|
-| Summary | Mistral `mistral-small-latest` | 32k context window; layered format output (executive summary, narrative, bullet points) in a single prompt |
-| Decisions | Groq `llama-3.3-70b-versatile` | Schema-stable JSON; 128k context; fast inference via Groq |
-| Topic Segmentation | Groq `llama-3.3-70b-versatile` | Deep contextual grouping across long transcripts |
-| Sentiment Analysis | Groq `llama-3.3-70b-versatile` | Per-speaker sentiment with impact classification (High/Medium/Low) |
-| Action Items | Groq `llama-3.1-8b-instant` | Pattern-matching task; 8B model minimizes latency and cost |
-| Participant Analysis | Groq `llama-3.3-70b-versatile` | Multi-speaker diarized JSON analysis; engagement and contribution metrics |
+| Summary | Mistral `mistral-small-latest` | 32k context; outputs executive summary, narrative, and bullet points in one call |
+| Decisions | Groq `llama-3.3-70b-versatile` | Schema-stable JSON; 128k context |
+| Topic Segmentation | Groq `llama-3.3-70b-versatile` | Contextual grouping across long transcripts |
+| Sentiment Analysis | Groq `llama-3.3-70b-versatile` | Per-speaker; High/Medium/Low impact classification |
+| Action Items | Groq `llama-3.1-8b-instant` | Lightweight extraction model; minimises pipeline latency |
+| Participant Analysis | Groq `llama-3.3-70b-versatile` | Speaking time, utterance count, engagement scoring |
 
-**Execution flow:** text-based agents (Decisions, Action Items, Topics, Sentiment) run in parallel; Participant Analysis runs concurrently once diarized JSON is parsed; Summary Agent runs last with aggregated context outputs (`AGENT_CONTEXT` env) from all prior agents to ensure coherence and prevent contradiction. Total pipeline time: 30–120 seconds depending on transcript length.
-
-**Cascading fallback tiers** ensure output under any failure: Primary LLM → Secondary/hosted LLM (HF inference, DistilBERT) → NLP heuristics (extractive tokenization, pattern matching, lexicon-based sentiment). Confidence scores are halved when falling back to signal reduced reliability in the UI.
-
-**Privacy filtering:** utterances timestamped within active privacy intervals are removed before being sent to any LLM.
+- Text-based agents (Decisions, Topics, Sentiment, Action Items) run in parallel; Participant Analysis runs concurrently on diarized JSON; Summary Agent runs last with aggregated context from all prior agents
+- Total pipeline time: 30–120 seconds depending on transcript length
+- **Fallback chain:** Primary LLM → Hosted inference (HF/DistilBERT) → NLP heuristics (extractive tokenization, pattern matching, lexicon sentiment); confidence scores are halved on fallback to flag reduced reliability
+- Utterances timestamped within active privacy intervals are stripped before any LLM call
 
 ### Meeting Memory Engine
 
-Every completed meeting is embedded into a semantic vector store:
-
-- `EmbeddingService.js` runs `@xenova/transformers` with **all-MiniLM-L6-v2** (384-dimensional) locally — no external embedding API, no per-token billing
-- Transcripts are chunked with sentence-aware splitting and stored as rows in `meeting_embeddings` (content type `transcript`)
-- AI-derived summaries are embedded as type `summary`
-- Notes and confirmed action items are embedded during reprocess cycles (types `note`, `action_item`)
-- `MeetingEmbeddingService.generateMemoryContext()` upserts `meeting_memory_contexts` with structured JSON (topics, decisions, action-item summaries, participants, prose context) and a `vector(384)` summary embedding
-- HNSW indexes on vector columns (PostgreSQL pgvector extension) enable fast approximate nearest-neighbor search at scale
-- `MeetingEmbeddingService.hybridSearchWorkspaceMeetings()` merges cosine similarity and `plainto_tsquery` full-text search with a 60/40 weighted blend; falls back to pure vector search if FTS fails
-- `MemoryContextService.findRelatedMeetings()` prefers explicit `meeting_relationships` rows with on-demand fallback to summary embedding similarity
+- Transcripts are sentence-chunked and embedded as 384-dim vectors using a locally-running all-MiniLM-L6-v2 model — no external embedding API, no per-token cost
+- Summaries, notes, and confirmed action items are embedded as separate content types
+- A structured `meeting_memory_contexts` row is persisted per meeting: topics, decisions, action-item summaries, participant list, prose context, and a summary embedding
+- HNSW indexes on vector columns support fast approximate nearest-neighbor retrieval at scale
+- Related meetings are ranked by cosine similarity on summary embeddings; explicit relationship rows are preferred when available, with on-demand similarity as fallback
 
 ### Workspace Knowledge Graph
 
-The knowledge graph turns accumulated meeting memory into a navigable visual structure:
-
-- `MemoryGraphAssemblyService.js` builds `nodes` and `edges` at query time from `meeting_memory_contexts`, `meetings`, `action_items`, and `meeting_embeddings`
-- A 60-second in-process TTL cache ensures the `/graph` and `/graph/stats` endpoints share a single DB build per window
-- `getNodeNeighbours(workspaceId, nodeId, depth)` performs BFS subgraph expansion via the `/memory/graph/node/:nodeId/neighbours` endpoint
-- `useGraphData.ts` fetches the full workspace graph; `useQueryMemory.ts` maps semantic search results to real graph node IDs for node focus/dim behavior
-- `GraphCanvas.tsx` renders the graph using React Canvas; `ContextPanel` surfaces per-node meeting metadata
-- All graph endpoints require active workspace membership (JWT + Prisma workspace role check)
+- Graph is assembled at query time from meetings, memory contexts, action items, and tasks — no separate graph tables; a 60-second in-process TTL cache avoids redundant DB builds
+- Nodes: meetings, memory contexts, tasks — Edges: semantic and causal relationships
+- BFS neighbour expansion lets any node be explored to configurable depth via a dedicated API endpoint
+- Semantic search results are mapped to real graph node IDs, focusing and dimming matching nodes in the visualizer
 
 ### Kanban Task Board
 
-- Full workspace Kanban with three default columns (To-Do, In-Progress, Complete) and custom column management (owner/admin)
-- Drag-and-drop across columns persists immediately to the backend
-- `TaskCreationService.parseDeadline()` uses `chrono-node` to extract deadlines from natural language strings ("next Friday", "in 2 days") in AI-generated action items
-- `_extractPriority()` auto-classifies task priority from action item text
-- Full task CRUD: title, description, assignee, due date, tags with color coding; inline editing via `TaskDetailModal`
-- Tag-based, assignee, priority, and due-date filtering
-- **Task Meeting Context:** `TaskContextService.getTaskMeetingContext()` surfaces the originating meeting's summary, transcript snippet, decisions, and notes inside `TaskDetailModal` as a collapsible context section
-- **Task Mention Detection:** `TaskMentionService` + `broadcastTaskMention` + `useMeetingTaskMention` detect when a linked task's title appears in the live transcript and broadcast a WebSocket notification
+- Three default columns (To-Do, In-Progress, Done); custom columns manageable by owner/admin
+- AI-extracted action items are auto-promoted to tasks with:
+  - Natural language deadline parsing ("next Friday", "in 2 days", ISO dates)
+  - Auto-classified priority from urgency keywords in the action item text
+- Full CRUD with assignee, due date, color-coded tags, and multi-axis filtering (assignee, tag, priority, due date)
+- **Meeting Context panel** — each task born from an action item surfaces its originating meeting's summary, transcript snippet, and decisions inline
+- **Task Mention Detection** — fires a live WebSocket notification when a linked task's title is detected in the active transcript
 
 ### Whisper Mode (Live Micro-Recaps)
 
-- `MicroSummaryService.js` generates 2–3 sentence contextual recaps from live transcript chunks via Groq `llama-3.1-8b-instant`
-- `runWhisperMode.js` cron triggers recap generation at configurable intervals (`WHISPER_MODE_ENABLED` feature flag)
-- `POST /api/meetings/:id/whisper/trigger` allows a manual trigger bypassing the interval
-- Recaps are broadcast over WebSocket as `whisper_recap` events
-- `useWhisperRecaps.ts` manages REST initial load + WebSocket subscription
-- `WhisperRecapTab.tsx` displays a chat-style timestamped recap history
-- "Catch Me Up" button in the live meeting top bar requests the latest recap immediately; respects privacy mode state
+- Groq `llama-3.1-8b-instant` generates 2–3 sentence recaps from recent transcript chunks on a configurable cron schedule
+- A manual "Catch Me Up" trigger bypasses the interval and returns the latest recap immediately
+- Recaps are broadcast over WebSocket and displayed in a timestamped chat-style history panel
+- No recap is generated over an active privacy interval
 
 ### Privacy Mode
 
-- Per-meeting toggle accessible from the Kairo Bot dropdown during a live meeting
-- `PrivacyModeService.js` maintains an in-memory state cache backed by `meeting.metadata.privacyMode` in PostgreSQL; appends `{ start, end }` intervals on every toggle
-- `TranscriptionService.js` checks `PrivacyModeService.isEnabled()` before processing each audio chunk; drops chunks silently when active
-- `AudioRecorder.js` also gates recording on privacy state
-- AI insights generation loads all privacy intervals and filters utterances before any LLM call
-- Frontend shows a "Privacy Mode ON" top-bar badge, an orange status dot, and privacy system messages in `TranscriptTab`
+- Toggled per meeting; each toggle appends a `{ start, end }` interval to the meeting's metadata in PostgreSQL
+- Audio chunk processing is gated per chunk — chunks arriving during a privacy interval are silently dropped
+- All LLM insight generation loads the interval list and filters matching utterances before sending any data to an external API
+- A top-bar badge and status indicator reflect the current state; system messages appear inline in the transcript
 
 ### Smart Search
 
-- `SmartSearchModal.tsx` provides a workspace-wide semantic search interface
-- Backed by `MeetingEmbeddingService.hybridSearchWorkspaceMeetings()`: vector cosine similarity + PostgreSQL FTS merged at 60/40
-- Backend extracts `matchedTerms[]` (stop-words stripped); frontend `HighlightedSnippet` component renders `<mark>` tags in result snippets
-- Results are deduplicated to one best match per meeting, grouped with snippet previews
-- Keyboard navigation (↑↓ Enter ESC); 500ms debounce on input
+- Hybrid retrieval: vector cosine similarity + PostgreSQL `plainto_tsquery` FTS, blended 60/40
+- Falls back to pure vector search if the FTS leg fails (e.g. on special-character queries)
+- Matched terms are extracted server-side (stop-words stripped) and returned alongside results for `<mark>` highlighting in snippets
+- Results are deduplicated to one best match per meeting; keyboard navigation (↑↓ Enter ESC) and 500ms input debounce
 
 ### Google Calendar Integration
 
-- Full Google OAuth 2.0 flow: `/api/calendar/oauth/google/start` → Google consent → `/api/calendar/oauth/google/callback`
-- `CalendarConnection` Prisma model stores encrypted tokens, `calendarId`, and sync timestamps
-- `calendarSync.js` lists Google Calendar events and upserts eligible entries as Kairo `Meeting` rows with `meetingSource: 'google-calendar'` and dedup metadata
-- A 15-minute cron (`syncCalendars.js`) keeps calendar state current
-- `CalendarStep.tsx` (onboarding) and `CalendarSettings.tsx` (profile) provide connect/disconnect/sync-now UI
-- Entire feature gated by `ENABLE_CALENDAR_INTEGRATION=true` environment variable
+- Full Google OAuth 2.0 flow; tokens stored per-user in a `CalendarConnection` record
+- A 15-minute cron syncs calendar events, upserting eligible entries as Kairo `Meeting` rows with deduplication by stable calendar UID
+- Synced meetings participate in the same auto-join and lifecycle flows as natively created meetings
+- Gated by `ENABLE_CALENDAR_INTEGRATION=true`; routes and cron job do not mount when the flag is absent
 
 ### Analytics Dashboard
 
-- Four tabs: **Overview** (meeting frequency, duration, participation trends), **Participants** (per-user engagement metrics), **Action Items** (completion rates, assignee distribution), **Insights** (topic frequencies, sentiment trends)
-- All data sourced from real backend endpoints; time-range filters; multiple chart types (bar, line, pie)
-- `AnalyticsChat` component for workspace analytics Q&A
+Four tabs, all sourced from live backend data:
+
+| Tab | Content |
+|---|---|
+| Overview | Meeting frequency, total duration, participation trends over time |
+| Participants | Per-user speaking time, engagement scores, meeting attendance |
+| Action Items | Completion rates, open vs closed counts, assignee distribution |
+| Insights | Topic frequency, sentiment trends, decision volume |
+
+- Time-range filters; bar, line, and pie chart types; natural language analytics chat interface
+
+### Team and Workspace Management
+
+- Multi-workspace support; users can belong to multiple workspaces with independent roles
+- Invite flow via email or invite code; four roles enforced on every API route and in the UI:
+
+| Role | Permissions |
+|---|---|
+| Owner | Full control; delete workspace; manage all members and roles |
+| Admin | Manage members; create/delete Kanban columns; full analytics |
+| Member | Create meetings, tasks, and notes; view all workspace content |
+| Observer | Read-only access to meetings and insights |
+
+- Workspace activity is logged to an audit trail accessible to admins and owners
+
+### Note-Taking, File Attachments, and Transcript Review
+
+**Notes** — Per-meeting notes with full CRUD. Notes are embedded into the memory engine, making their content discoverable via hybrid search.
+
+**File Attachments** — Files can be uploaded to any meeting and are stored via Supabase. Download and delete operations are scoped to workspace members.
+
+**Interactive Transcript Review** — The post-meeting transcript supports click-to-seek audio playback, a visual timeline with event markers, and speaker-attributed entries with per-entry identification badges. Any unresolved speaker label exposes a manual assignment control inline.
 
 ### Auto Follow-Up Reminders
 
-- `ReminderService.js` schedules reminders at configurable intervals before task deadlines (default: 24h and 1h)
-- `checkTaskReminders.js` cron runs every 15 minutes
-- Deduplication via `SentReminder` table prevents repeated dispatches
-- `_isInQuietHours(start, end)` correctly handles both daytime (09:00–18:00) and overnight (22:00–07:00) quiet windows
-- User-configurable preferences via `GET/PUT /api/reminders/preferences`
-- In-app notification delivery through `NotificationService.js`
+- Default intervals: 24h and 1h before deadline; fully configurable per user
+- A quiet-hours window prevents dispatches outside working hours — handles both daytime (e.g. 09:00–18:00) and overnight (e.g. 22:00–07:00) ranges correctly
+- A `SentReminder` deduplication table prevents repeated notifications for the same deadline
+- In-app notification delivery; email and push channels are groundwork for future expansion
 
 ---
 
@@ -211,20 +208,19 @@ The knowledge graph turns accumulated meeting memory into a navigable visual str
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          CLIENT (Browser)                               │
-│  React 19 · TypeScript · Vite 7 · Tailwind CSS · React Router 7        │
+│  React 19 · TypeScript · Vite 7 · Tailwind CSS · React Router 7         │
 │  WebSocket (ws://) for live transcript, speaker updates, recaps         │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │ HTTP + WebSocket
-┌──────────────────────────────▼──────────────────────────────────────────┐
-│                        BACKEND (Node.js)                                │
-│  Express 4 · CommonJS · JWT Auth · node-cron                            │
-│                                                                         │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────────────┐   │
-│  │ REST Routes │  │ WebSocket    │  │ Cron Jobs                   │   │
-│  │ /api/*      │  │ /ws/transcript│  │ meeting status · calendar   │   │
-│  │ 12 routers  │  │              │  │ reminders · whisper mode    │   │
-│  └─────────────┘  └──────────────┘  └─────────────────────────────┘   │
-│                                                                         │
+┌──────────────────────────────▼─────────────────────────────────────────┐
+│                        BACKEND (Node.js)                               │
+│                                                                        │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────────────┐    │
+│  │ REST Routes │  │ WebSocket    │  │ Cron Jobs                   │    │
+│  │ /api/*      │  │/ws/transcript│  │ meeting status · calendar   │    │
+│  │ 12 routers  │  │              │  │ reminders · whisper mode    │    │ 
+│  └─────────────┘  └──────────────┘  └─────────────────────────────┘    │
+│                                                                        │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
 │  │                       Services Layer                             │  │
 │  │  TranscriptionService · AIInsightsService · SpeakerMatchingEngine│  │
@@ -232,34 +228,26 @@ The knowledge graph turns accumulated meeting memory into a navigable visual str
 │  │  MicroSummaryService · PrivacyModeService · TaskCreationService  │  │
 │  │  EmbeddingService (@xenova/transformers, all-MiniLM-L6-v2)       │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
+│                                                                        │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │  Python Subprocess Layer (child_process.spawn)                  │   │
-│  │  ┌─────────────────┐  ┌──────────────────────────────────────┐ │   │
-│  │  │ EmbeddingServer  │  │ AI Agents (ai-layer/agents/)         │ │   │
-│  │  │ (--server mode)  │  │ summary · decisions · topics         │ │   │
-│  │  │ ECAPA-TDNN 192d  │  │ sentiment · action-items · participants│ │   │
-│  │  └─────────────────┘  └──────────────────────────────────────┘ │   │
+│  │  ┌─────────────────┐  ┌──────────────────────────────────────┐  │   │
+│  │  │ EmbeddingServer │  │ AI Agents (ai-layer/agents/)         │  │   │
+│  │  │ (--server mode) │  │ summary · decisions · topics         │  │   │
+│  │  │ ECAPA-TDNN 192d │  │sentiment · action-items · participants  │   │
+│  │  └─────────────────┘  └──────────────────────────────────────┘  │   │
 │  │  ┌──────────────────────────────────────────────────────────┐   │   │
 │  │  │ transcribe-whisper.py (WhisperX · pyannote diarization)  │   │   │
 │  │  └──────────────────────────────────────────────────────────┘   │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────┬──────────────────────────────────────────┘
+└──────────────────────────────┬─────────────────────────────────────────┘
                                │ Prisma · pg · pgvector
 ┌──────────────────────────────▼──────────────────────────────────────────┐
 │                        PostgreSQL + pgvector                            │
-│  HNSW indexes on vector(384) and vector(192) columns                   │
+│  HNSW indexes on vector(384) and vector(192) columns                    │
 │  Hybrid FTS (plainto_tsquery) + cosine similarity search                │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
-
-**Key architectural decisions:**
-
-- **AI as subprocess, not microservice:** Python ML processes are spawned by Node.js via `child_process.spawn`. The embedding encoder runs in persistent `--server` mode (stdin/stdout JSON protocol) to keep ECAPA-TDNN warm across all meetings, reducing per-chunk overhead to near-zero after cold start.
-- **No graph persistence:** The workspace knowledge graph is assembled at query time from existing relational tables with a 60-second in-process cache. This avoids schema duplication while keeping read latency acceptable for current workspace sizes.
-- **Embedding locality:** All text embeddings (384-dim MiniLM) run locally via `@xenova/transformers` — zero external API calls, zero per-token cost, deterministic behavior.
-- **Feature flags:** Calendar integration (`ENABLE_CALENDAR_INTEGRATION`) and Whisper Mode (`WHISPER_MODE_ENABLED`) are independently gated; their cron jobs and route mounts are conditional.
-- **Graceful shutdown:** `server.js` stops all crons, releases the transcription model, terminates tracked child processes, and disconnects Prisma on SIGTERM/SIGINT.
 
 ---
 
@@ -343,41 +331,16 @@ The knowledge graph turns accumulated meeting memory into a navigable visual str
 
 ## Database Schema
 
-Kairo's schema is managed via Prisma with the `pgvector` preview feature. Key models:
+Kairo's schema is managed via Prisma 6 with the `pgvector` extension. Models are grouped across five domains:
 
-| Model | Purpose |
-|---|---|
-| `User` | Account with bcrypt password, profile, biometric consent, `audioSampleUrl` |
-| `UserSession` | JWT session records |
-| `UserPreferences` | Per-user app preferences |
-| `NotificationSettings` | Granular notification toggles |
-| `ReminderPreferences` | Quiet hours, advance intervals |
-| `Workspace` | Organizational unit; owned by a user |
-| `WorkspaceMember` | Junction: user ↔ workspace with role (owner/admin/member/observer) |
-| `WorkspaceInvite` | Pending invitations |
-| `WorkspaceLog` | Audit trail for workspace events |
-| `Meeting` | Core entity; status lifecycle, `metadata` JSON (privacy intervals, calendar uid), `meetingSource` |
-| `MeetingParticipant` | Participants per meeting |
-| `MeetingNote` | User-authored notes per meeting |
-| `MeetingFile` | Uploaded attachments per meeting |
-| `ActionItem` | AI-extracted action items with confidence score; FK to `Task` |
-| `AiInsight` | One row per insight type per meeting; `content` as JSON; `confidence_score` |
-| `UserVoiceEmbedding` | `vector(192)` ECAPA-TDNN voice fingerprint per enrolled user |
-| `SpeakerIdentityMap` | Per-meeting speaker label → resolved user name mapping with tier metadata |
-| `MeetingEmbedding` | `vector(384)` per text chunk; keyed by `meetingId`, `contentType`, `chunkIndex` |
-| `MeetingMemoryContext` | Structured memory context per meeting; `summaryEmbedding vector(384)` |
-| `MeetingRelationship` | Explicit meeting-to-meeting semantic edges (optional; fallback to similarity) |
-| `KanbanColumn` | Workspace Kanban columns |
-| `Task` | Kanban task; optional FK to `ActionItem`; deadline, priority, assignee, tags |
-| `Tag` | Workspace-scoped color-coded tags |
-| `TaskTag` | Junction: task ↔ tag |
-| `SentReminder` | Deduplication log for dispatched reminders |
-| `CalendarConnection` | Google Calendar OAuth token store per user |
+- **Users and workspaces** — `User`, `UserSession`, `UserPreferences`, `NotificationSettings`, `ReminderPreferences`, `Workspace`, `WorkspaceMember`, `WorkspaceInvite`, `WorkspaceLog`
+- **Meetings** — `Meeting` (status lifecycle, privacy intervals, calendar source in `metadata` JSON), `MeetingParticipant`, `MeetingNote`, `MeetingFile`
+- **AI outputs** — `ActionItem` (FK to `Task`), `AiInsight` (one row per insight type, JSON content, confidence score)
+- **Speaker identity** — `UserVoiceEmbedding` (`vector(192)`, ECAPA-TDNN), `SpeakerIdentityMap` (label → resolved name with tier metadata)
+- **Memory and graph** — `MeetingEmbedding` (`vector(384)`, chunked by content type), `MeetingMemoryContext` (structured context + `summaryEmbedding vector(384)`), `MeetingRelationship`
+- **Tasks** — `KanbanColumn`, `Task` (optional FK to `ActionItem`), `Tag`, `TaskTag`, `SentReminder`, `CalendarConnection`
 
-**Vector indexes** (HNSW via pgvector migration):
-- `meeting_embeddings.embedding vector(384)` — transcript and summary chunk search
-- `meeting_memory_contexts.summary_embedding vector(384)` — related-meeting similarity
-- `user_voice_embeddings.embedding vector(192)` — speaker identification cosine search
+HNSW indexes are applied to all three vector columns (`meeting_embeddings.embedding`, `meeting_memory_contexts.summary_embedding`, `user_voice_embeddings.embedding`) via versioned Prisma migrations.
 
 ---
 
@@ -386,66 +349,32 @@ Kairo's schema is managed via Prisma with the `pgvector` preview feature. Key mo
 ```
 Kairo-webapp/
 │
-├── frontend/                          # React 19 + TypeScript SPA (Vite 7)
+├── frontend/                   # React 19 + TypeScript SPA (Vite 7)
+│   └── src/
+│       ├── pages/              # 22 route-level page components (workspace, meetings, user)
+│       ├── components/         # ~88 components (transcript, graph, kanban, analytics, layout)
+│       ├── hooks/              # 12 custom hooks (transcription, speaker ID, memory, etc.)
+│       ├── services/api.ts     # Typed API client covering all endpoints
+│       └── context/            # UserContext, ToastContext, ThemeProvider
+│
+├── backend/                    # Node.js + Express API
 │   ├── src/
-│   │   ├── pages/                     # 22 route-level page components
-│   │   │   ├── workspace/             # MemoryView, Analytics, TaskBoard, Settings
-│   │   │   ├── meetings/              # MeetingsMain, MeetingLive, MeetingDetails, PreMeeting
-│   │   │   └── user/                  # Dashboard, MyCalendar, MyTasks, Notifications
-│   │   ├── components/                # ~88 components
-│   │   │   ├── meetings/              # Transcript, AI insights, speaker assignment, files
-│   │   │   ├── workspace/
-│   │   │   │   ├── memory/            # GraphCanvas, ContextPanel, MemoryQueryBar
-│   │   │   │   ├── tasks/             # KanbanBoard, TaskCard, TaskFilters
-│   │   │   │   └── analytics/         # Chart components, FiltersSidebar, AnalyticsChat
-│   │   │   ├── layout/                # Navbar, Sidebar, ThemeToggle
-│   │   │   └── ui/                    # Toast, UserAvatar, SmartSearchModal
-│   │   ├── hooks/                     # 12 custom hooks (transcription, speaker, memory, etc.)
-│   │   ├── context/                   # UserContext, ToastContext
-│   │   ├── services/api.ts            # Typed API client (~all endpoints)
-│   │   ├── modals/                    # TaskDetailModal, workspace modals
-│   │   └── theme/ThemeProvider.tsx    # Light/dark theme
-│   ├── vite.config.ts
-│   ├── tailwind.config.js
-│   └── package.json
+│   │   ├── server.js           # Entry point — routes, crons, WebSocket
+│   │   ├── routes/             # 12 route files
+│   │   ├── services/           # 30+ services (transcription, AI insights, embeddings, graph, tasks, etc.)
+│   │   ├── middleware/         # JWT auth, validation, CORS
+│   │   └── jobs/               # Cron job implementations
+│   ├── prisma/                 # Schema (pgvector) + versioned migrations
+│   ├── data/meetings/          # Per-meeting audio chunks and transcript files
+│   ├── tests/                  # Mocha/Chai test suites (15 files)
+│   └── scripts/                # DB seeding and vector maintenance
 │
-├── backend/                           # Node.js + Express API
-│   ├── src/
-│   │   ├── server.js                  # Entry point; mounts routes, crons, WebSocket
-│   │   ├── routes/                    # 12 route files (auth, workspaces, meetings, memory, etc.)
-│   │   ├── controllers/               # Route handler logic
-│   │   ├── services/                  # Business logic (30+ services)
-│   │   │   ├── TranscriptionService.js
-│   │   │   ├── AIInsightsService.js
-│   │   │   ├── SpeakerMatchingEngine.js
-│   │   │   ├── LiveSpeakerIdentifier.js
-│   │   │   ├── EmbeddingServerProcess.js
-│   │   │   ├── MeetingEmbeddingService.js
-│   │   │   ├── MemoryGraphAssemblyService.js
-│   │   │   ├── MicroSummaryService.js
-│   │   │   ├── PrivacyModeService.js
-│   │   │   ├── TaskCreationService.js
-│   │   │   └── ...
-│   │   ├── middleware/                # auth.js (JWT), validation.js, CORS
-│   │   ├── jobs/                      # Cron job implementations
-│   │   ├── models/                    # Legacy model layer (User.findById etc.)
-│   │   └── lib/prisma.js              # Shared Prisma singleton
-│   ├── prisma/
-│   │   ├── schema.prisma              # Full schema with pgvector
-│   │   └── migrations/                # Versioned migration files incl. HNSW index builds
-│   ├── data/meetings/                 # Per-meeting audio chunks and transcript files
-│   ├── tests/                         # Mocha/Chai test suites
-│   ├── scripts/                       # DB seeding, vector maintenance, migrations
-│   └── package.json
+├── ai-layer/                   # Python ML processes
+│   ├── agents/                 # Six insight agents (summary, decisions, topics, etc.)
+│   └── whisperX/               # WhisperX ASR + diarization scripts
 │
-├── ai-layer/                          # Python ML processes
-│   ├── agents/                        # Six insight agents (summary, decisions, etc.)
-│   ├── utils/                         # Transcript converter utilities
-│   └── whisperX/                      # WhisperX transcription scripts
-│       └── transcribe-whisper.py      # ASR + diarization entry point
-│
-├── requirements.txt                   # Python dependencies (ML stack)
-└── README.md
+├── requirements.txt            # Python dependencies (ML stack)
+└── .env.example                # Annotated environment variable template
 ```
 
 ---
